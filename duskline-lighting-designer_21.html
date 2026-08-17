@@ -1675,16 +1675,20 @@
         openProjectDetail(el.dataset.id);
       });
     });
-    $('projectList').querySelectorAll('[data-del]').forEach(b=>b.addEventListener('click', e=>{
+    $('projectList').querySelectorAll('[data-del]').forEach(b=>b.addEventListener('click', async e=>{
       e.stopPropagation();
       if(!confirm("Delete this project and all its areas? This can't be undone.")) return;
-      state.projects = state.projects.filter(p=>p.id!==e.currentTarget.dataset.del);
+      const id = e.currentTarget.dataset.del;
+      state.projects = state.projects.filter(p=>p.id!==id);
       renderProjectList();
+      const { error } = await sb.from('projects').delete().eq('id', id);
+      if(error) console.warn('Duskline: project delete failed.', error);
     }));
   }
 
   // ---------------- Project detail ----------------
   function openProjectDetail(id){
+    if(state.currentProjectId && state.currentProjectId!==id) flushCurrentEdits();
     state.currentProjectId = id;
     switchTopScreen('project-detail');
     renderProjectDetail();
@@ -1730,12 +1734,15 @@
         openAreaEditor(el.dataset.id);
       });
     });
-    $('areaList').querySelectorAll('[data-del]').forEach(b=>b.addEventListener('click', e=>{
+    $('areaList').querySelectorAll('[data-del]').forEach(b=>b.addEventListener('click', async e=>{
       e.stopPropagation();
       if(!confirm('Delete this area?')) return;
       const p = currentProject();
-      p.areas = p.areas.filter(a=>a.id!==e.currentTarget.dataset.del);
+      const areaId = e.currentTarget.dataset.del;
+      p.areas = p.areas.filter(a=>a.id!==areaId);
       renderProjectDetail();
+      const { error } = await sb.from('areas').delete().eq('id', areaId);
+      if(error) console.warn('Duskline: area delete failed.', error);
     }));
     requestAnimationFrame(()=>{
       pr.areas.forEach(a=>{
@@ -1840,6 +1847,7 @@
     updateEditorStats();
   }
   function closeAreaEditor(){
+    flushCurrentEdits();
     state.drawingWire=false; state.currentWirePath=null;
     state.drawingStripFixtureId=null; state.currentStripPath=null;
     $('editorScreen').hidden = true;
@@ -1983,11 +1991,23 @@
     if(fixtureFormState.editingId){
       const id = fixtureFormState.editingId;
       const existingCustom = state.customFixtures.find(f=>f.id===id);
-      if(existingCustom){ Object.assign(existingCustom, data); }
-      else { state.fixtureOverrides[id] = data; }
+      if(existingCustom){
+        Object.assign(existingCustom, data);
+        sb.from('custom_fixtures').update({data}).eq('id', id).then(({error})=>{
+          if(error) console.warn('Duskline: custom fixture save failed.', error);
+        });
+      } else {
+        state.fixtureOverrides[id] = data;
+        sb.from('fixture_overrides').upsert({ company_id: authProfile.companyId, base_fixture_id: id, data }).then(({error})=>{
+          if(error) console.warn('Duskline: fixture override save failed.', error);
+        });
+      }
     } else {
       const id = 'c'+Date.now();
       state.customFixtures.push({id, custom:true, ...data});
+      sb.from('custom_fixtures').insert({ id, company_id: authProfile.companyId, data }).then(({error})=>{
+        if(error) console.warn('Duskline: custom fixture create failed.', error);
+      });
     }
     closeFixtureForm();
     renderFixtureMgmtList();
@@ -1998,6 +2018,9 @@
     if(!id) return;
     if(!confirm('Delete this fixture from your library?')) return;
     state.customFixtures = state.customFixtures.filter(f=>f.id!==id);
+    sb.from('custom_fixtures').delete().eq('id', id).then(({error})=>{
+      if(error) console.warn('Duskline: custom fixture delete failed.', error);
+    });
     closeFixtureForm();
     renderFixtureMgmtList();
     if(!$('editorScreen').hidden) renderSheetList();
@@ -2130,9 +2153,10 @@
           showImportStatus('No fixture rows found. Make sure column A has a "Name" header, with your items in the rows below it.', false);
           return;
         }
-        parsed.forEach(f=>{
-          const id = 'c'+Date.now()+'_'+(uidCounter++);
-          state.customFixtures.push({id, custom:true, ...f});
+        const newRows = parsed.map(f=>({ id: 'c'+Date.now()+'_'+(uidCounter++), data: f }));
+        newRows.forEach(row=> state.customFixtures.push({id: row.id, custom:true, ...row.data}));
+        sb.from('custom_fixtures').insert(newRows.map(row=> ({...row, company_id: authProfile.companyId}))).then(({error})=>{
+          if(error) console.warn('Duskline: fixture import save failed.', error);
         });
         renderFixtureMgmtList();
         if(!$('editorScreen').hidden) renderSheetList();
@@ -2460,27 +2484,6 @@
     applyTheme(current==='light' ? 'dark' : 'light');
   }
 
-  // ---------------- local save / "login" (this device & browser only, no cloud account) ----------------
-  function profileKey(name){ return 'duskline_profile_'+name; }
-  function saveProfile(){
-    if(!state.activeProfile) return;
-    try{
-      localStorage.setItem(profileKey(state.activeProfile), JSON.stringify(state));
-      localStorage.setItem('duskline_active_profile', state.activeProfile);
-    }catch(err){
-      console.warn('Duskline: local save failed (browser storage may be full).', err);
-    }
-  }
-  function loadProfile(name){
-    try{
-      const raw = localStorage.getItem(profileKey(name));
-      if(!raw) return false;
-      const data = JSON.parse(raw);
-      Object.assign(state, data);
-      state.activeProfile = name;
-      return true;
-    }catch(err){ return false; }
-  }
   function syncCompanyFormFromState(){
     const c = state.company;
     $('companyName').value = c.name||''; $('companyPhone').value = c.phone||'';
@@ -2529,6 +2532,109 @@
       authProfile = null;
     }
   }
+
+  // ---------------- data sync (Supabase) ----------------
+  // Phase 2: projects/areas/company settings/fixture library now live in Postgres
+  // (see supabase/schema.sql), scoped by company via RLS. Loading is eager (everything
+  // for the company is fetched on login, same as the old localStorage blob was) — that's
+  // fine, reads don't conflict with anyone. Saving is deliberately scoped to only the
+  // company row plus whichever project/area is currently open (see flushCurrentEdits),
+  // so that two people on the same company account editing different projects at the
+  // same time never overwrite each other — see the conversation that led here for why
+  // a single whole-account blob write (the Phase 1 approach) wasn't safe for that case.
+  function companyToRow(c){
+    return {
+      name: c.name||'', phone: c.phone||'', email: c.email||'', address: c.address||'', website: c.website||'',
+      logo: c.logo||null, tax_rate: c.taxRate||0, tax_label: c.taxLabel||'Tax',
+      quote_accent: c.quoteAccent||'#F0A84E', pdf_logo_size: c.pdfLogoSize||30, pdf_font_size: c.pdfFontSize||10,
+      pdf_bg_color: c.pdfBgColor||'#FFFFFF', heading_align: c.headingAlign||'left',
+      section_order: c.sectionOrder||['header','customer','areas','load','quote'],
+    };
+  }
+  function rowToCompany(row){
+    return {
+      logo: row.logo||null, name: row.name||'', phone: row.phone||'', email: row.email||'', address: row.address||'',
+      website: row.website||'', taxRate: row.tax_rate||0, taxLabel: row.tax_label||'Tax',
+      quoteAccent: row.quote_accent||'#F0A84E', pdfLogoSize: row.pdf_logo_size||30, pdfFontSize: row.pdf_font_size||10,
+      pdfBgColor: row.pdf_bg_color||'#FFFFFF', headingAlign: row.heading_align||'left',
+      sectionOrder: row.section_order||['header','customer','areas','load','quote'],
+    };
+  }
+  function projectToRow(pr){
+    return { customer: pr.customer||{}, discount_percent: pr.discountPercent||0, discount_reason: pr.discountReason||'' };
+  }
+  function rowToProject(row){
+    return {
+      id: row.id, customer: row.customer||{name:'',phone:'',email:'',address:''},
+      discountPercent: row.discount_percent||0, discountReason: row.discount_reason||'',
+      createdAt: new Date(row.created_at).getTime(), areas: [],
+    };
+  }
+  function areaToRow(area){
+    return {
+      name: area.name, photo: area.photo||null, photo_aspect: area.photoAspect||null,
+      darkness: area.darkness!=null?area.darkness:0.6, beam_brightness: area.beamBrightness!=null?area.beamBrightness:1,
+      placements: area.placements||[], accessory_qty: area.accessoryQty||{},
+      wire_runs: area.wireRuns||[], light_strips: area.lightStrips||[],
+    };
+  }
+  function rowToArea(row){
+    return {
+      id: row.id, name: row.name, photo: row.photo||null, photoAspect: row.photo_aspect||null,
+      darkness: row.darkness!=null?row.darkness:0.6, beamBrightness: row.beam_brightness!=null?row.beam_brightness:1,
+      placements: row.placements||[], accessoryQty: row.accessory_qty||{},
+      wireRuns: row.wire_runs||[], lightStrips: row.light_strips||[],
+    };
+  }
+  async function loadCompanyDataFromDb(companyId){
+    const [companyRes, projectsRes, areasRes, customRes, overridesRes] = await Promise.all([
+      sb.from('companies').select('*').eq('id', companyId).single(),
+      sb.from('projects').select('*').eq('company_id', companyId).order('created_at', {ascending:false}),
+      sb.from('areas').select('*'), // RLS alone scopes this to the caller's own company
+      sb.from('custom_fixtures').select('*').eq('company_id', companyId),
+      sb.from('fixture_overrides').select('*').eq('company_id', companyId),
+    ]);
+    if(companyRes.data) state.company = rowToCompany(companyRes.data);
+    const projectsById = {};
+    state.projects = (projectsRes.data||[]).map(row=>{ const pr = rowToProject(row); projectsById[pr.id]=pr; return pr; });
+    (areasRes.data||[]).forEach(row=>{
+      const pr = projectsById[row.project_id];
+      if(pr) pr.areas.push(rowToArea(row));
+    });
+    state.customFixtures = (customRes.data||[]).map(row=> ({id: row.id, custom:true, ...row.data}));
+    state.fixtureOverrides = {};
+    (overridesRes.data||[]).forEach(row=>{ state.fixtureOverrides[row.base_fixture_id] = row.data; });
+  }
+  async function saveCompanyRow(){
+    if(!authUser || !authProfile) return;
+    const { error } = await sb.from('companies').update(companyToRow(state.company)).eq('id', authProfile.companyId);
+    if(error) console.warn('Duskline: company save failed.', error);
+  }
+  async function saveProjectRow(pr){
+    if(!pr) return;
+    const { error } = await sb.from('projects').update(projectToRow(pr)).eq('id', pr.id);
+    if(error) console.warn('Duskline: project save failed.', error);
+  }
+  async function saveAreaRow(area){
+    if(!area) return;
+    const { error } = await sb.from('areas').update(areaToRow(area)).eq('id', area.id);
+    if(error) console.warn('Duskline: area save failed.', error);
+  }
+  // Saves only the company row plus whichever project/area this browser tab currently has
+  // open — see the big comment above this section for why that scoping matters. Pass an
+  // explicit project/area when saving something that's about to stop being "current" (e.g.
+  // navigating away) so the right row is flushed even after state.currentProjectId changes.
+  async function flushCurrentEdits(prOverride, areaOverride){
+    if(!authUser) return;
+    const pr = prOverride!==undefined ? prOverride : currentProject();
+    const area = areaOverride!==undefined ? areaOverride : currentArea();
+    await Promise.all([
+      saveCompanyRow(),
+      pr ? saveProjectRow(pr) : Promise.resolve(),
+      area ? saveAreaRow(area) : Promise.resolve(),
+    ]);
+  }
+
   function setAppVisible(visible){
     document.querySelector('.app').classList.toggle('auth-hidden', !visible);
   }
@@ -2604,7 +2710,7 @@
     }
   }
   async function handleLogout(){
-    if(state.activeProfile) saveProfile();
+    await flushCurrentEdits();
     await sb.auth.signOut();
   }
   async function enterAppForUser(user){
@@ -2612,7 +2718,14 @@
     await refreshAuthProfileRow();
     Object.assign(state, freshState());
     state.activeProfile = user.id;
-    loadProfile(user.id);
+    if(authProfile && authProfile.companyId){
+      try{
+        await loadCompanyDataFromDb(authProfile.companyId);
+      }catch(err){
+        console.error('Duskline: failed to load company data.', err);
+        alert('Could not load your projects. Please check your connection and reload the page.');
+      }
+    }
     afterProfileLoaded();
     setAppVisible(true);
     closeAccountModal();
@@ -2901,16 +3014,21 @@
     });
     $('customerCancel').addEventListener('click', ()=> $('customerModal').hidden=true);
     $('customerBackdrop').addEventListener('click', ()=> $('customerModal').hidden=true);
-    $('customerSave').addEventListener('click', ()=>{
+    $('customerSave').addEventListener('click', async ()=>{
       const data = {name:$('custName').value.trim(), phone:$('custPhone').value.trim(), email:$('custEmail').value.trim(), address:$('custAddress').value.trim()};
       if(customerModalMode==='new'){
-        const pr = {id:'pr'+Date.now(), customer:data, areas:[], createdAt:Date.now()};
+        const btn = $('customerSave'); btn.disabled = true;
+        const { data: row, error } = await sb.from('projects')
+          .insert({ company_id: authProfile.companyId, customer: data }).select().single();
+        btn.disabled = false;
+        if(error){ alert('Could not create the project: '+error.message); return; }
+        const pr = rowToProject(row);
         state.projects.push(pr);
         $('customerModal').hidden=true;
         openProjectDetail(pr.id);
       } else {
         const pr = currentProject();
-        if(pr){ pr.customer=data; renderProjectDetail(); }
+        if(pr){ pr.customer=data; renderProjectDetail(); saveProjectRow(pr); }
         $('customerModal').hidden=true;
       }
     });
@@ -2922,10 +3040,15 @@
     });
     $('areaNameCancel').addEventListener('click', ()=> $('areaNameModal').hidden=true);
     $('areaNameBackdrop').addEventListener('click', ()=> $('areaNameModal').hidden=true);
-    $('areaNameCreate').addEventListener('click', ()=>{
+    $('areaNameCreate').addEventListener('click', async ()=>{
       const pr = currentProject(); if(!pr) return;
       const name = $('areaNameInput').value.trim() || ('Area '+(pr.areas.length+1));
-      const area = {id:'a'+Date.now(), name, photo:null, darkness:0.6, beamBrightness:1, placements:[], accessoryQty:{}, wireRuns:[], lightStrips:[]};
+      const btn = $('areaNameCreate'); btn.disabled = true;
+      const { data: row, error } = await sb.from('areas')
+        .insert({ project_id: pr.id, name, darkness:0.6, beam_brightness:1 }).select().single();
+      btn.disabled = false;
+      if(error){ alert('Could not create the area: '+error.message); return; }
+      const area = rowToArea(row);
       pr.areas.push(area);
       $('areaNameModal').hidden=true;
       openAreaEditor(area.id);
@@ -3100,9 +3223,14 @@
       if(session && session.user){ enterAppForUser(session.user); }
       else{ leaveApp(); }
     });
-    setInterval(()=>{ if(state.activeProfile) saveProfile(); }, 8000);
-    window.addEventListener('beforeunload', ()=>{ if(state.activeProfile) saveProfile(); });
-    window.addEventListener('pagehide', ()=>{ if(state.activeProfile) saveProfile(); });
+    setInterval(()=>{ flushCurrentEdits(); }, 5000);
+    // Best-effort: async network saves aren't guaranteed to complete before the page
+    // actually unloads (unlike the old synchronous localStorage.setItem). The 5s tick
+    // above plus the flush-on-navigate calls elsewhere keep the data-loss window small,
+    // but closing the tab within ~5s of an edit and before navigating away can still
+    // lose that last edit. Worth revisiting (e.g. sendBeacon) if it turns out to matter.
+    window.addEventListener('beforeunload', ()=>{ flushCurrentEdits(); });
+    window.addEventListener('pagehide', ()=>{ flushCurrentEdits(); });
   }
 
   document.addEventListener('DOMContentLoaded', init);

@@ -81,3 +81,103 @@ $$;
 create trigger on_auth_user_created
   after insert on auth.users
   for each row execute function public.handle_new_user();
+
+-- ============================================================================
+-- Phase 2 (see ../CLAUDE.md "Backend migration progress"): projects, areas, and
+-- the fixture library move from localStorage into Postgres, scoped by company
+-- via the same current_company_id() pattern as Phase 1. Company branding/quote-
+-- appearance settings (previously only in client-side state.company) also move
+-- onto the companies table.
+-- ============================================================================
+
+alter table public.companies
+  add column phone text not null default '',
+  add column email text not null default '',
+  add column address text not null default '',
+  add column website text not null default '',
+  add column logo text,
+  add column tax_rate numeric not null default 0,
+  add column tax_label text not null default 'Tax',
+  add column quote_accent text not null default '#F0A84E',
+  add column pdf_logo_size int not null default 30,
+  add column pdf_font_size int not null default 10,
+  add column pdf_bg_color text not null default '#FFFFFF',
+  add column heading_align text not null default 'left',
+  add column section_order jsonb not null default '["header","customer","areas","load","quote"]';
+
+-- Phase 1 only let a user read their own company row; settings need to be editable too.
+create policy "Users can update their own company"
+  on public.companies for update
+  using (id = public.current_company_id())
+  with check (id = public.current_company_id());
+
+create table public.projects (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references public.companies(id) on delete cascade,
+  customer jsonb not null default '{}',        -- {name, phone, email, address}
+  discount_percent numeric not null default 0,
+  discount_reason text not null default '',
+  created_at timestamptz not null default now()
+);
+
+-- One row per area. placements/wire_runs/light_strips/accessory_qty stay as JSONB rather
+-- than further-normalized tables: the app always reads and writes each of these as a
+-- whole unit whenever an area is open in the editor, so normalizing them would add
+-- relational complexity without a real benefit. photo is still an inline base64 data URL
+-- for now (moving it to Supabase Storage is Phase 3, not done here).
+create table public.areas (
+  id uuid primary key default gen_random_uuid(),
+  project_id uuid not null references public.projects(id) on delete cascade,
+  name text not null,
+  photo text,
+  photo_aspect numeric,
+  darkness numeric not null default 0.6,
+  beam_brightness numeric not null default 1,
+  placements jsonb not null default '[]',
+  accessory_qty jsonb not null default '{}',
+  wire_runs jsonb not null default '[]',
+  light_strips jsonb not null default '[]',
+  created_at timestamptz not null default now()
+);
+
+-- id stays a client-generated text id ('c'+timestamp), matching what the app already
+-- generated for custom fixtures pre-migration — no reason to force it onto a uuid.
+create table public.custom_fixtures (
+  id text primary key,
+  company_id uuid not null references public.companies(id) on delete cascade,
+  data jsonb not null
+);
+
+-- base_fixture_id references one of the hardcoded BASE_FIXTURES ids (e.g. 'f1') defined
+-- in the HTML file itself, not a database table — there's no fixtures catalog table.
+create table public.fixture_overrides (
+  company_id uuid not null references public.companies(id) on delete cascade,
+  base_fixture_id text not null,
+  data jsonb not null,
+  primary key (company_id, base_fixture_id)
+);
+
+alter table public.projects enable row level security;
+alter table public.areas enable row level security;
+alter table public.custom_fixtures enable row level security;
+alter table public.fixture_overrides enable row level security;
+
+create policy "Company members manage their own projects"
+  on public.projects for all
+  using (company_id = public.current_company_id())
+  with check (company_id = public.current_company_id());
+
+create policy "Company members manage their own areas"
+  on public.areas for all
+  using (project_id in (select id from public.projects where company_id = public.current_company_id()))
+  with check (project_id in (select id from public.projects where company_id = public.current_company_id()));
+
+create policy "Company members manage their own custom fixtures"
+  on public.custom_fixtures for all
+  using (company_id = public.current_company_id())
+  with check (company_id = public.current_company_id());
+
+create policy "Company members manage their own fixture overrides"
+  on public.fixture_overrides for all
+  using (company_id = public.current_company_id())
+  with check (company_id = public.current_company_id());

@@ -1679,8 +1679,15 @@
       e.stopPropagation();
       if(!confirm("Delete this project and all its areas? This can't be undone.")) return;
       const id = e.currentTarget.dataset.del;
+      const pr = state.projects.find(p=>p.id===id);
       state.projects = state.projects.filter(p=>p.id!==id);
       renderProjectList();
+      if(pr && pr.areas.length){
+        const paths = pr.areas.map(a=> `${authProfile.companyId}/areas/${a.id}.jpg`);
+        sb.storage.from('photos').remove(paths).then(({error})=>{
+          if(error) console.warn('Duskline: area photo cleanup failed.', error);
+        });
+      }
       const { error } = await sb.from('projects').delete().eq('id', id);
       if(error) console.warn('Duskline: project delete failed.', error);
     }));
@@ -1739,8 +1746,14 @@
       if(!confirm('Delete this area?')) return;
       const p = currentProject();
       const areaId = e.currentTarget.dataset.del;
+      const deletedArea = p.areas.find(a=>a.id===areaId);
       p.areas = p.areas.filter(a=>a.id!==areaId);
       renderProjectDetail();
+      if(deletedArea && deletedArea.photo){
+        sb.storage.from('photos').remove([`${authProfile.companyId}/areas/${areaId}.jpg`]).then(({error})=>{
+          if(error) console.warn('Duskline: area photo cleanup failed.', error);
+        });
+      }
       const { error } = await sb.from('areas').delete().eq('id', areaId);
       if(error) console.warn('Duskline: area delete failed.', error);
     }));
@@ -1867,9 +1880,13 @@
     if(!file) return;
     const reader = new FileReader();
     reader.onload = ev=>{
-      openCropScreen(ev.target.result, (url,aspect)=>{
+      openCropScreen(ev.target.result, async (dataUrl,aspect)=>{
         const area = currentArea();
-        if(area){ area.photo = url; area.photoAspect = aspect; refreshEditorPhotoState(); }
+        if(!area) return;
+        const url = await uploadAreaPhoto(area, dataUrl);
+        if(!url) return;
+        area.photo = url; area.photoAspect = aspect; refreshEditorPhotoState();
+        saveAreaRow(area);
       });
     };
     reader.readAsDataURL(file);
@@ -1879,6 +1896,11 @@
   // ---------------- crop screen ----------------
   function openCropScreen(sourceUrl, onDone){
     const img = new Image();
+    // Required for "Adjust crop" on an already-uploaded (Storage-hosted) photo: without this,
+    // the browser loads the image in a non-CORS mode regardless of what CORS headers the
+    // server sends, which taints the canvas and makes canvas.toDataURL() throw at crop time.
+    // Harmless no-op for a freshly-picked local photo, which is still a same-origin data: URL.
+    img.crossOrigin = 'anonymous';
     img.onload = ()=>{
       cropCtx = { img, natW: img.naturalWidth, natH: img.naturalHeight, aspect: 0.8, tx:0, ty:0, scale:1, containScale:1, stageW:0, stageH:0, onDone };
       $('cropScreen').hidden = false;
@@ -2620,6 +2642,30 @@
     const { error } = await sb.from('areas').update(areaToRow(area)).eq('id', area.id);
     if(error) console.warn('Duskline: area save failed.', error);
   }
+  // Uploads a cropped photo (as a data: URL, straight from the crop canvas) to the 'photos'
+  // Storage bucket and returns its public URL, or null on failure. Path always starts with
+  // the company id (see supabase/schema.sql's storage policy, which relies on that prefix).
+  // A stable path + upsert means re-cropping the same area overwrites the same object, so a
+  // cache-busting query param is appended to the returned URL — otherwise a browser (or the
+  // Storage CDN) that already cached the old image at that URL would keep showing it.
+  async function uploadToPhotosBucket(path, dataUrl, contentType){
+    const blob = await (await fetch(dataUrl)).blob();
+    const { error } = await sb.storage.from('photos').upload(path, blob, { contentType, upsert: true });
+    if(error){
+      console.error('Duskline: photo upload failed.', error);
+      alert('Could not upload the photo. Please check your connection and try again.');
+      return null;
+    }
+    const { data } = sb.storage.from('photos').getPublicUrl(path);
+    return data.publicUrl + '?v=' + Date.now();
+  }
+  function uploadAreaPhoto(area, dataUrl){
+    return uploadToPhotosBucket(`${authProfile.companyId}/areas/${area.id}.jpg`, dataUrl, 'image/jpeg');
+  }
+  function uploadCompanyLogo(dataUrl, contentType){
+    const ext = contentType==='image/png' ? 'png' : 'jpg';
+    return uploadToPhotosBucket(`${authProfile.companyId}/logo.${ext}`, dataUrl, contentType||'image/jpeg');
+  }
   // Saves only the company row plus whichever project/area this browser tab currently has
   // open — see the big comment above this section for why that scoping matters. Pass an
   // explicit project/area when saving something that's about to stop being "current" (e.g.
@@ -2748,7 +2794,12 @@
     $('fileInputCamera').addEventListener('change', handleFile);
     $('btnAdjustCrop').addEventListener('click', ()=>{
       const area = currentArea();
-      if(area && area.photo) openCropScreen(area.photo, (url,aspect)=>{ area.photo=url; area.photoAspect=aspect; refreshEditorPhotoState(); });
+      if(area && area.photo) openCropScreen(area.photo, async (dataUrl,aspect)=>{
+        const url = await uploadAreaPhoto(area, dataUrl);
+        if(!url) return;
+        area.photo=url; area.photoAspect=aspect; refreshEditorPhotoState();
+        saveAreaRow(area);
+      });
     });
 
     $('canvasPhoto').addEventListener('click', handleCanvasClick);
@@ -3109,7 +3160,13 @@
     $('logoInput').addEventListener('change', e=>{
       const file = e.target.files[0]; if(!file) return;
       const reader = new FileReader();
-      reader.onload = ev=>{ state.company.logo = ev.target.result; renderCompanyPreview(); };
+      reader.onload = async ev=>{
+        const url = await uploadCompanyLogo(ev.target.result, file.type);
+        if(!url) return;
+        state.company.logo = url;
+        renderCompanyPreview();
+        saveCompanyRow();
+      };
       reader.readAsDataURL(file);
       e.target.value='';
     });

@@ -181,3 +181,29 @@ create policy "Company members manage their own fixture overrides"
   on public.fixture_overrides for all
   using (company_id = public.current_company_id())
   with check (company_id = public.current_company_id());
+
+-- ============================================================================
+-- Phase 3 (see ../CLAUDE.md "Backend migration progress"): area photos and the
+-- company logo move out of the JSON (they were base64 data URLs inline in
+-- areas.photo / companies.logo) into Supabase Storage. The columns themselves
+-- are unchanged (still `text`) — they now hold a Storage public URL instead of
+-- a data: URL. Existing rows with an inline base64 photo keep working as-is
+-- (an <img> doesn't care whether its src is a data: URL or an https:// URL);
+-- there's no backfill migration, they just naturally move to Storage the next
+-- time that area's photo (or the logo) is changed.
+--
+-- Bucket is public: reading a photo needs no auth (simplest — an <img src>
+-- just works, no signed URLs to refresh), and the object path always starts
+-- with the owning company's id, which is an unguessable uuid, not enumerable
+-- or listable by anyone outside the bucket policies below. Uploads/overwrites/
+-- deletes still go through RLS-equivalent storage policies scoped by
+-- company_id via the path convention {company_id}/... — see uploadAreaPhoto/
+-- uploadCompanyLogo in the HTML file for the exact paths used.
+insert into storage.buckets (id, name, public)
+values ('photos', 'photos', true)
+on conflict (id) do nothing;
+
+create policy "Company members manage their own photos"
+  on storage.objects for all
+  using (bucket_id = 'photos' and (storage.foldername(name))[1] = public.current_company_id()::text)
+  with check (bucket_id = 'photos' and (storage.foldername(name))[1] = public.current_company_id()::text);

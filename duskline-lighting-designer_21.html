@@ -1,0 +1,3112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<title>Duskline — Lighting Designer &amp; Quote Builder</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root{
+    --ink:#14171C; --ink-2:#0B0D10; --surface:#1E232B; --surface-2:#262C36; --line:#2E3540;
+    --amber:#F0A84E; --amber-soft:#FFC97A; --fog:#F2EFE8; --muted:#8D95A3; --good:#6FBF8B; --danger:#E2685C;
+    --font-display:'Space Grotesk',sans-serif; --font-body:'Inter',sans-serif; --font-mono:'IBM Plex Mono',monospace;
+  }
+  html[data-theme="light"]{
+    --ink:#F4F1EA; --ink-2:#E7E2D6; --surface:#FFFFFF; --surface-2:#F0EDE4; --line:#DCD5C4;
+    --amber:#C9821F; --amber-soft:#B06E12; --fog:#211B12; --muted:#7A7263; --good:#2E8B57; --danger:#C4453A;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;padding:0;background:var(--ink-2);color:var(--fog);font-family:var(--font-body);transition:background .2s,color .2s;}
+  button,input,textarea{font-family:inherit;}
+  input[type=range]{accent-color:var(--amber);}
+  :focus-visible{outline:2px solid var(--amber); outline-offset:2px;}
+  @media (prefers-reduced-motion:reduce){ *{animation:none!important; transition:none!important;} }
+
+  .app{max-width:520px;margin:0 auto;min-height:100vh;background:var(--ink);display:flex;flex-direction:column;position:relative;box-shadow:0 0 60px rgba(0,0,0,.5);}
+  .app.auth-hidden{display:none;}
+
+  header.topbar{position:sticky;top:0;z-index:20;display:flex;align-items:center;justify-content:space-between;gap:8px;
+    padding:12px 14px;border-bottom:1px solid var(--line);background:var(--ink);}
+  .brand{display:flex;align-items:center;gap:8px;flex-shrink:0;}
+  .brand-dot{width:10px;height:10px;border-radius:50%;background:radial-gradient(circle,#fff 0%,var(--amber) 40%,rgba(240,168,78,0) 75%);
+    box-shadow:0 0 10px 2px rgba(240,168,78,.55);}
+  .brand-name{font-family:var(--font-display);font-weight:700;font-size:17px;letter-spacing:.01em;}
+  .header-actions{display:flex;gap:6px;flex-shrink:0;}
+  .header-actions .icon-btn{width:30px;height:30px;font-size:14px;}
+  .tabs{display:flex;background:var(--surface);border-radius:999px;padding:3px;gap:2px;}
+  .tab{border:none;background:transparent;color:var(--muted);font-weight:600;font-size:12px;
+    padding:7px 11px;border-radius:999px;cursor:pointer;transition:.15s;white-space:nowrap;}
+  .tab.active{background:var(--amber);color:#191308;}
+
+  main.screen{display:none;flex-direction:column;flex:1;min-height:0;}
+  main.screen.active{display:flex;}
+  #screen-project-detail, #screen-fixtures, #screen-company{overflow-y:auto;}
+
+  .section-head{display:flex;align-items:center;justify-content:space-between;padding:16px 14px 10px;gap:10px;}
+  .section-head h2{font-family:var(--font-display);font-size:18px;margin:0;}
+  .section-head h3{font-family:var(--font-display);font-size:14px;margin:0;color:var(--fog);}
+  .empty-note{padding:34px 24px;text-align:center;color:var(--muted);font-size:13px;line-height:1.6;}
+
+  .btn{border:none;padding:9px 16px;border-radius:9px;font-weight:700;font-size:13px;cursor:pointer;}
+  .btn-primary{background:var(--amber);color:#191308;}
+  .btn-ghost{background:transparent;border:1px solid var(--line);color:var(--fog);}
+  .btn-danger{background:transparent;border:1px solid rgba(226,104,92,.5);color:var(--danger);}
+  .btn-sm{padding:7px 12px;font-size:12px;}
+  .chip{background:var(--surface-2);border:1px solid var(--line);color:var(--fog);
+    font-size:11.5px;padding:6px 12px;border-radius:999px;cursor:pointer;}
+  .chip-danger{color:var(--danger);border-color:rgba(226,104,92,.4);}
+  .icon-btn{background:var(--surface-2);border:1px solid var(--line);color:var(--fog);width:34px;height:34px;
+    border-radius:9px;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+  .mono{font-family:var(--font-mono);}
+  .muted{color:var(--muted);}
+
+  /* ===== Projects list ===== */
+  .project-list{padding:0 14px 14px;display:flex;flex-direction:column;gap:10px;}
+  .project-card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px;
+    cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:10px;}
+  .project-card-name{font-family:var(--font-display);font-weight:600;font-size:14.5px;}
+  .project-card-sub{font-size:11.5px;color:var(--muted);margin-top:4px;}
+  .project-card-stat{font-family:var(--font-mono);font-size:13px;color:var(--amber-soft);text-align:right;white-space:nowrap;}
+  .project-card-del{background:none;border:none;color:var(--muted);font-size:15px;cursor:pointer;padding:4px;}
+
+  /* ===== Project detail ===== */
+  .print-only{display:none;}
+  .detail-header{display:flex;align-items:center;gap:10px;padding:14px;border-bottom:1px solid var(--line);}
+  .detail-customer{flex:1;min-width:0;}
+  .detail-name{font-family:var(--font-display);font-weight:700;font-size:16px;color:var(--quote-accent, var(--fog));}
+  .detail-sub{font-size:11.5px;color:var(--muted);margin-top:2px;}
+
+  .area-list{padding:0 14px;display:flex;flex-direction:column;gap:10px;margin-bottom:4px;}
+  .area-card{position:relative;border-radius:12px;overflow:hidden;border:1px solid var(--line);cursor:pointer;background:var(--surface);}
+  .area-card-photo{position:relative;height:150px;background:#000;}
+  .area-card-photo img{width:100%;height:100%;object-fit:cover;display:block;}
+  .area-card-photo .overlays{position:absolute;inset:0;pointer-events:none;}
+  .place-dot{position:absolute;left:0;top:0;width:10px;height:10px;border-radius:50%;
+    background:var(--surface-2);border:2px solid var(--amber);transform:translate(-50%,-50%);pointer-events:none;}
+  .place-label{position:absolute;left:8px;top:-2px;transform:translateY(-100%);
+    background:rgba(20,23,28,.85);color:#fff;font-size:10px;font-family:var(--font-mono);
+    padding:2px 6px;border-radius:4px;white-space:nowrap;display:none;pointer-events:none;}
+  .export-label-toggle{display:flex;align-items:center;gap:7px;justify-content:center;
+    font-size:12px;color:var(--muted);margin:2px 0 12px;}
+  .export-label-toggle input{accent-color:var(--amber);width:15px;height:15px;}
+  .area-card-body{padding:10px 12px;display:flex;justify-content:space-between;align-items:center;gap:10px;}
+  .area-card-name{font-weight:600;font-size:13.5px;}
+  .area-card-stat{font-size:11px;color:var(--muted);margin-top:2px;}
+  .area-card-del{position:absolute;top:8px;right:8px;background:rgba(20,23,28,.75);border:1px solid var(--line);
+    color:var(--fog);width:26px;height:26px;border-radius:50%;font-size:13px;cursor:pointer;z-index:2;}
+
+  .load-summary{margin:10px 14px 4px;padding:12px 14px;background:var(--surface-2);border:1px solid var(--line);border-radius:12px;}
+  .load-summary-title{font-family:var(--font-display);font-size:12.5px;font-weight:600;margin-bottom:8px;}
+  .load-row{display:flex;justify-content:space-between;font-size:12px;padding:3px 0;color:var(--fog);}
+  .load-total{border-top:1px solid var(--line);margin-top:4px;padding-top:6px;font-weight:700;}
+  .load-hint{font-size:11px;color:var(--muted);margin-top:8px;line-height:1.5;}
+
+  /* ===== quote table (shared: project + print) ===== */
+  .quote-table-wrap{margin:4px 14px 0;overflow-x:auto;border:1px solid var(--line);border-radius:12px;}
+  table.quote-table{width:100%;border-collapse:collapse;font-size:calc(12px*var(--quote-font-scale, 1));white-space:nowrap;}
+  .quote-table th{text-align:left;padding:calc(10px*var(--quote-font-scale, 1));background:var(--surface-2);color:var(--muted);
+    font-weight:600;font-size:calc(10px*var(--quote-font-scale, 1));text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid var(--line);}
+  .quote-table td{padding:calc(10px*var(--quote-font-scale, 1));border-bottom:1px solid var(--line);vertical-align:top;white-space:normal;}
+  .quote-table tbody tr:last-child td{border-bottom:none;}
+  .cell-sub{font-size:10px;color:var(--muted);margin-top:2px;white-space:normal;}
+  .tfoot-row td{font-weight:700;font-family:var(--font-display);border-top:2px solid var(--quote-accent, var(--amber));
+    background:rgba(240,168,78,.06);white-space:nowrap;}
+  .margin{color:var(--good);}
+  .below-cost{color:var(--danger);font-weight:700;}
+  .quote-empty{padding:34px 20px;text-align:center;color:var(--muted);font-size:13px;line-height:1.6;}
+  .quote-actions{padding:18px 14px 32px;display:flex;justify-content:center;gap:10px;flex-wrap:wrap;}
+  .discount-row{display:flex;gap:10px;padding:10px 14px 4px;align-items:flex-end;}
+
+  /* ===== fixture library ===== */
+  .sheet-tabs{display:flex;gap:6px;padding:0 14px 10px;}
+  .sheet-tab,.fmgmt-tab{flex:1;background:var(--surface-2);border:1px solid var(--line);color:var(--muted);
+    padding:7px;border-radius:8px;font-size:11.5px;font-weight:600;cursor:pointer;}
+  .sheet-tab.active,.fmgmt-tab.active{background:rgba(240,168,78,.12);border-color:var(--amber);color:var(--amber-soft);}
+  .sheet-list{padding:0 12px 18px;display:flex;flex-direction:column;gap:8px;}
+  .fx-card{display:flex;justify-content:space-between;gap:10px;background:var(--surface-2);
+    border:1px solid var(--line);border-radius:10px;padding:10px 12px;}
+  .fx-card.is-armed{border-color:var(--amber);box-shadow:0 0 0 1px var(--amber) inset;}
+  .fx-name{font-weight:600;font-size:13.5px;}
+  .fx-desc{font-size:11.5px;color:var(--muted);margin-top:2px;line-height:1.35;}
+  .fx-spec{font-family:var(--font-mono);font-size:11px;color:var(--amber-soft);margin-top:6px;letter-spacing:.02em;}
+  .fx-side{display:flex;flex-direction:column;align-items:flex-end;justify-content:space-between;gap:6px;min-width:78px;}
+  .fx-price{font-family:var(--font-mono);font-size:12.5px;}
+  .btn-add{background:var(--amber);color:#191308;border:none;border-radius:7px;padding:6px 10px;
+    font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;}
+  .stepper{display:flex;align-items:center;gap:9px;background:var(--surface);border:1px solid var(--line);
+    border-radius:999px;padding:3px 10px;}
+  .stepper button{background:none;border:none;color:var(--amber-soft);font-size:16px;font-weight:700;cursor:pointer;line-height:1;width:14px;}
+  .stepper span{font-family:var(--font-mono);font-size:12.5px;min-width:12px;text-align:center;}
+  .fx-actions{display:flex;gap:6px;}
+  .fx-actions button{background:var(--surface);border:1px solid var(--line);color:var(--fog);border-radius:7px;
+    padding:5px 9px;font-size:11px;cursor:pointer;}
+  .import-status{margin:0 14px 12px;padding:10px 12px;border-radius:10px;font-size:12px;line-height:1.5;}
+  .import-status.ok{background:rgba(111,191,139,.12);border:1px solid var(--good);color:var(--good);}
+  .import-status.err{background:rgba(226,104,92,.12);border:1px solid var(--danger);color:var(--danger);}
+
+  /* ===== company tab ===== */
+  .company-form{padding:0 14px 20px;display:flex;flex-direction:column;gap:14px;}
+  .logo-row{display:flex;align-items:center;gap:14px;}
+  .logo-preview{width:64px;height:64px;border-radius:10px;background:var(--surface-2);border:1px dashed var(--line);
+    display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0;}
+  .logo-preview img{width:100%;height:100%;object-fit:contain;}
+  .field label{display:block;font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px;}
+  .field input,.field textarea{width:100%;background:var(--surface-2);border:1px solid var(--line);border-radius:8px;
+    padding:9px 10px;color:var(--fog);font-size:13.5px;}
+  .company-preview{margin:0 14px 24px;padding:16px;background:var(--surface-2);border:1px solid var(--line);border-radius:12px;}
+  .company-preview-label{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px;}
+  .color-row{display:flex;align-items:center;gap:10px;}
+  .color-row input[type=color]{width:40px;height:32px;border:1px solid var(--line);border-radius:7px;background:var(--surface-2);padding:2px;cursor:pointer;}
+  .swatch-list{display:flex;gap:6px;}
+  .swatch{width:22px;height:22px;border-radius:50%;border:2px solid var(--line);cursor:pointer;}
+  .section-order-list{display:flex;flex-direction:column;gap:6px;margin-top:4px;}
+  .order-row{display:flex;align-items:center;justify-content:space-between;background:var(--surface-2);
+    border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:12.5px;}
+  .order-btns{display:flex;gap:4px;}
+  .order-btns button{background:var(--surface);border:1px solid var(--line);color:var(--fog);width:26px;height:26px;
+    border-radius:6px;font-size:13px;cursor:pointer;}
+  .order-btns button:disabled{opacity:.3;cursor:default;}
+  .print-header-mock{display:flex;gap:12px;align-items:center;}
+  .print-header-mock img{width:44px;height:44px;object-fit:contain;border-radius:6px;}
+  .print-header-mock-text strong{display:block;font-family:var(--font-display);font-size:14px;color:var(--quote-accent, var(--fog));}
+  .print-header-mock-text span{display:block;font-size:11px;color:var(--muted);margin-top:2px;}
+
+  /* ===== modal (customer / area name / fixture form) ===== */
+  .edit-sheet{position:fixed;inset:0;z-index:60;display:flex;align-items:flex-end;}
+  .edit-sheet[hidden]{display:none;}
+  .edit-backdrop{position:absolute;inset:0;background:rgba(0,0,0,.55);}
+  .edit-panel{position:relative;width:100%;max-width:520px;margin:0 auto;background:var(--surface);
+    border-radius:16px 16px 0 0;padding:18px 20px 26px;z-index:1;box-shadow:0 -10px 30px rgba(0,0,0,.45);
+    animation:slideUp .25s ease;max-height:90vh;overflow-y:auto;}
+  @keyframes slideUp{from{transform:translateY(100%);}to{transform:translateY(0);}}
+  .edit-title{font-family:var(--font-display);font-weight:700;font-size:16px;}
+  .edit-spec{font-family:var(--font-mono);font-size:12px;color:var(--amber-soft);margin-top:3px;}
+  .edit-row{margin-top:16px;}
+  .edit-row label{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:6px;}
+  .edit-row input[type=range]{width:100%;display:block;}
+  .link-btn{background:none;border:none;color:var(--amber-soft);font-size:11px;cursor:pointer;padding:4px 0 0;text-decoration:underline;}
+  .edit-hint{font-size:11.5px;color:var(--muted);margin-top:12px;line-height:1.5;}
+  .edit-actions{display:flex;gap:8px;margin-top:18px;}
+  .edit-actions .btn{flex:1;}
+  .modal-form-body{margin-top:14px;display:flex;flex-direction:column;gap:12px;}
+  .form-row-2{display:flex;gap:10px;}
+  .form-row-2 .field{flex:1;}
+  .seg{display:flex;gap:6px;}
+  .seg button{flex:1;background:var(--surface-2);border:1px solid var(--line);color:var(--muted);padding:8px;
+    border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;}
+  .seg button.active{background:rgba(240,168,78,.12);border-color:var(--amber);color:var(--amber-soft);}
+
+  /* ===== fullscreen area editor ===== */
+  .editor-screen{position:fixed;inset:0;z-index:50;background:var(--ink);display:flex;flex-direction:column;}
+  .editor-screen[hidden]{display:none;}
+  .editor-top{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 14px;
+    border-bottom:1px solid var(--line);background:var(--surface);flex-shrink:0;}
+  .editor-title{font-family:var(--font-display);font-weight:600;font-size:13px;color:var(--fog);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;text-align:center;}
+
+  .editor-sliders{display:flex;gap:14px;padding:10px 14px;background:var(--surface);
+    border-bottom:1px solid var(--line);flex-shrink:0;}
+  .mini-slider{flex:1;min-width:0;}
+  .mini-slider-label{display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .mini-slider input[type=range]{width:100%;display:block;}
+  .mini-stat-value{font-family:var(--font-mono);font-size:15px;color:var(--amber-soft);margin-top:2px;}
+
+  .editor-body{position:relative;flex:1;min-height:0;display:flex;flex-direction:row;overflow:hidden;}
+  .editor-canvas{position:relative;flex:1;min-width:0;background:#000;overflow:hidden;
+    display:flex;align-items:center;justify-content:center;}
+  .editor-canvas .canvas-empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;
+    justify-content:center;text-align:center;padding:30px 24px;gap:14px;}
+  .editor-canvas .canvas-empty h2{font-family:var(--font-display);font-size:18px;margin:0;color:#F2EFE8;}
+  .editor-canvas .canvas-empty p{margin:0;color:#AEB4BF;font-size:13px;line-height:1.55;max-width:300px;}
+  .empty-actions{display:flex;gap:10px;margin-top:4px;flex-wrap:wrap;justify-content:center;}
+
+  .canvas-photo{position:relative;touch-action:none;overflow:hidden;cursor:grab;}
+  .canvas-photo.is-armed{cursor:copy;}
+  .canvas-photo.is-armed::after{content:'';position:absolute;inset:0;border:2px dashed rgba(240,168,78,.55);
+    pointer-events:none;animation:armedPulse 1.6s ease-in-out infinite;z-index:6;}
+  @keyframes armedPulse{0%,100%{opacity:.5;}50%{opacity:1;}}
+
+  .zoom-layer{position:absolute;inset:0;transform-origin:0 0;will-change:transform;}
+  .zoom-layer img{width:100%;height:100%;object-fit:cover;display:block;}
+
+  .zoom-badge{position:absolute;top:10px;right:10px;z-index:6;background:rgba(30,35,43,.92);
+    border:1px solid var(--line);border-radius:8px;padding:6px 8px;display:flex;align-items:center;gap:8px;}
+  .zoom-badge .zoom-pct{font-family:var(--font-mono);font-size:11px;color:var(--amber-soft);}
+  .zoom-badge button{background:var(--surface-2);border:1px solid var(--line);color:var(--fog);
+    border-radius:6px;padding:3px 8px;font-size:10.5px;cursor:pointer;}
+  .zoom-hint{position:absolute;right:10px;bottom:10px;z-index:2;color:rgba(242,239,232,.55);
+    font-size:10.5px;background:rgba(20,23,28,.55);padding:4px 8px;border-radius:6px;pointer-events:none;}
+
+  .overlays{position:absolute;inset:0;pointer-events:none;}
+  .wire-layer{position:absolute;inset:0;}
+  .wire-layer svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;}
+  .wire-hit{fill:none;stroke:transparent;stroke-width:16;pointer-events:stroke;cursor:pointer;vector-effect:non-scaling-stroke;}
+  .wire-line{fill:none;stroke:#5EC8E0;stroke-width:3;stroke-linecap:round;stroke-linejoin:round;
+    vector-effect:non-scaling-stroke;pointer-events:none;}
+  .wire-draft{stroke-dasharray:6 5;opacity:.85;}
+  .wire-label{position:absolute;transform:translate(-50%,-50%);background:rgba(20,23,28,.85);color:#5EC8E0;
+    font-family:var(--font-mono);font-size:10px;padding:2px 6px;border-radius:4px;white-space:nowrap;pointer-events:none;}
+  .strip-hit{fill:none;stroke:transparent;stroke-width:16;pointer-events:stroke;cursor:pointer;vector-effect:non-scaling-stroke;}
+  .strip-glow{fill:none;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke;pointer-events:none;stroke-width:9;opacity:.35;}
+  .strip-core{fill:none;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke;pointer-events:none;stroke-width:2.4;opacity:.95;}
+  .strip-draft{stroke-dasharray:6 5;}
+  .strip-label{position:absolute;transform:translate(-50%,-50%);background:rgba(20,23,28,.85);
+    font-family:var(--font-mono);font-size:10px;padding:2px 6px;border-radius:4px;white-space:nowrap;pointer-events:none;}
+  .placement{position:absolute;}
+  .beam-layer{pointer-events:none;}
+  .beam-svg{position:absolute;left:0;top:0;pointer-events:none;}
+  .pool{position:absolute;left:0;top:0;border-radius:50%;pointer-events:none;transform:translate(-50%,-50%);}
+
+  .marker-dot{position:absolute;left:0;top:0;width:16px;height:16px;border-radius:50%;
+    background:var(--surface-2);border:2px solid var(--amber);box-shadow:0 0 0 3px rgba(240,168,78,.25);
+    transform:translate(-50%,-50%);pointer-events:auto;cursor:grab;z-index:4;touch-action:none;}
+  .marker-dot.is-selected{box-shadow:0 0 0 5px rgba(240,168,78,.4),0 0 14px 2px rgba(240,168,78,.7);}
+  .marker-dot.just-placed{animation:placedPop .5s ease-out;}
+  @keyframes placedPop{0%{transform:translate(-50%,-50%) scale(.2);}60%{transform:translate(-50%,-50%) scale(1.4);}100%{transform:translate(-50%,-50%) scale(1);}}
+
+  .beam-handle{position:absolute;width:16px;height:16px;border-radius:50%;background:rgba(255,255,255,.18);
+    border:2px solid var(--amber-soft);transform:translate(-50%,-50%);cursor:grab;touch-action:none;
+    z-index:3;pointer-events:auto;box-shadow:0 0 8px rgba(0,0,0,.5);}
+  .width-handle{position:absolute;width:13px;height:13px;border-radius:3px;background:rgba(111,191,139,.25);
+    border:2px solid var(--good);transform:translate(-50%,-50%) rotate(45deg);cursor:ew-resize;touch-action:none;
+    z-index:3;pointer-events:auto;box-shadow:0 0 8px rgba(0,0,0,.5);}
+
+  .placement-banner{position:absolute;left:10px;right:10px;top:10px;z-index:5;
+    background:rgba(30,35,43,.94);backdrop-filter:blur(6px);border:1px solid var(--line);color:#F2EFE8;
+    border-radius:10px;padding:10px 12px;display:flex;align-items:center;justify-content:space-between;
+    gap:10px;font-size:12.5px;box-shadow:0 8px 20px rgba(0,0,0,.4);}
+  .placement-banner button{background:var(--amber);color:#191308;border:none;border-radius:7px;
+    padding:6px 12px;font-weight:700;font-size:12px;cursor:pointer;white-space:nowrap;}
+
+  .canvas-toolbar{position:absolute;left:10px;bottom:10px;z-index:4;display:flex;gap:8px;flex-wrap:wrap;max-width:calc(100% - 20px);}
+  .chip.is-active{background:rgba(240,168,78,.18);border-color:var(--amber);color:var(--amber-soft);}
+
+  /* ===== fixture library: side panel ===== */
+  .sheet{width:0;flex-shrink:0;background:var(--surface);border-left:1px solid var(--line);
+    overflow:hidden;transition:width .28s ease;display:flex;flex-direction:column;}
+  .sheet.expanded{width:min(320px, 82vw);}
+  .sheet-panel-head{display:flex;align-items:center;justify-content:space-between;padding:13px 14px;
+    border-bottom:1px solid var(--line);flex-shrink:0;}
+  .sheet-panel-head span{font-family:var(--font-display);font-weight:600;font-size:13.5px;white-space:nowrap;}
+  .icon-btn-sm{background:var(--surface-2);border:1px solid var(--line);color:var(--fog);width:26px;height:26px;
+    border-radius:7px;font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+  .sheet .sheet-tabs{padding-top:10px;flex-shrink:0;}
+  .sheet .sheet-list{flex:1;overflow-y:auto;min-width:280px;}
+  .sheet-toggle-tab{position:absolute;top:50%;right:0;transform:translateY(-50%);z-index:6;
+    background:var(--surface);border:1px solid var(--line);border-right:none;color:var(--fog);
+    border-radius:8px 0 0 8px;padding:12px 7px;cursor:pointer;writing-mode:vertical-rl;text-orientation:mixed;
+    font-size:11.5px;font-weight:600;letter-spacing:.02em;box-shadow:-4px 0 12px rgba(0,0,0,.3);}
+
+  .quote-bar{margin:0 14px 10px;background:var(--surface-2);border:1px solid var(--line);border-radius:12px;
+    padding:10px 14px;display:flex;align-items:center;justify-content:space-between;gap:10px;}
+  .quote-bar-info strong{display:block;font-family:var(--font-display);font-size:13px;}
+  .quote-bar-info span{display:block;font-family:var(--font-mono);font-size:11.5px;color:var(--amber-soft);margin-top:1px;}
+
+  /* ===== crop screen ===== */
+  .crop-screen{position:fixed;inset:0;z-index:55;background:var(--ink);display:flex;flex-direction:column;}
+  .crop-screen[hidden]{display:none;}
+  .crop-top{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 14px;
+    border-bottom:1px solid var(--line);background:var(--surface);flex-shrink:0;}
+  .crop-aspects{display:flex;gap:8px;padding:10px 14px;background:var(--surface);border-bottom:1px solid var(--line);flex-shrink:0;}
+  .crop-aspects .chip{flex:1;text-align:center;}
+  .crop-aspects .chip.active{background:rgba(240,168,78,.12);border-color:var(--amber);color:var(--amber-soft);}
+  .crop-stage{flex:1;display:flex;align-items:center;justify-content:center;overflow:hidden;position:relative;padding:16px;}
+  .crop-frame{position:relative;overflow:hidden;background:#050607;touch-action:none;border-radius:6px;
+    box-shadow:0 0 0 1px var(--line),0 10px 30px rgba(0,0,0,.5);}
+  .crop-frame img{position:absolute;left:50%;top:50%;transform-origin:center;user-select:none;-webkit-user-drag:none;max-width:none;}
+  .crop-zoom{display:flex;align-items:center;gap:10px;padding:14px;background:var(--surface);border-top:1px solid var(--line);flex-shrink:0;}
+  .crop-zoom span{font-size:11.5px;color:var(--muted);white-space:nowrap;}
+  .crop-zoom input{flex:1;}
+  .crop-hint{padding:0 14px 12px;font-size:11px;color:var(--muted);text-align:center;background:var(--surface);flex-shrink:0;}
+
+  /* ===== desktop / wide screens ===== */
+  @media (min-width:860px){
+    html,body{background:var(--ink-2);}
+    .app{max-width:1080px;box-shadow:0 0 80px rgba(0,0,0,.55);}
+    header.topbar{padding:14px 24px;}
+    .section-head{padding:20px 24px 12px;}
+    .project-list{padding:0 24px 24px;display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px;}
+    .area-list{padding:0 24px;display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px;}
+    .area-card-photo{height:190px;}
+    .detail-header{padding:18px 24px;}
+    .load-summary{margin:10px 24px 4px;}
+    .discount-row{padding:10px 24px 4px;}
+    .quote-table-wrap{margin:4px 24px 0;}
+    .quote-empty{margin:0 24px;}
+    .export-label-toggle{max-width:520px;margin-left:auto;margin-right:auto;}
+    .company-form{padding:0 24px 20px;max-width:640px;}
+    .company-preview{margin:0 24px 24px;max-width:640px;}
+    .sheet-list{padding-left:16px;padding-right:16px;}
+    .fixtureMgmtList, #fixtureMgmtList{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:10px;padding:0 24px 24px;}
+    .empty-note{padding-left:24px;padding-right:24px;}
+    .sheet.expanded{width:min(380px, 40vw);}
+  }
+  @media (min-width:1200px){
+    .app{max-width:1280px;}
+  }
+
+  /* ===== print ===== */
+  @media print{
+    * {
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+      color-adjust: exact !important;
+    }
+    body{background:var(--pdf-bg-color, #fff);}
+    header.topbar,.editor-screen,.crop-screen,.edit-sheet,
+    #btnBackToProjects,#btnEditCustomer,#btnAddArea,.area-card-del,.quote-actions,#projQuoteModeTabs,.discount-row,
+    .export-label-toggle,.area-card-body .btn{display:none !important;}
+    #screen-projects,#screen-fixtures,#screen-company{display:none !important;}
+    #screen-project-detail{display:flex !important;overflow:visible;}
+    .print-only{display:block !important;}
+    .app{box-shadow:none;max-width:100%;}
+    .area-card{break-inside:avoid;border-color:#ccc;}
+    .area-card-photo{height:260px;}
+    .place-label{display:block;background:rgba(255,255,255,.92);color:#000;border:1px solid #999;}
+    .place-dot{border-color:#000;background:#fff;}
+    body.no-export-labels .place-label{display:none !important;}
+    .wire-layer{display:none;}
+    body.export-wires .wire-layer{display:block;}
+    .wire-line{stroke:#0b6ea0;}
+    .wire-label{background:rgba(255,255,255,.92);color:#0b6ea0;border:1px solid #9cc;}
+    .quote-table-wrap{border-color:#ccc;}
+    .quote-table th{background:#f3f3f3;color:#333;}
+    .quote-table td,.quote-table th{color:#000;border-color:#ddd;}
+    .tfoot-row td{background:#fafafa;border-top:2px solid #000;}
+    .margin{color:#2a7a45;}
+    .below-cost{color:#b3261e;}
+    .detail-header{border-color:#ccc;}
+    .detail-name,.detail-sub{color:#000;}
+    .load-summary{border-color:#ccc;background:#fafafa;}
+    .load-row,.load-summary-title{color:#000;}
+  }
+</style>
+</head>
+<body>
+<div class="app auth-hidden">
+
+  <header class="topbar">
+    <div class="brand"><span class="brand-dot"></span><span class="brand-name">Duskline</span></div>
+    <div class="tabs" id="screenTabs">
+      <button class="tab active" data-screen="projects">Projects</button>
+      <button class="tab" data-screen="fixtures">Fixtures</button>
+      <button class="tab" data-screen="company">Company</button>
+    </div>
+    <div class="header-actions">
+      <button class="icon-btn" id="btnThemeToggle" aria-label="Toggle light/dark mode">🌙</button>
+      <button class="icon-btn" id="btnAccount" aria-label="Account">👤</button>
+    </div>
+  </header>
+
+  <!-- ===================== PROJECTS LIST ===================== -->
+  <main id="screen-projects" class="screen active">
+    <div class="section-head">
+      <h2>Projects</h2>
+      <button class="btn btn-primary btn-sm" id="btnNewProject">+ New project</button>
+    </div>
+    <div class="project-list" id="projectList"></div>
+    <div class="empty-note" id="projectsEmpty">No projects yet. Start one to keep a customer's areas, designs, and quote together in one place.</div>
+  </main>
+
+  <!-- ===================== PROJECT DETAIL ===================== -->
+  <main id="screen-project-detail" class="screen">
+    <div class="print-only" id="printCompanyHeader" data-section="header" style="padding:14px 14px 0;"></div>
+
+    <div class="detail-header" data-section="customer">
+      <button class="icon-btn" id="btnBackToProjects" aria-label="Back">←</button>
+      <div class="detail-customer">
+        <div class="detail-name" id="detailCustomerName"></div>
+        <div class="detail-sub" id="detailCustomerSub"></div>
+      </div>
+      <button class="icon-btn" id="btnEditCustomer" aria-label="Edit customer">✎</button>
+    </div>
+
+    <div data-section="areas">
+      <div class="section-head">
+        <h3>Areas</h3>
+        <button class="btn btn-ghost btn-sm" id="btnAddArea">+ Add area</button>
+      </div>
+      <div class="area-list" id="areaList"></div>
+    </div>
+
+    <div class="load-summary" id="loadSummary" data-section="load"></div>
+
+    <div data-section="quote">
+      <div class="section-head">
+        <h3>Project quote</h3>
+        <div class="tabs" id="projQuoteModeTabs">
+          <button class="tab active" data-mode="customer">Customer</button>
+          <button class="tab" data-mode="cost">Internal</button>
+        </div>
+      </div>
+      <div class="discount-row" id="discountRow">
+        <div class="field"><label>Discount (%)</label><input id="discountPercent" type="number" step="0.1" min="0" max="100" placeholder="0"></div>
+        <div class="field" style="flex:1;"><label>Reason</label><input id="discountReason" placeholder="e.g. Returning customer discount"></div>
+      </div>
+      <div class="quote-table-wrap">
+        <table class="quote-table" id="projQuoteTable">
+          <thead id="projQuoteThead"></thead><tbody id="projQuoteTbody"></tbody><tfoot id="projQuoteTfoot"></tfoot>
+        </table>
+      </div>
+      <div class="quote-empty" id="projQuoteEmpty" hidden>No fixtures added in any area yet.</div>
+    </div>
+
+    <div style="order:99;">
+      <label class="export-label-toggle"><input type="checkbox" id="toggleExportLabels" checked> Show fixture names on exported photos</label>
+      <label class="export-label-toggle"><input type="checkbox" id="toggleExportWires"> Show wire run diagram on exported photos</label>
+      <label class="export-label-toggle"><input type="checkbox" id="toggleJpgOnly"> Export design photos as JPG only (no quote)</label>
+      <div class="quote-actions">
+        <button class="btn btn-primary" id="btnPrintProject">Print / Export project</button>
+      </div>
+    </div>
+  </main>
+
+  <!-- ===================== FIXTURES LIBRARY ===================== -->
+  <main id="screen-fixtures" class="screen">
+    <div class="section-head">
+      <h2>Fixture library</h2>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;">
+        <button class="btn btn-ghost btn-sm" id="btnDownloadTemplate">Download template</button>
+        <button class="btn btn-ghost btn-sm" id="btnImportFixtures">Import from Excel</button>
+        <button class="btn btn-primary btn-sm" id="btnAddFixture">+ Add fixture</button>
+      </div>
+    </div>
+    <div class="import-status" id="importStatus" hidden></div>
+    <div class="sheet-tabs">
+      <button class="fmgmt-tab active" data-fcat="fixture">Fixtures</button>
+      <button class="fmgmt-tab" data-fcat="accessory">Accessories</button>
+      <button class="fmgmt-tab" data-fcat="strip">Strips</button>
+    </div>
+    <div class="sheet-list" id="fixtureMgmtList"></div>
+  </main>
+
+  <!-- ===================== COMPANY ===================== -->
+  <main id="screen-company" class="screen">
+    <div class="section-head"><h2>Company info</h2></div>
+    <div class="company-form">
+      <div class="logo-row">
+        <div class="logo-preview" id="logoPreviewBox"><span class="muted" style="font-size:10px;">No logo</span></div>
+        <button class="btn btn-ghost btn-sm" id="btnUploadLogo">Upload logo</button>
+      </div>
+      <div class="field"><label>Company name</label><input id="companyName" placeholder="Normac Sales"></div>
+      <div class="field"><label>Phone</label><input id="companyPhone" placeholder="(250) 555-0123"></div>
+      <div class="field"><label>Email</label><input id="companyEmail" placeholder="you@company.com"></div>
+      <div class="field"><label>Address</label><input id="companyAddress" placeholder="123 Example Rd, Vernon BC"></div>
+      <div class="field"><label>Website</label><input id="companyWebsite" placeholder="www.yourcompany.com"></div>
+    </div>
+
+    <div class="section-head"><h3>Quote appearance</h3></div>
+    <div class="company-form">
+      <div class="form-row-2">
+        <div class="field"><label>Tax rate (%)</label><input id="companyTaxRate" type="number" step="0.01" min="0" placeholder="0"></div>
+        <div class="field"><label>Tax label</label><input id="companyTaxLabel" placeholder="GST, HST, Sales Tax…"></div>
+      </div>
+      <div class="field"><label>Logo size <span class="mono" id="logoSizeVal">30mm</span></label>
+        <input type="range" id="logoSizeSlider" min="12" max="90" step="1" value="30">
+      </div>
+      <div class="field"><label>Heading layout</label>
+        <div class="seg" id="headingAlignSeg">
+          <button data-align="left" class="active">Logo left</button>
+          <button data-align="center">Centered</button>
+        </div>
+      </div>
+      <div class="field"><label>Text size <span class="mono" id="fontSizeVal">10pt</span></label>
+        <input type="range" id="fontSizeSlider" min="7" max="16" step="0.5" value="10">
+      </div>
+      <div class="field"><label>Accent color</label>
+        <div class="color-row">
+          <input type="color" id="quoteAccentColor" value="#F0A84E">
+          <div class="swatch-list" id="swatchList"></div>
+        </div>
+      </div>
+      <div class="field"><label>Page background color</label>
+        <div class="color-row">
+          <input type="color" id="pdfBgColor" value="#FFFFFF">
+          <div class="swatch-list" id="bgSwatchList"></div>
+        </div>
+      </div>
+      <div class="field"><label>PDF section order</label>
+        <div class="section-order-list" id="sectionOrderList"></div>
+        <div class="edit-hint" style="margin-top:6px;">Use the arrows to change what appears first on the exported PDF.</div>
+      </div>
+    </div>
+
+    <div class="company-preview" id="companyPreview"></div>
+    <div class="empty-note" style="padding:0 14px 24px;text-align:left;">These settings apply to the PDF you generate from any project's "Print / Export project" button, and the accent color also previews live on-screen.</div>
+  </main>
+
+</div>
+
+<!-- ===================== FULLSCREEN AREA EDITOR ===================== -->
+<div class="editor-screen" id="editorScreen" hidden>
+  <div class="editor-top">
+    <button class="icon-btn" id="btnEditorBack" aria-label="Back">←</button>
+    <div class="editor-title" id="editorAreaTitle">Area</div>
+    <button class="btn btn-primary btn-sm" id="btnEditorSave">Save design</button>
+  </div>
+
+  <div class="editor-sliders">
+    <div class="mini-slider">
+      <div class="mini-slider-label"><span>Darkness</span><span class="mono" id="darknessVal">60%</span></div>
+      <input type="range" id="ctrlDarkness" min="0" max="100" step="5" value="60">
+    </div>
+    <div class="mini-slider">
+      <div class="mini-slider-label"><span>Beam brightness</span><span class="mono" id="beamBrightnessVal">100%</span></div>
+      <input type="range" id="ctrlBeamBrightness" min="50" max="180" step="5" value="100">
+    </div>
+    <div class="mini-slider" style="flex:0 0 auto;">
+      <div class="mini-slider-label"><span>Load</span></div>
+      <div class="mini-stat-value" id="editorLoadVal">0 W</div>
+    </div>
+  </div>
+
+  <div class="editor-body">
+    <div class="editor-canvas">
+      <div class="canvas-empty" id="editorEmpty">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#8D95A3" stroke-width="1.4">
+          <circle cx="12" cy="9" r="5.5"/><path d="M9.5 21h5M10 18.5h4M8 14l-2-3M16 14l2-3" stroke-linecap="round"/>
+        </svg>
+        <h2>Add a photo</h2>
+        <p>Upload a photo of this area — a tree, a facade, a walkway — and place fixtures right where you'd aim them.</p>
+        <div class="empty-actions">
+          <button class="btn btn-primary" id="btnTakePhoto">Take photo</button>
+          <button class="btn btn-ghost" id="btnChoosePhoto">Choose photo</button>
+        </div>
+      </div>
+
+      <div class="canvas-photo" id="canvasPhoto" hidden>
+        <div class="zoom-layer" id="zoomLayer">
+          <img id="photoImg" alt="Design photo">
+          <div class="wire-layer" id="wireLayer">
+            <svg id="wireSvg" viewBox="0 0 100 100" preserveAspectRatio="none"></svg>
+            <div id="wireLabels"></div>
+          </div>
+          <div class="wire-layer" id="stripLayer">
+            <svg id="stripSvg" viewBox="0 0 100 100" preserveAspectRatio="none"></svg>
+            <div id="stripLabels"></div>
+          </div>
+          <div class="overlays" id="overlays"></div>
+        </div>
+      </div>
+
+      <div class="placement-banner" id="placementBanner" hidden>
+        <span id="placementText"></span>
+        <button id="btnBannerAction">Done</button>
+      </div>
+
+      <div class="zoom-hint" id="zoomHint">⌃ Ctrl + scroll or drag to pan · pinch on mobile</div>
+
+      <div class="canvas-toolbar" id="canvasToolbar" hidden>
+        <button class="chip" id="btnChangePhoto">Change photo</button>
+        <button class="chip" id="btnAdjustCrop">Adjust crop</button>
+        <button class="chip" id="btnResetZoom">Reset zoom <span class="mono zoom-pct" id="zoomBadge" hidden></span></button>
+        <button class="chip" id="btnDrawWire">Draw wire run</button>
+        <button class="chip chip-danger" id="btnClearDesign">Clear design</button>
+      </div>
+
+      <button class="sheet-toggle-tab" id="sheetToggleTab"><span>Fixtures ▸</span></button>
+    </div>
+
+    <div class="sheet" id="sheet">
+      <div class="sheet-panel-head">
+        <span>Fixture library</span>
+        <button class="icon-btn-sm" id="sheetClose" aria-label="Close">✕</button>
+      </div>
+      <div class="sheet-tabs">
+        <button class="sheet-tab active" data-cat="fixture">Fixtures</button>
+        <button class="sheet-tab" data-cat="accessory">Accessories</button>
+        <button class="sheet-tab" data-cat="strip">Strips</button>
+      </div>
+      <div class="sheet-list" id="sheetList"></div>
+    </div>
+  </div>
+
+  <div class="quote-bar" id="quoteBarEditor" hidden>
+    <div class="quote-bar-info">
+      <strong class="quote-bar-count">0 items</strong>
+      <span class="quote-bar-total mono">$0.00</span>
+    </div>
+  </div>
+</div>
+
+<!-- info sheet: tap a placed fixture -->
+<div class="edit-sheet" id="infoSheet" hidden>
+  <div class="edit-backdrop" id="infoBackdrop"></div>
+  <div class="edit-panel">
+    <div class="edit-title" id="infoTitle"></div>
+    <div class="edit-spec" id="infoSpec"></div>
+
+    <div class="edit-row">
+      <label><span>Color temperature</span><span class="mono" id="infoKelvinVal"></span></label>
+      <input type="range" id="infoKelvin" min="2200" max="5000" step="50">
+    </div>
+    <div class="edit-row">
+      <label><span>Beam brightness</span><span class="mono" id="infoBrightnessVal"></span></label>
+      <input type="range" id="infoBrightness" min="30" max="200" step="5">
+      <button class="link-btn" id="infoUseMasterBrightness">Use master slider instead</button>
+    </div>
+
+    <div class="edit-hint">Drag the fixture to move it. Drag the round ring to aim it and adjust reach. Drag the small square to widen or narrow the beam.</div>
+    <div class="edit-actions">
+      <button class="btn btn-danger" id="infoRemove">Remove</button>
+      <button class="btn btn-ghost" id="infoDuplicate">Duplicate</button>
+      <button class="btn btn-primary" id="infoDone">Done</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== WIRE RUN MODAL ===================== -->
+<div class="edit-sheet" id="wireModal" hidden>
+  <div class="edit-backdrop" id="wireBackdrop"></div>
+  <div class="edit-panel">
+    <div class="edit-title">Wire run</div>
+    <div class="modal-form-body">
+      <div class="field"><label>Distance (ft)</label><input id="wireDistanceInput" type="number" step="1" min="0" placeholder="e.g. 42"></div>
+    </div>
+    <div class="edit-actions">
+      <button class="btn btn-danger" id="wireDelete" hidden>Delete</button>
+      <button class="btn btn-ghost" id="wireCancel">Cancel</button>
+      <button class="btn btn-primary" id="wireSave">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== LED STRIP LENGTH MODAL ===================== -->
+<div class="edit-sheet" id="stripModal" hidden>
+  <div class="edit-backdrop" id="stripBackdrop"></div>
+  <div class="edit-panel">
+    <div class="edit-title">LED strip run</div>
+    <div class="modal-form-body">
+      <div class="field"><label>Length (ft)</label><input id="stripLengthInput" type="number" step="0.5" min="0" placeholder="e.g. 12"></div>
+    </div>
+    <div class="edit-actions">
+      <button class="btn btn-danger" id="stripDelete" hidden>Delete</button>
+      <button class="btn btn-ghost" id="stripCancel">Cancel</button>
+      <button class="btn btn-primary" id="stripSave">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== ACCOUNT MODAL (sign in / create account / account info) ===================== -->
+<div class="edit-sheet" id="accountModal" hidden>
+  <div class="edit-backdrop" id="accountBackdrop"></div>
+  <div class="edit-panel">
+    <div class="edit-title" id="accountModalTitle">Sign in</div>
+
+    <div id="authForms">
+      <div class="tabs" id="authModeTabs" style="margin-top:14px;">
+        <button class="tab active" data-authmode="signin">Sign in</button>
+        <button class="tab" data-authmode="signup">Create account</button>
+      </div>
+      <div class="modal-form-body">
+        <div class="field" id="authCompanyField" hidden><label>Company name</label><input id="authCompanyName" placeholder="e.g. Normac Sales"></div>
+        <div class="field" id="authNameField" hidden><label>Your name</label><input id="authFullName" placeholder="e.g. Isaac"></div>
+        <div class="field"><label>Email</label><input id="authEmail" type="email" placeholder="you@company.com"></div>
+        <div class="field"><label>Password</label><input id="authPassword" type="password" placeholder="At least 6 characters"></div>
+      </div>
+      <div class="edit-hint" id="authError"></div>
+    </div>
+
+    <div id="accountInfo" hidden>
+      <div class="edit-hint" id="accountInfoBody" style="margin-top:6px;"></div>
+    </div>
+
+    <div class="edit-actions">
+      <button class="btn btn-ghost" id="accountCancel">Cancel</button>
+      <button class="btn btn-danger" id="accountLogout" hidden>Log out</button>
+      <button class="btn btn-primary" id="accountSubmit">Sign in</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== CROP SCREEN ===================== -->
+<div class="crop-screen" id="cropScreen" hidden>
+  <div class="crop-top">
+    <button class="icon-btn" id="btnCropCancel" aria-label="Cancel">✕</button>
+    <div class="editor-title">Adjust photo</div>
+    <button class="btn btn-primary btn-sm" id="btnCropUse">Use photo</button>
+  </div>
+  <div class="crop-aspects">
+    <button class="chip active" data-aspect="0.8">Portrait</button>
+    <button class="chip" data-aspect="1">Square</button>
+    <button class="chip" data-aspect="1.33">Landscape</button>
+  </div>
+  <div class="crop-stage" id="cropStageEl">
+    <div class="crop-frame" id="cropFrame"><img id="cropImg" alt=""></div>
+  </div>
+  <div class="crop-hint">Drag to reposition · use the slider to zoom</div>
+  <div class="crop-zoom"><span>Zoom</span><input type="range" id="cropZoom" min="0" max="100" value="0"></div>
+</div>
+
+<!-- ===================== CUSTOMER MODAL ===================== -->
+<div class="edit-sheet" id="customerModal" hidden>
+  <div class="edit-backdrop" id="customerBackdrop"></div>
+  <div class="edit-panel">
+    <div class="edit-title" id="customerModalTitle">New project</div>
+    <div class="modal-form-body">
+      <div class="field"><label>Customer name</label><input id="custName" placeholder="Jane Smith"></div>
+      <div class="field"><label>Phone</label><input id="custPhone" placeholder="(250) 555-0123"></div>
+      <div class="field"><label>Email</label><input id="custEmail" placeholder="jane@email.com"></div>
+      <div class="field"><label>Address</label><input id="custAddress" placeholder="123 Example Rd, Lumby BC"></div>
+    </div>
+    <div class="edit-actions">
+      <button class="btn btn-ghost" id="customerCancel">Cancel</button>
+      <button class="btn btn-primary" id="customerSave">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== AREA NAME MODAL ===================== -->
+<div class="edit-sheet" id="areaNameModal" hidden>
+  <div class="edit-backdrop" id="areaNameBackdrop"></div>
+  <div class="edit-panel">
+    <div class="edit-title">New area</div>
+    <div class="modal-form-body">
+      <div class="field"><label>Area name</label><input id="areaNameInput" placeholder="Front Yard"></div>
+    </div>
+    <div class="edit-actions">
+      <button class="btn btn-ghost" id="areaNameCancel">Cancel</button>
+      <button class="btn btn-primary" id="areaNameCreate">Create</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== FIXTURE FORM MODAL ===================== -->
+<div class="edit-sheet" id="fixtureModal" hidden>
+  <div class="edit-backdrop" id="fixtureBackdrop"></div>
+  <div class="edit-panel">
+    <div class="edit-title" id="fixtureModalTitle">Add fixture</div>
+    <div class="modal-form-body">
+      <div class="field"><label>Category</label>
+        <div class="seg" id="fxCatSeg">
+          <button data-cat="fixture" class="active">Fixture</button>
+          <button data-cat="accessory">Accessory</button>
+          <button data-cat="strip">LED Strip</button>
+        </div>
+      </div>
+      <div class="field"><label>Name</label><input id="fxName" placeholder="e.g. Brass Well Light"></div>
+      <div class="field"><label>Description</label><input id="fxDesc" placeholder="Short one-line description"></div>
+      <div class="form-row-2">
+        <div class="field"><label>Wattage (W)</label><input id="fxWatt" type="number" step="0.1" placeholder="7"></div>
+        <div class="field"><label>Install time (min)</label><input id="fxInstall" type="number" step="1" placeholder="15"></div>
+      </div>
+      <div id="fxLightFields">
+        <div class="form-row-2">
+          <div class="field"><label>Beam angle (°)</label><input id="fxBeam" type="number" step="1" placeholder="40 (use 360 for path lights)"></div>
+          <div class="field"><label>Color temp (K)</label><input id="fxKelvin" type="number" step="50" placeholder="2700"></div>
+        </div>
+        <div class="field"><label>Lumens</label><input id="fxLumens" type="number" step="10" placeholder="300"></div>
+        <div class="field"><label>Default aim</label>
+          <div class="seg" id="fxAimSeg">
+            <button data-aim="up" class="active">Up</button>
+            <button data-aim="down">Down</button>
+          </div>
+        </div>
+      </div>
+      <div id="fxStripFields" style="display:none;">
+        <div class="field"><label>Color temp (K)</label><input id="fxStripKelvin" type="number" step="50" placeholder="3000"></div>
+        <div class="edit-hint">Wattage, install time, cost, and sell price below are all per linear foot — the length you draw on the photo becomes the quantity.</div>
+      </div>
+      <div class="form-row-2">
+        <div class="field"><label>Your cost ($)</label><input id="fxCost" type="number" step="0.01" placeholder="68"></div>
+        <div class="field"><label>Sell price ($)</label><input id="fxPrice" type="number" step="0.01" placeholder="145"></div>
+      </div>
+    </div>
+    <div class="edit-actions">
+      <button class="btn btn-danger" id="fxDelete" hidden>Delete</button>
+      <button class="btn btn-ghost" id="fixtureCancel">Cancel</button>
+      <button class="btn btn-primary" id="fixtureSave">Save</button>
+    </div>
+  </div>
+</div>
+
+<input type="file" id="fileInput" accept="image/*" hidden>
+<input type="file" id="fileInputCamera" accept="image/*" capture="environment" hidden>
+<input type="file" id="logoInput" accept="image/*" hidden>
+<input type="file" id="fixtureImportInput" accept=".xlsx,.xls,.csv" hidden>
+
+<script>
+(function(){
+  "use strict";
+
+  // ---------------- built-in fixture data ----------------
+  const BASE_FIXTURES = [
+    {id:'f1', cat:'fixture', name:'Contour Spot — Small', desc:'Compact accent uplight for shrubs & small trees', beam:40, kelvin:2700, lumens:300, watt:5, rot:0, cost:68, price:145, installTime:15},
+    {id:'f2', cat:'fixture', name:'Contour Spot — Large', desc:'High-output uplight for mature trees & facades', beam:60, kelvin:3000, lumens:500, watt:9, rot:0, cost:92, price:189, installTime:15},
+    {id:'f3', cat:'fixture', name:'Canopy Downlight', desc:'Mounted high in canopy for a moonlighting effect', beam:40, kelvin:2700, lumens:400, watt:7, rot:180, cost:85, price:175, installTime:25},
+    {id:'f4', cat:'fixture', name:'Precision Accent Spot', desc:'Narrow beam for statuary & architectural detail', beam:25, kelvin:2700, lumens:250, watt:4, rot:0, cost:58, price:125, installTime:15},
+    {id:'f5', cat:'fixture', name:'Wide Wash Flood', desc:'Broad wash for walls & building facades', beam:80, kelvin:3000, lumens:600, watt:10, rot:0, cost:98, price:199, installTime:20},
+    {id:'f6', cat:'fixture', name:'Path Light — Classic', desc:'Soft pool of light along walkways', beam:360, kelvin:2700, lumens:150, watt:3, rot:0, cost:75, price:155, installTime:12},
+    {id:'f7', cat:'fixture', name:'Path Light — Modern', desc:'Clean-lined path marker', beam:360, kelvin:3000, lumens:180, watt:3.5, rot:0, cost:82, price:165, installTime:12},
+    {id:'f8', cat:'fixture', name:'In-Ground Well Light', desc:'Flush-mounted uplight for hardscapes & trees', beam:60, kelvin:2700, lumens:300, watt:6, rot:0, cost:95, price:195, installTime:25},
+    {id:'f9', cat:'fixture', name:'Security Flood — Cool', desc:'Bright cool-white wash for entries & driveways', beam:70, kelvin:4000, lumens:700, watt:12, rot:180, cost:110, price:225, installTime:20},
+    {id:'a1', cat:'accessory', name:'300W Transformer', desc:'Multi-tap transformer with photocell & timer', watt:0, cost:210, price:385, installTime:30},
+    {id:'a2', cat:'accessory', name:'600W Transformer', desc:'For larger designs (30+ fixtures)', watt:0, cost:340, price:595, installTime:35},
+    {id:'a3', cat:'accessory', name:'12AWG Cable (100ft)', desc:'Direct-burial low-voltage cable', watt:0, cost:65, price:120, installTime:10},
+    {id:'a4', cat:'accessory', name:'Wire Connector', desc:'Waterproof gel-filled connector', watt:0, cost:2, price:6, installTime:1},
+    {id:'a5', cat:'accessory', name:'Ground Stake', desc:'Mounting stake for uplights & spots', watt:0, cost:8, price:18, installTime:2},
+    {id:'a6', cat:'accessory', name:'Junction Box', desc:'In-ground splice enclosure', watt:0, cost:22, price:45, installTime:12},
+    {id:'st1', cat:'strip', name:'LED Strip Light', desc:'Flexible linear LED strip for steps, railings & edges (priced per foot)', kelvin:3000, watt:1.2, cost:6, price:14, installTime:2},
+  ];
+
+  // ---------------- state ----------------
+  function freshState(){
+    return {
+      projects: [],
+      currentProjectId: null,
+      currentAreaId: null,
+      customFixtures: [],
+      fixtureOverrides: {},
+      fixtureMgmtCat: 'fixture',
+      company: {logo:null, name:'', phone:'', email:'', address:'', website:'', taxRate:0, taxLabel:'Tax',
+        quoteAccent:'#F0A84E', pdfLogoSize:30, pdfFontSize:10, pdfBgColor:'#FFFFFF', headingAlign:'left',
+        sectionOrder:['header','customer','areas','load','quote']},
+      sheetCat: 'fixture',
+      armed: null,
+      selected: null,
+      quoteMode: 'customer',
+      drawingWire: false,
+      currentWirePath: null,
+      selectedWire: null,
+      drawingStripFixtureId: null,
+      currentStripPath: null,
+      activeProfile: null,
+    };
+  }
+  let state = freshState();
+  let uidCounter = 1;
+  let lastPlacedUid = null;
+  let cropCtx = null;
+  let customerModalMode = 'new';
+  let pendingWirePath = null;
+  let editingWireId = null;
+  let pendingStripPath = null;
+  let editingStripId = null;
+  let suppressNextCanvasClick = false;
+  let view = {zoom:1, panX:0, panY:0}; // canvas pan/zoom for precise placement (desktop ctrl+scroll)
+
+  // ---------------- Supabase auth ----------------
+  const SUPABASE_URL = 'https://bolwcxusbfsizsjtulvr.supabase.co';
+  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJvbHdjeHVzYmZzaXpzanR1bHZyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY5ODI4NzksImV4cCI6MjEwMjU1ODg3OX0.5P0-V9moSXtfus5h77kHZfiCIyZU8SV9PNz5PyNDRac';
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  let authUser = null;     // {id, email} for the signed-in Supabase user, or null
+  let authProfile = null;  // {companyId, companyName, fullName, role} from the profiles table
+  let authMode = 'signin'; // 'signin' | 'signup', which tab the account modal is showing
+
+  const $ = id => document.getElementById(id);
+  const money = n => (n||0).toLocaleString('en-US',{style:'currency',currency:'USD'});
+  const specStr = f => `${f.beam>=360?'360°':f.beam+'°'} · ${f.kelvin}K · ${f.lumens}lm`;
+
+  // ---------------- fixture catalog helpers ----------------
+  function allFixtures(){
+    return BASE_FIXTURES.map(f=> state.fixtureOverrides[f.id] ? {...f, ...state.fixtureOverrides[f.id], id:f.id} : f)
+      .concat(state.customFixtures);
+  }
+  function findFixture(id){ return allFixtures().find(f=>f.id===id); }
+
+  // ---------------- project / area helpers ----------------
+  function currentProject(){ return state.projects.find(p=>p.id===state.currentProjectId); }
+  function currentArea(){ const pr=currentProject(); return pr ? pr.areas.find(a=>a.id===state.currentAreaId) : null; }
+  function photoFilterFor(area){ return `brightness(${1-(area.darkness!=null?area.darkness:0.6)*0.75}) contrast(1.12) saturate(.9)`; }
+  function areaWatts(area){
+    const fixtureWatts = area.placements.reduce((s,p)=>{ const f=findFixture(p.fixtureId); return s+((f&&f.watt)?f.watt:0); },0);
+    const stripWatts = (area.lightStrips||[]).reduce((s,r)=>{ const f=findFixture(r.fixtureId); return s+((f&&f.watt)?f.watt*(r.lengthFt||0):0); },0);
+    return fixtureWatts + stripWatts;
+  }
+  function areaWireFeet(area){ return (area.wireRuns||[]).reduce((s,w)=>s+(w.distanceFt||0),0); }
+
+  // ---------------- canvas pan/zoom (desktop: ctrl + scroll) ----------------
+  function resetView(){
+    view.zoom = 1; view.panX = 0; view.panY = 0;
+    applyZoomTransform();
+  }
+  function applyZoomTransform(){
+    const zl = $('zoomLayer');
+    if(zl) zl.style.transform = `translate(${view.panX}px, ${view.panY}px) scale(${view.zoom})`;
+    updateZoomBadge();
+  }
+  function updateZoomBadge(){
+    const badge = $('zoomBadge'); if(!badge) return;
+    if(Math.abs(view.zoom-1) > 0.02){
+      badge.hidden = false;
+      badge.textContent = Math.round(view.zoom*100)+'%';
+    } else {
+      badge.hidden = true;
+    }
+  }
+  function clampPan(containerRect){
+    const scaledW = containerRect.width*view.zoom, scaledH = containerRect.height*view.zoom;
+    if(scaledW <= containerRect.width){ view.panX = (containerRect.width-scaledW)/2; }
+    else { view.panX = Math.min(0, Math.max(containerRect.width-scaledW, view.panX)); }
+    if(scaledH <= containerRect.height){ view.panY = (containerRect.height-scaledH)/2; }
+    else { view.panY = Math.min(0, Math.max(containerRect.height-scaledH, view.panY)); }
+  }
+  // Converts a screen point (e.g. e.clientX/Y) into the placement's xPct/yPct,
+  // accounting for the current pan/zoom of the canvas.
+  function screenToLocalPct(clientX, clientY){
+    const containerRect = $('canvasPhoto').getBoundingClientRect();
+    const cx = clientX-containerRect.left, cy = clientY-containerRect.top;
+    const lx = (cx-view.panX)/view.zoom, ly = (cy-view.panY)/view.zoom;
+    return { xPct: lx/containerRect.width*100, yPct: ly/containerRect.height*100 };
+  }
+
+  function kelvinColor(k){
+    if(k<=2700) return '255,183,107';
+    if(k<=3000) return '255,205,148';
+    if(k<=3500) return '255,219,181';
+    return '214,231,255';
+  }
+  function polar(a,r){ const rad=a*Math.PI/180; return {x:200+r*Math.sin(rad), y:200-r*Math.cos(rad)}; }
+  function clampR(v,rect){ return Math.min(Math.max(v,40), Math.max(rect.width,rect.height)*0.85); }
+
+  // ---------------- beam rendering ----------------
+  function buildBeamHtml(p,f,rect,selected,masterBB){
+    const bb = (p.brightness!=null ? p.brightness : (masterBB==null?1:masterBB));
+    const kelvin = (p.kelvin!=null ? p.kelvin : f.kelvin);
+    const col = kelvinColor(kelvin);
+    const beamW = (p.beamWidth!=null ? p.beamWidth : f.beam);
+    let html, hx, hy, wx, wy;
+    if(beamW>=360){
+      const R = clampR((60+f.lumens/5)*p.reach*(rect.width/380), rect) * 0.7;
+      const o1 = Math.min(1,(selected?0.8:0.65)*bb);
+      const o2 = Math.min(1,(selected?0.4:0.3)*bb);
+      html = `<div class="pool" style="width:${R*2}px;height:${R*2}px;background:radial-gradient(circle, rgba(${col},${o1}) 0%, rgba(${col},${o2}) 45%, rgba(${col},0) 100%);"></div>`;
+      hx = R*Math.sin(135*Math.PI/180); hy = -R*Math.cos(135*Math.PI/180);
+      wx = hx; wy = hy;
+    } else {
+      const R = clampR((60+f.lumens/5)*p.reach*(rect.width/380), rect);
+      const half = beamW/2;
+      const p1 = polar(-half,190), p2 = polar(half,190);
+      const largeArc = beamW>180?1:0;
+      const gid = 'g'+p.uid;
+      const o1 = Math.min(1,(selected?0.95:0.8)*bb);
+      const o2 = Math.min(1,(selected?0.5:0.38)*bb);
+      const d = `M200,200 L${p1.x.toFixed(1)},${p1.y.toFixed(1)} A190,190 0 ${largeArc} 1 ${p2.x.toFixed(1)},${p2.y.toFixed(1)} Z`;
+      html = `<svg viewBox="0 0 400 400" width="${R*2}" height="${R*2}" class="beam-svg" style="transform:translate(-50%,-50%) rotate(${p.rotation}deg)">
+        <defs><radialGradient id="${gid}" cx="200" cy="200" r="190" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stop-color="rgb(${col})" stop-opacity="${o1}"/>
+          <stop offset="45%" stop-color="rgb(${col})" stop-opacity="${o2}"/>
+          <stop offset="100%" stop-color="rgb(${col})" stop-opacity="0"/>
+        </radialGradient></defs>
+        <path d="${d}" fill="url(#${gid})"/>
+      </svg>`;
+      hx = R*Math.sin(p.rotation*Math.PI/180); hy = -R*Math.cos(p.rotation*Math.PI/180);
+      const wAng = p.rotation+half;
+      wx = R*Math.sin(wAng*Math.PI/180); wy = -R*Math.cos(wAng*Math.PI/180);
+    }
+    return {html, hx, hy, wx, wy};
+  }
+  function baseReachRadius(f, rect){ return clampR((60+f.lumens/5)*(rect.width/380), rect); }
+
+  function escapeHtml(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+  function buildStaticOverlaysHtml(area, rect){
+    return area.placements.map(p=>{
+      const f = findFixture(p.fixtureId); if(!f) return '';
+      const {html} = buildBeamHtml(p,f,rect,false,area.beamBrightness);
+      return `<div class="placement" style="left:${p.xPct}%;top:${p.yPct}%;">
+        <div class="beam-layer">${html}</div>
+        <div class="place-dot"></div>
+        <div class="place-label">${escapeHtml(f.name)}</div>
+      </div>`;
+    }).join('');
+  }
+
+  // ---------------- overlay rendering (area editor) ----------------
+  function renderOverlays(){
+    const area = currentArea();
+    const wrap = $('overlays');
+    if(!area || !area.photo){ wrap.innerHTML=''; renderWireLayer(); return; }
+    const rect = $('canvasPhoto').getBoundingClientRect();
+    if(!rect.width) return;
+    wrap.innerHTML = area.placements.map(p=>{
+      const f = findFixture(p.fixtureId);
+      if(!f) return '';
+      const selected = state.selected===p.uid;
+      const justPlaced = lastPlacedUid===p.uid;
+      const {html, hx, hy, wx, wy} = buildBeamHtml(p,f,rect,selected,area.beamBrightness);
+      const beamW = (p.beamWidth!=null ? p.beamWidth : f.beam);
+      const widthHandle = beamW<360 ? `<div class="width-handle" data-uid="${p.uid}" style="left:${wx}px;top:${wy}px;"></div>` : '';
+      return `<div class="placement" data-uid="${p.uid}" style="left:${p.xPct}%;top:${p.yPct}%;">
+        <div class="beam-layer">${html}</div>
+        <div class="beam-handle" data-uid="${p.uid}" style="left:${hx}px;top:${hy}px;"></div>
+        ${widthHandle}
+        <div class="marker-dot ${selected?'is-selected':''} ${justPlaced?'just-placed':''}" data-uid="${p.uid}"></div>
+      </div>`;
+    }).join('');
+    attachPlacementHandlers();
+    renderWireLayer();
+    renderStripLayer();
+  }
+
+  // ---------------- wire runs ----------------
+  function renderWireLayer(){
+    const area = currentArea();
+    const svg = $('wireSvg'); const labelsBox = $('wireLabels');
+    if(!svg || !labelsBox) return;
+    if(!area){ svg.innerHTML=''; labelsBox.innerHTML=''; return; }
+    const runs = area.wireRuns||[];
+    svg.innerHTML = runs.map(w=>{
+      const pts = w.points.map(p=>`${p.xPct},${p.yPct}`).join(' ');
+      return `<polyline points="${pts}" class="wire-hit" data-id="${w.id}"/><polyline points="${pts}" class="wire-line"/>`;
+    }).join('') + (state.currentWirePath && state.currentWirePath.length>1
+      ? `<polyline points="${state.currentWirePath.map(p=>`${p.xPct},${p.yPct}`).join(' ')}" class="wire-line wire-draft"/>`
+      : '');
+    labelsBox.innerHTML = runs.map(w=>{
+      const mid = w.points[Math.floor(w.points.length/2)];
+      return `<div class="wire-label" style="left:${mid.xPct}%;top:${mid.yPct}%;">${Math.round(w.distanceFt||0)} ft</div>`;
+    }).join('');
+    svg.querySelectorAll('.wire-hit').forEach(el=>{
+      el.addEventListener('click', e=>{ e.stopPropagation(); openWireEdit(el.dataset.id); });
+    });
+  }
+
+  // ---------------- LED light strips ----------------
+  function buildStripSvgHtml(runs, draftPath){
+    const runsHtml = runs.map(s=>{
+      const f = findFixture(s.fixtureId);
+      const col = f ? kelvinColor(f.kelvin) : '255,205,148';
+      const pts = s.points.map(p=>`${p.xPct},${p.yPct}`).join(' ');
+      return `<polyline points="${pts}" class="strip-hit" data-id="${s.id}"/>
+        <polyline points="${pts}" class="strip-glow" style="stroke:rgb(${col});"/>
+        <polyline points="${pts}" class="strip-core" style="stroke:rgb(${col});"/>`;
+    }).join('');
+    let draftHtml = '';
+    if(draftPath && draftPath.length>1){
+      const f = findFixture(state.drawingStripFixtureId);
+      const col = f ? kelvinColor(f.kelvin) : '255,205,148';
+      const pts = draftPath.map(p=>`${p.xPct},${p.yPct}`).join(' ');
+      draftHtml = `<polyline points="${pts}" class="strip-glow strip-draft" style="stroke:rgb(${col});"/>
+        <polyline points="${pts}" class="strip-core strip-draft" style="stroke:rgb(${col});"/>`;
+    }
+    return runsHtml + draftHtml;
+  }
+  function renderStripLayer(){
+    const area = currentArea();
+    const svg = $('stripSvg'); const labelsBox = $('stripLabels');
+    if(!svg || !labelsBox) return;
+    if(!area){ svg.innerHTML=''; labelsBox.innerHTML=''; return; }
+    const runs = area.lightStrips||[];
+    svg.innerHTML = buildStripSvgHtml(runs, state.currentStripPath);
+    labelsBox.innerHTML = runs.map(s=>{
+      const f = findFixture(s.fixtureId);
+      const col = f ? kelvinColor(f.kelvin) : '255,205,148';
+      const mid = s.points[Math.floor(s.points.length/2)];
+      return `<div class="strip-label" style="left:${mid.xPct}%;top:${mid.yPct}%;color:rgb(${col});border:1px solid rgba(${col},.5);">${Math.round(s.lengthFt||0)} ft${f?' · '+f.name:''}</div>`;
+    }).join('');
+    svg.querySelectorAll('.strip-hit').forEach(el=>{
+      el.addEventListener('click', e=>{ e.stopPropagation(); openStripEdit(el.dataset.id); });
+    });
+  }
+  function openStripLengthModal(path, fixtureId){
+    pendingStripPath = path;
+    pendingStripPath._fixtureId = fixtureId;
+    editingStripId = null;
+    $('stripLengthInput').value = '';
+    $('stripDelete').hidden = true;
+    $('stripModal').hidden = false;
+  }
+  function openStripEdit(id){
+    const area = currentArea(); if(!area) return;
+    const s = (area.lightStrips||[]).find(x=>x.id===id);
+    if(!s) return;
+    pendingStripPath = null;
+    editingStripId = id;
+    $('stripLengthInput').value = s.lengthFt;
+    $('stripDelete').hidden = false;
+    $('stripModal').hidden = false;
+  }
+  function closeStripModal(){
+    $('stripModal').hidden = true;
+    pendingStripPath = null; editingStripId = null;
+    renderOverlays();
+  }
+  function saveStripModal(){
+    const area = currentArea(); if(!area) return;
+    const len = parseFloat($('stripLengthInput').value)||0;
+    if(!area.lightStrips) area.lightStrips = [];
+    if(pendingStripPath){
+      const id = 'ls'+(uidCounter++);
+      area.lightStrips.push({id, fixtureId:pendingStripPath._fixtureId, points:pendingStripPath, lengthFt:len});
+    } else if(editingStripId){
+      const s = area.lightStrips.find(x=>x.id===editingStripId);
+      if(s) s.lengthFt = len;
+    }
+    $('stripModal').hidden = true;
+    pendingStripPath = null; editingStripId = null;
+    state.drawingStripFixtureId = null;
+    updatePlacementBanner();
+    renderOverlays(); renderSheetList(); updateEditorStats();
+  }
+  function deleteLightStrip(){
+    const area = currentArea(); if(!area || !editingStripId) return;
+    area.lightStrips = (area.lightStrips||[]).filter(s=>s.id!==editingStripId);
+    $('stripModal').hidden = true;
+    editingStripId = null;
+    renderOverlays(); renderSheetList(); updateEditorStats();
+  }
+  function areaStripFeet(area){ return (area.lightStrips||[]).reduce((s,r)=>s+(r.lengthFt||0),0); }
+
+  function openWireDistanceModal(path){
+    pendingWirePath = path;
+    editingWireId = null;
+    $('wireDistanceInput').value = '';
+    $('wireDelete').hidden = true;
+    $('wireModal').hidden = false;
+  }
+  function openWireEdit(id){
+    const area = currentArea(); if(!area) return;
+    const w = (area.wireRuns||[]).find(x=>x.id===id);
+    if(!w) return;
+    pendingWirePath = null;
+    editingWireId = id;
+    $('wireDistanceInput').value = w.distanceFt;
+    $('wireDelete').hidden = false;
+    $('wireModal').hidden = false;
+  }
+  function closeWireModal(){
+    $('wireModal').hidden = true;
+    pendingWirePath = null; editingWireId = null;
+    renderOverlays();
+  }
+  function saveWireModal(){
+    const area = currentArea(); if(!area) return;
+    const dist = parseFloat($('wireDistanceInput').value)||0;
+    if(!area.wireRuns) area.wireRuns = [];
+    if(pendingWirePath){
+      const id = 'w'+(uidCounter++);
+      area.wireRuns.push({id, points:pendingWirePath, distanceFt:dist});
+    } else if(editingWireId){
+      const w = area.wireRuns.find(x=>x.id===editingWireId);
+      if(w) w.distanceFt = dist;
+    }
+    $('wireModal').hidden = true;
+    pendingWirePath = null; editingWireId = null;
+    state.drawingWire = false;
+    updateDrawWireBtn();
+    updatePlacementBanner();
+    renderOverlays(); updateEditorStats();
+  }
+  function deleteWireRun(){
+    const area = currentArea(); if(!area || !editingWireId) return;
+    area.wireRuns = (area.wireRuns||[]).filter(w=>w.id!==editingWireId);
+    $('wireModal').hidden = true;
+    editingWireId = null;
+    renderOverlays(); updateEditorStats();
+  }
+  function updateDrawWireBtn(){
+    const btn = $('btnDrawWire'); if(!btn) return;
+    btn.classList.toggle('is-active', state.drawingWire);
+    btn.textContent = state.drawingWire ? 'Drawing…' : 'Draw wire run';
+  }
+
+  function updatePlacementBeam(p,f,rect){
+    const area = currentArea(); if(!area) return;
+    const wrapper = document.querySelector(`.placement[data-uid="${p.uid}"]`);
+    if(!wrapper) return;
+    const layer = wrapper.querySelector('.beam-layer');
+    const handle = wrapper.querySelector('.beam-handle');
+    const widthHandle = wrapper.querySelector('.width-handle');
+    const {html, hx, hy, wx, wy} = buildBeamHtml(p,f,rect,state.selected===p.uid,area.beamBrightness);
+    if(layer) layer.innerHTML = html;
+    if(handle){ handle.style.left = hx+'px'; handle.style.top = hy+'px'; }
+    if(widthHandle){ widthHandle.style.left = wx+'px'; widthHandle.style.top = wy+'px'; }
+  }
+
+  // ---------------- drag helper ----------------
+  function makeDraggable(el, {onMove, onEnd}){
+    el.addEventListener('pointerdown', e=>{
+      e.preventDefault(); e.stopPropagation();
+      try{ el.setPointerCapture(e.pointerId); }catch(err){}
+      const startX=e.clientX, startY=e.clientY;
+      let dragging=false;
+      function move(ev){
+        const dx=ev.clientX-startX, dy=ev.clientY-startY;
+        if(!dragging && Math.hypot(dx,dy)>4) dragging=true;
+        if(dragging){ ev.preventDefault(); onMove(ev); }
+      }
+      function up(ev){
+        el.removeEventListener('pointermove', move);
+        el.removeEventListener('pointerup', up);
+        el.removeEventListener('pointercancel', up);
+        onEnd(ev, dragging);
+      }
+      el.addEventListener('pointermove', move);
+      el.addEventListener('pointerup', up);
+      el.addEventListener('pointercancel', up);
+    });
+    el.addEventListener('click', e=> e.stopPropagation());
+  }
+
+  function attachPlacementHandlers(){
+    const area = currentArea(); if(!area) return;
+    area.placements.forEach(p=>{
+      const f = findFixture(p.fixtureId);
+      if(!f) return;
+      const beamW = (p.beamWidth!=null ? p.beamWidth : f.beam);
+      const dot = document.querySelector(`.marker-dot[data-uid="${p.uid}"]`);
+      const handle = document.querySelector(`.beam-handle[data-uid="${p.uid}"]`);
+      const widthHandle = document.querySelector(`.width-handle[data-uid="${p.uid}"]`);
+
+      if(dot){
+        makeDraggable(dot, {
+          onMove:(ev)=>{
+            const loc = screenToLocalPct(ev.clientX, ev.clientY);
+            let xPct = Math.min(97,Math.max(3,loc.xPct));
+            let yPct = Math.min(97,Math.max(3,loc.yPct));
+            p.xPct = xPct; p.yPct = yPct;
+            const wrapper = document.querySelector(`.placement[data-uid="${p.uid}"]`);
+            if(wrapper){ wrapper.style.left=xPct+'%'; wrapper.style.top=yPct+'%'; }
+          },
+          onEnd:(ev,wasDragging)=>{ wasDragging ? renderOverlays() : openInfoSheet(p.uid); }
+        });
+      }
+      if(handle){
+        makeDraggable(handle, {
+          onMove:(ev)=>{
+            const rect = $('canvasPhoto').getBoundingClientRect();
+            const wrapper = document.querySelector(`.placement[data-uid="${p.uid}"]`);
+            if(!wrapper) return;
+            const wr = wrapper.getBoundingClientRect();
+            // wr already reflects the current pan/zoom (browser computes post-transform rects),
+            // so divide by view.zoom to get the equivalent distance in the same base-pixel
+            // space that baseR/hx/hy are computed in.
+            const dx = (ev.clientX-wr.left)/view.zoom, dy = (ev.clientY-wr.top)/view.zoom;
+            const baseR = baseReachRadius(f, rect);
+            let reach = Math.hypot(dx,dy)/baseR;
+            reach = Math.min(4, Math.max(0.15, reach));
+            p.reach = reach;
+            if(beamW<360){
+              let ang = Math.atan2(dx,-dy)*180/Math.PI;
+              ang = ((ang%360)+360)%360;
+              p.rotation = Math.round(ang/5)*5;
+            }
+            updatePlacementBeam(p,f,rect);
+            if(beamW>=360){
+              const handleEl = document.querySelector(`.beam-handle[data-uid="${p.uid}"]`);
+              if(handleEl){
+                const dist = reach*baseR*0.7;
+                const ang = Math.atan2(dx,-dy);
+                handleEl.style.left = (dist*Math.sin(ang))+'px';
+                handleEl.style.top = (-dist*Math.cos(ang))+'px';
+              }
+            }
+          },
+          onEnd:(ev,wasDragging)=>{ wasDragging ? renderOverlays() : openInfoSheet(p.uid); }
+        });
+      }
+      if(widthHandle){
+        makeDraggable(widthHandle, {
+          onMove:(ev)=>{
+            const rect = $('canvasPhoto').getBoundingClientRect();
+            const wrapper = document.querySelector(`.placement[data-uid="${p.uid}"]`);
+            if(!wrapper) return;
+            const wr = wrapper.getBoundingClientRect();
+            const dx = (ev.clientX-wr.left)/view.zoom, dy = (ev.clientY-wr.top)/view.zoom;
+            let ang = Math.atan2(dx,-dy)*180/Math.PI;
+            // angle from the bisector (rotation) to the drag point, doubled = full beam width
+            let delta = ang - p.rotation;
+            delta = ((delta+540)%360)-180; // normalize to -180..180
+            let width = Math.abs(delta)*2;
+            width = Math.min(170, Math.max(6, Math.round(width/5)*5));
+            p.beamWidth = width;
+            updatePlacementBeam(p,f,rect);
+          },
+          onEnd:(ev,wasDragging)=>{ wasDragging ? renderOverlays() : openInfoSheet(p.uid); }
+        });
+      }
+    });
+  }
+
+  // ---------------- canvas tap (armed placement) ----------------
+  function handleCanvasClick(e){
+    if(suppressNextCanvasClick){ suppressNextCanvasClick=false; return; }
+    const area = currentArea(); if(!area) return;
+    if(state.drawingWire || state.drawingStripFixtureId) return;
+    if(e.target.closest('.marker-dot') || e.target.closest('.beam-handle') || e.target.closest('.width-handle')) return;
+    const loc = screenToLocalPct(e.clientX, e.clientY);
+    let xPct = Math.min(96, Math.max(4, loc.xPct));
+    let yPct = Math.min(96, Math.max(4, loc.yPct));
+
+    if(state.armed){
+      const f = findFixture(state.armed);
+      const uid = 'p'+(uidCounter++);
+      area.placements.push({uid, fixtureId:f.id, xPct, yPct, rotation:f.rot||0, reach:1});
+      lastPlacedUid = uid;
+      renderOverlays(); updatePlacementBanner(); renderSheetList(); updateQuoteBar(); updateEditorStats();
+      return;
+    }
+    if(state.selected){ state.selected=null; closeInfoSheet(); renderOverlays(); }
+  }
+
+  // ---------------- info sheet ----------------
+  function openInfoSheet(uid){
+    state.selected = uid;
+    renderOverlays();
+    const area = currentArea(); if(!area) return;
+    const p = area.placements.find(pp=>pp.uid===uid);
+    if(!p) return;
+    const f = findFixture(p.fixtureId);
+    $('infoTitle').textContent = f.name;
+    $('infoSpec').textContent = `${specStr(f)} · ${f.watt}W`;
+    const kelvin = (p.kelvin!=null ? p.kelvin : f.kelvin);
+    $('infoKelvin').value = kelvin;
+    $('infoKelvinVal').textContent = kelvin+'K';
+    const usingMaster = p.brightness==null;
+    $('infoBrightness').value = Math.round((usingMaster ? area.beamBrightness : p.brightness)*100);
+    $('infoBrightnessVal').textContent = (usingMaster?'Master · ':'') + Math.round((usingMaster ? area.beamBrightness : p.brightness)*100)+'%';
+    $('infoUseMasterBrightness').style.display = usingMaster ? 'none' : 'block';
+    $('infoSheet').hidden = false;
+  }
+  function closeInfoSheet(){ $('infoSheet').hidden = true; }
+  function infoDone(){ state.selected=null; closeInfoSheet(); renderOverlays(); }
+  function infoRemove(){
+    const area = currentArea(); if(!area) return;
+    area.placements = area.placements.filter(p=>p.uid!==state.selected);
+    state.selected = null; closeInfoSheet(); renderOverlays(); renderSheetList(); updateQuoteBar(); updateEditorStats();
+  }
+  function duplicatePlacement(){
+    const area = currentArea(); if(!area) return;
+    const p = area.placements.find(pp=>pp.uid===state.selected);
+    if(!p) return;
+    const uid = 'p'+(uidCounter++);
+    const copy = {
+      uid,
+      fixtureId: p.fixtureId,
+      xPct: Math.min(94, p.xPct+4),
+      yPct: Math.min(94, p.yPct+4),
+      rotation: p.rotation,
+      reach: p.reach,
+      beamWidth: p.beamWidth,
+      kelvin: p.kelvin,
+      brightness: p.brightness,
+    };
+    area.placements.push(copy);
+    lastPlacedUid = uid;
+    state.selected = uid;
+    closeInfoSheet();
+    renderOverlays(); renderSheetList(); updateQuoteBar(); updateEditorStats();
+  }
+
+  // ---------------- placement banner ----------------
+  function updatePlacementBanner(){
+    const banner = $('placementBanner');
+    const cp = $('canvasPhoto');
+    if(state.armed){
+      const f = findFixture(state.armed);
+      const area = currentArea();
+      const count = area ? area.placements.filter(p=>p.fixtureId===state.armed).length : 0;
+      $('placementText').textContent = `Tap the photo to place: ${f.name}${count? ' · '+count+' placed':''}`;
+      $('btnBannerAction').textContent = 'Done';
+      $('btnBannerAction').onclick = ()=>{ state.armed=null; updatePlacementBanner(); renderSheetList(); };
+      banner.hidden = false;
+    } else if(state.drawingWire){
+      $('placementText').textContent = 'Drag on the photo to draw a wire run';
+      $('btnBannerAction').textContent = 'Done';
+      $('btnBannerAction').onclick = ()=>{ state.drawingWire=false; updateDrawWireBtn(); updatePlacementBanner(); };
+      banner.hidden = false;
+    } else if(state.drawingStripFixtureId){
+      const sf = findFixture(state.drawingStripFixtureId);
+      $('placementText').textContent = `Drag on the photo to draw: ${sf?sf.name:'LED strip'}`;
+      $('btnBannerAction').textContent = 'Done';
+      $('btnBannerAction').onclick = ()=>{ state.drawingStripFixtureId=null; renderSheetList(); updatePlacementBanner(); };
+      banner.hidden = false;
+    } else {
+      banner.hidden = true;
+    }
+    if(cp) cp.classList.toggle('is-armed', !!state.armed || !!state.drawingWire || !!state.drawingStripFixtureId);
+  }
+
+  // ---------------- fixture picker (inside area editor) ----------------
+  function renderSheetList(){
+    const area = currentArea(); if(!area) return;
+    const list = allFixtures().filter(f=>f.cat===state.sheetCat);
+    $('sheetList').innerHTML = list.map(f=>{
+      if(f.cat==='fixture'){
+        const armed = state.armed===f.id;
+        return `<div class="fx-card ${armed?'is-armed':''}">
+          <div class="fx-main">
+            <div class="fx-name">${f.name}</div>
+            <div class="fx-desc">${f.desc||''}</div>
+            <div class="fx-spec">${specStr(f)}</div>
+          </div>
+          <div class="fx-side">
+            <div class="fx-price">${money(f.price)}</div>
+            <button class="btn-add" data-arm="${f.id}">${armed?'Placing…':'+ Place'}</button>
+          </div>
+        </div>`;
+      } else if(f.cat==='strip'){
+        const drawing = state.drawingStripFixtureId===f.id;
+        const totalFt = (area.lightStrips||[]).filter(s=>s.fixtureId===f.id).reduce((s,r)=>s+(r.lengthFt||0),0);
+        return `<div class="fx-card ${drawing?'is-armed':''}">
+          <div class="fx-main">
+            <div class="fx-name">${f.name}</div>
+            <div class="fx-desc">${f.desc||''}</div>
+            <div class="fx-spec">${f.kelvin}K · ${f.watt}W/ft${totalFt>0?' · '+Math.round(totalFt)+' ft drawn':''}</div>
+          </div>
+          <div class="fx-side">
+            <div class="fx-price">${money(f.price)}/ft</div>
+            <button class="btn-add" data-arm-strip="${f.id}">${drawing?'Drawing…':'+ Draw'}</button>
+          </div>
+        </div>`;
+      } else {
+        const qty = area.accessoryQty[f.id]||0;
+        return `<div class="fx-card">
+          <div class="fx-main"><div class="fx-name">${f.name}</div><div class="fx-desc">${f.desc||''}</div></div>
+          <div class="fx-side">
+            <div class="fx-price">${money(f.price)}</div>
+            <div class="stepper"><button data-dec="${f.id}">−</button><span class="mono">${qty}</span><button data-inc="${f.id}">+</button></div>
+          </div>
+        </div>`;
+      }
+    }).join('');
+    $('sheetList').querySelectorAll('[data-arm]').forEach(b=>b.addEventListener('click', e=>{
+      const id = e.currentTarget.dataset.arm;
+      state.armed = state.armed===id ? null : id;
+      state.drawingWire = false; state.drawingStripFixtureId = null;
+      state.selected = null; closeInfoSheet();
+      renderSheetList(); updatePlacementBanner(); renderOverlays();
+    }));
+    $('sheetList').querySelectorAll('[data-arm-strip]').forEach(b=>b.addEventListener('click', e=>{
+      const id = e.currentTarget.dataset.armStrip;
+      state.drawingStripFixtureId = state.drawingStripFixtureId===id ? null : id;
+      state.armed = null; state.drawingWire = false;
+      state.selected = null; closeInfoSheet();
+      renderSheetList(); updatePlacementBanner(); renderOverlays();
+    }));
+    $('sheetList').querySelectorAll('[data-inc]').forEach(b=>b.addEventListener('click', e=>{
+      const id = e.currentTarget.dataset.inc;
+      area.accessoryQty[id] = (area.accessoryQty[id]||0)+1;
+      renderSheetList(); updateQuoteBar(); updateEditorStats();
+    }));
+    $('sheetList').querySelectorAll('[data-dec]').forEach(b=>b.addEventListener('click', e=>{
+      const id = e.currentTarget.dataset.dec;
+      area.accessoryQty[id] = Math.max(0,(area.accessoryQty[id]||0)-1);
+      renderSheetList(); updateQuoteBar(); updateEditorStats();
+    }));
+  }
+  function toggleSheet(force){
+    const sheet = $('sheet');
+    const expanded = typeof force==='boolean' ? force : !sheet.classList.contains('expanded');
+    sheet.classList.toggle('expanded', expanded);
+    const tab = $('sheetToggleTab');
+    if(tab) tab.innerHTML = expanded ? '<span>Fixtures ◂</span>' : '<span>Fixtures ▸</span>';
+    // canvas size changes as the side panel opens/closes; resize to the photo's aspect first,
+    // then resync zoom/pan once the transition settles
+    clearTimeout(toggleSheet._t);
+    toggleSheet._t = setTimeout(()=>{
+      const cp = $('canvasPhoto');
+      if(cp && !cp.hidden){
+        sizeCanvasToAspect();
+        clampPan(cp.getBoundingClientRect());
+        applyZoomTransform();
+      }
+      renderOverlays();
+    }, 300);
+  }
+
+  // ---------------- quote math ----------------
+  function computeAreaLineItems(area){
+    const counts = {};
+    area.placements.forEach(p=> counts[p.fixtureId]=(counts[p.fixtureId]||0)+1 );
+    Object.entries(area.accessoryQty).forEach(([id,q])=>{ if(q>0) counts[id]=(counts[id]||0)+q; });
+    (area.lightStrips||[]).forEach(s=>{ counts[s.fixtureId]=(counts[s.fixtureId]||0)+(s.lengthFt||0); });
+    return Object.entries(counts).map(([id,qtyRaw])=>{
+      const f = findFixture(id); if(!f) return null;
+      const qty = f.cat==='strip' ? Math.ceil(qtyRaw) : qtyRaw;
+      return {...f, qty, lineCost:f.cost*qty, linePrice:f.price*qty};
+    }).filter(Boolean).sort((a,b)=> a.cat===b.cat ? a.name.localeCompare(b.name) : (a.cat==='fixture'?-1:1));
+  }
+  function computeProjectLineItems(pr){
+    const counts = {};
+    pr.areas.forEach(area=>{
+      area.placements.forEach(p=> counts[p.fixtureId]=(counts[p.fixtureId]||0)+1 );
+      Object.entries(area.accessoryQty).forEach(([id,q])=>{ if(q>0) counts[id]=(counts[id]||0)+q; });
+      (area.lightStrips||[]).forEach(s=>{ counts[s.fixtureId]=(counts[s.fixtureId]||0)+(s.lengthFt||0); });
+    });
+    return Object.entries(counts).map(([id,qtyRaw])=>{
+      const f = findFixture(id); if(!f) return null;
+      const qty = f.cat==='strip' ? Math.ceil(qtyRaw) : qtyRaw;
+      return {...f, qty, lineCost:f.cost*qty, linePrice:f.price*qty};
+    }).filter(Boolean).sort((a,b)=> a.cat===b.cat ? a.name.localeCompare(b.name) : (a.cat==='fixture'?-1:1));
+  }
+
+  function updateQuoteBar(){
+    const area = currentArea();
+    const el = $('quoteBarEditor');
+    if(!area || !el) return;
+    const items = computeAreaLineItems(area);
+    const count = items.reduce((s,i)=>s+i.qty,0);
+    const total = items.reduce((s,i)=>s+i.linePrice,0);
+    el.hidden = count===0;
+    const c = el.querySelector('.quote-bar-count'); const t = el.querySelector('.quote-bar-total');
+    if(c) c.textContent = `${count} item${count!==1?'s':''} in this area`;
+    if(t) t.textContent = money(total);
+  }
+  function updateEditorStats(){
+    const area = currentArea(); if(!area) return;
+    const wireFt = areaWireFeet(area);
+    $('editorLoadVal').textContent = Math.round(areaWatts(area))+' W' + (wireFt>0 ? ' · '+Math.round(wireFt)+' ft' : '');
+  }
+
+  function renderProjectQuote(pr){
+    if(!pr) return;
+    const items = computeProjectLineItems(pr);
+    $('projQuoteEmpty').hidden = items.length>0;
+    $('projQuoteTable').style.display = items.length ? '' : 'none';
+    $('discountRow').style.display = items.length ? '' : 'none';
+    if(!items.length){ $('projQuoteThead').innerHTML=''; $('projQuoteTbody').innerHTML=''; $('projQuoteTfoot').innerHTML=''; return; }
+
+    if(state.quoteMode==='customer'){
+      $('projQuoteThead').innerHTML = `<tr><th>Item</th><th>Qty</th><th>Price</th><th>Total</th></tr>`;
+      $('projQuoteTbody').innerHTML = items.map(i=>`<tr>
+          <td>${i.name}<div class="cell-sub">${i.desc||''}</div></td>
+          <td class="mono">${i.qty}</td><td class="mono">${money(i.price)}</td><td class="mono">${money(i.linePrice)}</td>
+        </tr>`).join('');
+      const subtotal = items.reduce((s,i)=>s+i.linePrice,0);
+      const discountPct = (pr.discountPercent||0)/100;
+      const discountReason = pr.discountReason || '';
+      const discountAmt = subtotal*discountPct;
+      const afterDiscount = subtotal-discountAmt;
+      const taxRate = (state.company.taxRate||0)/100;
+      const taxLabel = state.company.taxLabel || 'Tax';
+      const taxAmt = afterDiscount*taxRate;
+      let foot = '';
+      const showSubtotalRow = discountPct>0 || taxRate>0;
+      if(showSubtotalRow){
+        foot += `<tr><td colspan="3" style="border-top:none;">Subtotal</td><td class="mono" style="border-top:none;">${money(subtotal)}</td></tr>`;
+      }
+      if(discountPct>0){
+        const label = 'Discount ('+(discountPct*100).toFixed(2).replace(/\.?0+$/,'')+'%)'+(discountReason?' — '+escapeHtml(discountReason):'');
+        foot += `<tr><td colspan="3" style="border-top:none;">${label}</td><td class="mono" style="border-top:none;">−${money(discountAmt)}</td></tr>`;
+      }
+      if(taxRate>0){
+        foot += `<tr><td colspan="3" style="border-top:none;">${escapeHtml(taxLabel)} (${(taxRate*100).toFixed(2).replace(/\.?0+$/,'')}%)</td><td class="mono" style="border-top:none;">${money(taxAmt)}</td></tr>`;
+      }
+      foot += `<tr class="tfoot-row"><td colspan="3">Total</td><td class="mono">${money(afterDiscount+taxAmt)}</td></tr>`;
+      $('projQuoteTfoot').innerHTML = foot;
+    } else {
+      $('projQuoteThead').innerHTML = `<tr><th>Item</th><th>Qty</th><th>Cost</th><th>Price</th><th>Margin</th></tr>`;
+      $('projQuoteTbody').innerHTML = items.map(i=>{
+        const md = i.linePrice-i.lineCost;
+        const mp = i.linePrice ? (md/i.linePrice*100) : 0;
+        const belowCost = i.price < i.cost;
+        return `<tr><td>${i.name}</td><td class="mono">${i.qty}</td><td class="mono">${money(i.lineCost)}</td>
+          <td class="mono ${belowCost?'below-cost':''}">${money(i.linePrice)}</td>
+          <td class="mono ${belowCost?'below-cost':'margin'}">${money(md)} <span class="muted">(${mp.toFixed(0)}%)</span></td></tr>`;
+      }).join('');
+      const totalCost = items.reduce((s,i)=>s+i.lineCost,0);
+      const totalPrice = items.reduce((s,i)=>s+i.linePrice,0);
+      const md = totalPrice-totalCost;
+      const mp = totalPrice ? (md/totalPrice*100) : 0;
+      const totalMinutes = items.reduce((s,i)=>s+((i.installTime||0)*i.qty),0);
+      const hrs = Math.floor(totalMinutes/60), mins = Math.round(totalMinutes%60);
+      $('projQuoteTfoot').innerHTML = `<tr class="tfoot-row"><td colspan="2">Total</td><td class="mono">${money(totalCost)}</td><td class="mono">${money(totalPrice)}</td>
+          <td class="mono ${md<0?'below-cost':'margin'}">${money(md)} <span class="muted">(${mp.toFixed(0)}%)</span></td></tr>
+        <tr><td colspan="5" style="font-size:11px;color:var(--muted);border-top:none;padding-top:6px;">Estimated install time: ${hrs}h ${mins}m</td></tr>`;
+    }
+  }
+
+  function renderLoadSummary(pr){
+    const el = $('loadSummary');
+    if(!pr || !pr.areas.length || state.quoteMode!=='cost'){ el.innerHTML=''; return; }
+    const rows = pr.areas.map(a=>`<div class="load-row"><span>${a.name}</span><span class="mono">${Math.round(areaWatts(a))} W</span></div>`).join('');
+    const total = pr.areas.reduce((s,a)=>s+areaWatts(a),0);
+    const rec = Math.ceil((total/0.8)/50)*50;
+    const wireTotal = pr.areas.reduce((s,a)=>s+areaWireFeet(a),0);
+    const wireRows = pr.areas.some(a=>a.wireRuns&&a.wireRuns.length) ? pr.areas.map(a=>`<div class="load-row"><span>${a.name}</span><span class="mono">${Math.round(areaWireFeet(a))} ft</span></div>`).join('') : '';
+    const spools = Math.ceil(wireTotal/100);
+    const stripTotal = pr.areas.reduce((s,a)=>s+areaStripFeet(a),0);
+    const stripRows = pr.areas.some(a=>a.lightStrips&&a.lightStrips.length) ? pr.areas.map(a=>`<div class="load-row"><span>${a.name}</span><span class="mono">${Math.round(areaStripFeet(a))} ft</span></div>`).join('') : '';
+    el.innerHTML = `
+      <div class="load-summary-title">Load &amp; transformer sizing</div>
+      ${rows}
+      <div class="load-row load-total"><span>Total load</span><span class="mono">${Math.round(total)} W <span class="muted">(≈${Math.round(total)} VA)</span></span></div>
+      <div class="load-hint">It is recommended you keep each transformer around 80% capacity while loaded. Based on your total load, that means at least ${rec} W of transformer capacity.</div>
+      ${wireTotal>0 ? `
+      <div class="load-summary-title" style="margin-top:14px;">Wire runs</div>
+      ${wireRows}
+      <div class="load-row load-total"><span>Total wire</span><span class="mono">${Math.round(wireTotal)} ft</span></div>
+      <div class="load-hint">Approx. ${spools} × 100ft spool${spools!==1?'s':''} of low-voltage cable.</div>` : ''}
+      ${stripTotal>0 ? `
+      <div class="load-summary-title" style="margin-top:14px;">LED strips</div>
+      ${stripRows}
+      <div class="load-row load-total"><span>Total strip length</span><span class="mono">${Math.round(stripTotal)} ft</span></div>` : ''}
+    `;
+  }
+
+  // ---------------- top-level screen switching ----------------
+  function switchTopScreen(name){
+    ['projects','project-detail','fixtures','company'].forEach(n=>{
+      $('screen-'+n).classList.toggle('active', n===name);
+    });
+    document.querySelectorAll('#screenTabs .tab').forEach(t=>{
+      const tabName = t.dataset.screen;
+      t.classList.toggle('active', tabName===name || (tabName==='projects' && name==='project-detail'));
+    });
+    if(name==='fixtures') renderFixtureMgmtList();
+    if(name==='company') renderCompanyPreview();
+    if(name==='projects') renderProjectList();
+  }
+
+  // ---------------- Projects list ----------------
+  function renderProjectList(){
+    $('projectsEmpty').hidden = state.projects.length>0;
+    $('projectList').innerHTML = state.projects.map(pr=>{
+      const items = computeProjectLineItems(pr);
+      const total = items.reduce((s,i)=>s+i.linePrice,0);
+      return `<div class="project-card" data-id="${pr.id}">
+        <div>
+          <div class="project-card-name">${pr.customer.name||'Untitled project'}</div>
+          <div class="project-card-sub">${pr.areas.length} area${pr.areas.length!==1?'s':''} · ${new Date(pr.createdAt).toLocaleDateString()}</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <div class="project-card-stat">${money(total)}</div>
+          <button class="project-card-del" data-del="${pr.id}">✕</button>
+        </div>
+      </div>`;
+    }).join('');
+    $('projectList').querySelectorAll('.project-card').forEach(el=>{
+      el.addEventListener('click', e=>{
+        if(e.target.closest('[data-del]')) return;
+        openProjectDetail(el.dataset.id);
+      });
+    });
+    $('projectList').querySelectorAll('[data-del]').forEach(b=>b.addEventListener('click', e=>{
+      e.stopPropagation();
+      if(!confirm("Delete this project and all its areas? This can't be undone.")) return;
+      state.projects = state.projects.filter(p=>p.id!==e.currentTarget.dataset.del);
+      renderProjectList();
+    }));
+  }
+
+  // ---------------- Project detail ----------------
+  function openProjectDetail(id){
+    state.currentProjectId = id;
+    switchTopScreen('project-detail');
+    renderProjectDetail();
+  }
+  function renderProjectDetail(){
+    const pr = currentProject(); if(!pr) return;
+    $('detailCustomerName').textContent = pr.customer.name || 'Untitled project';
+    $('detailCustomerSub').textContent = [pr.customer.phone, pr.customer.email, pr.customer.address].filter(Boolean).join(' · ') || 'No contact info yet';
+    $('discountPercent').value = pr.discountPercent || '';
+    $('discountReason').value = pr.discountReason || '';
+    renderCompanyHeaderForPrint();
+    renderAreaList(pr);
+    renderLoadSummary(pr);
+    renderProjectQuote(pr);
+    applySectionOrder();
+  }
+  function renderAreaList(pr){
+    const showTech = state.quoteMode==='cost';
+    $('areaList').innerHTML = pr.areas.map(a=>{
+      const items = computeAreaLineItems(a);
+      const total = items.reduce((s,i)=>s+i.linePrice,0);
+      const w = Math.round(areaWatts(a));
+      return `<div class="area-card" data-id="${a.id}">
+        <button class="area-card-del" data-del="${a.id}">✕</button>
+        <div class="area-card-photo">
+          ${a.photo? `<img src="${a.photo}" style="filter:${photoFilterFor(a)}">` : ''}
+          <div class="wire-layer static-wires"><svg viewBox="0 0 100 100" preserveAspectRatio="none"></svg><div></div></div>
+          <div class="wire-layer static-strips"><svg viewBox="0 0 100 100" preserveAspectRatio="none"></svg><div></div></div>
+          <div class="overlays"></div>
+        </div>
+        <div class="area-card-body">
+          <div>
+            <div class="area-card-name">${a.name}</div>
+            <div class="area-card-stat">${a.placements.length} fixture${a.placements.length!==1?'s':''} · ${money(total)}${showTech?' · '+w+'W':''}</div>
+          </div>
+          <button class="btn btn-ghost btn-sm">Edit</button>
+        </div>
+      </div>`;
+    }).join('');
+    $('areaList').querySelectorAll('.area-card').forEach(el=>{
+      el.addEventListener('click', e=>{
+        if(e.target.closest('[data-del]')) return;
+        openAreaEditor(el.dataset.id);
+      });
+    });
+    $('areaList').querySelectorAll('[data-del]').forEach(b=>b.addEventListener('click', e=>{
+      e.stopPropagation();
+      if(!confirm('Delete this area?')) return;
+      const p = currentProject();
+      p.areas = p.areas.filter(a=>a.id!==e.currentTarget.dataset.del);
+      renderProjectDetail();
+    }));
+    requestAnimationFrame(()=>{
+      pr.areas.forEach(a=>{
+        if(!a.photo) return;
+        const box = document.querySelector(`.area-card[data-id="${a.id}"] .area-card-photo`);
+        if(!box) return;
+        const rect = box.getBoundingClientRect();
+        const ov = box.querySelector('.overlays');
+        if(ov) ov.innerHTML = buildStaticOverlaysHtml(a, rect);
+        const svg = box.querySelector('.static-wires svg');
+        const labelsBox = box.querySelector('.static-wires div');
+        if(svg && labelsBox){
+          const runs = a.wireRuns||[];
+          svg.innerHTML = runs.map(w=>{
+            const pts = w.points.map(p=>`${p.xPct},${p.yPct}`).join(' ');
+            return `<polyline points="${pts}" class="wire-line"/>`;
+          }).join('');
+          labelsBox.innerHTML = runs.map(w=>{
+            const mid = w.points[Math.floor(w.points.length/2)];
+            return `<div class="wire-label" style="left:${mid.xPct}%;top:${mid.yPct}%;">${Math.round(w.distanceFt||0)} ft</div>`;
+          }).join('');
+        }
+        const stripSvg = box.querySelector('.static-strips svg');
+        const stripLabelsBox = box.querySelector('.static-strips div');
+        if(stripSvg && stripLabelsBox){
+          const strips = a.lightStrips||[];
+          stripSvg.innerHTML = strips.map(s=>{
+            const f = findFixture(s.fixtureId);
+            const col = f ? kelvinColor(f.kelvin) : '255,205,148';
+            const pts = s.points.map(p=>`${p.xPct},${p.yPct}`).join(' ');
+            return `<polyline points="${pts}" class="strip-glow" style="stroke:rgb(${col});"/><polyline points="${pts}" class="strip-core" style="stroke:rgb(${col});"/>`;
+          }).join('');
+          stripLabelsBox.innerHTML = strips.map(s=>{
+            const f = findFixture(s.fixtureId);
+            const col = f ? kelvinColor(f.kelvin) : '255,205,148';
+            const mid = s.points[Math.floor(s.points.length/2)];
+            return `<div class="strip-label" style="left:${mid.xPct}%;top:${mid.yPct}%;color:rgb(${col});">${Math.round(s.lengthFt||0)} ft</div>`;
+          }).join('');
+        }
+      });
+    });
+  }
+
+  // ---------------- Area editor open/close ----------------
+  function applyPhotoFilter(){
+    const area = currentArea(); if(!area) return;
+    $('photoImg').style.filter = photoFilterFor(area);
+  }
+  // Sizes the photo canvas to exactly match the photo's own (cropped) aspect ratio, letterboxed
+  // within whatever space is available. Without this, the browser's own window shape (very wide
+  // on a desktop monitor, narrow/tall on a phone) would force object-fit:cover to crop extra
+  // slivers off the photo just to fill that box — cropping you never asked for, on top of what
+  // you already chose in the crop tool. Matching the container to the photo's aspect exactly
+  // means there's nothing left to crop, on any device.
+  function sizeCanvasToAspect(){
+    const area = currentArea(); if(!area || !area.photo) return;
+    const wrap = document.querySelector('.editor-canvas');
+    const cp = $('canvasPhoto');
+    if(!wrap || !cp) return;
+    const aspect = area.photoAspect || 0.8;
+    const availW = wrap.clientWidth, availH = wrap.clientHeight;
+    if(!availW || !availH) return;
+    let w = availW, h = w/aspect;
+    if(h > availH){ h = availH; w = h*aspect; }
+    cp.style.width = Math.round(w)+'px';
+    cp.style.height = Math.round(h)+'px';
+  }
+  function refreshEditorPhotoState(){
+    const area = currentArea(); if(!area) return;
+    const hasPhoto = !!area.photo;
+    $('editorEmpty').hidden = hasPhoto;
+    $('canvasPhoto').hidden = !hasPhoto;
+    $('canvasToolbar').hidden = !hasPhoto;
+    if(hasPhoto){
+      $('photoImg').src = area.photo;
+      applyPhotoFilter();
+      resetView();
+      sizeCanvasToAspect();
+      setTimeout(renderOverlays,0);
+    }
+  }
+  function openAreaEditor(areaId){
+    state.currentAreaId = areaId;
+    const area = currentArea(); if(!area) return;
+    if(!area.wireRuns) area.wireRuns = [];
+    if(!area.lightStrips) area.lightStrips = [];
+    state.armed=null; state.selected=null; state.drawingWire=false; state.currentWirePath=null;
+    state.drawingStripFixtureId=null; state.currentStripPath=null; closeInfoSheet();
+    $('editorScreen').hidden = false;
+    document.body.style.overflow = 'hidden';
+    $('editorAreaTitle').textContent = area.name;
+    $('ctrlDarkness').value = Math.round(area.darkness*100);
+    $('darknessVal').textContent = Math.round(area.darkness*100)+'%';
+    $('ctrlBeamBrightness').value = Math.round(area.beamBrightness*100);
+    $('beamBrightnessVal').textContent = Math.round(area.beamBrightness*100)+'%';
+    resetView();
+    updateDrawWireBtn();
+    refreshEditorPhotoState();
+    renderSheetList();
+    updatePlacementBanner();
+    updateQuoteBar();
+    updateEditorStats();
+  }
+  function closeAreaEditor(){
+    state.drawingWire=false; state.currentWirePath=null;
+    state.drawingStripFixtureId=null; state.currentStripPath=null;
+    $('editorScreen').hidden = true;
+    document.body.style.overflow = '';
+    renderProjectDetail();
+  }
+  function clearDesign(){
+    const area = currentArea(); if(!area) return;
+    if(!confirm('Clear all placed fixtures, accessories, wire runs, and LED strips in this area? The photo will stay.')) return;
+    area.placements=[]; area.accessoryQty={}; area.wireRuns=[]; area.lightStrips=[]; state.selected=null; state.armed=null;
+    closeInfoSheet(); renderOverlays(); renderSheetList(); updateQuoteBar(); updatePlacementBanner(); updateEditorStats();
+  }
+
+  // ---------------- photo upload -> crop -> area.photo ----------------
+  function handleFile(e){
+    const file = e.target.files[0];
+    if(!file) return;
+    const reader = new FileReader();
+    reader.onload = ev=>{
+      openCropScreen(ev.target.result, (url,aspect)=>{
+        const area = currentArea();
+        if(area){ area.photo = url; area.photoAspect = aspect; refreshEditorPhotoState(); }
+      });
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  }
+
+  // ---------------- crop screen ----------------
+  function openCropScreen(sourceUrl, onDone){
+    const img = new Image();
+    img.onload = ()=>{
+      cropCtx = { img, natW: img.naturalWidth, natH: img.naturalHeight, aspect: 0.8, tx:0, ty:0, scale:1, containScale:1, stageW:0, stageH:0, onDone };
+      $('cropScreen').hidden = false;
+      document.body.style.overflow = 'hidden';
+      document.querySelectorAll('.crop-aspects .chip').forEach(c=> c.classList.toggle('active', Math.abs(parseFloat(c.dataset.aspect)-0.8)<0.001));
+      layoutCropStage();
+    };
+    img.src = sourceUrl;
+  }
+  function layoutCropStage(){
+    if(!cropCtx) return;
+    const stageEl = $('cropStageEl');
+    const maxW = Math.min(stageEl.clientWidth-32, 440);
+    const stageW = Math.max(200, maxW);
+    const stageH = stageW / cropCtx.aspect;
+    const frame = $('cropFrame');
+    frame.style.width = stageW+'px';
+    frame.style.height = stageH+'px';
+    cropCtx.stageW = stageW; cropCtx.stageH = stageH;
+    cropCtx.containScale = Math.min(stageW/cropCtx.natW, stageH/cropCtx.natH);
+    cropCtx.scale = cropCtx.containScale;
+    cropCtx.tx = 0; cropCtx.ty = 0;
+    $('cropZoom').value = 0;
+    $('cropImg').src = cropCtx.img.src;
+    renderCropTransform();
+  }
+  function renderCropTransform(){
+    if(!cropCtx) return;
+    const img = $('cropImg');
+    const w = cropCtx.natW*cropCtx.scale, h = cropCtx.natH*cropCtx.scale;
+    img.style.width = w+'px'; img.style.height = h+'px';
+    img.style.transform = `translate(-50%,-50%) translate(${cropCtx.tx}px, ${cropCtx.ty}px)`;
+  }
+  function closeCropScreen(){
+    $('cropScreen').hidden = true;
+    document.body.style.overflow = '';
+    cropCtx = null;
+  }
+
+  // ---------------- fixture library management ----------------
+  function renderFixtureMgmtList(){
+    const cat = state.fixtureMgmtCat;
+    const list = allFixtures().filter(f=>f.cat===cat);
+    $('fixtureMgmtList').innerHTML = list.map(f=>{
+      const specLine = f.cat==='fixture' ? specStr(f)+' · '+f.watt+'W'
+        : f.cat==='strip' ? f.kelvin+'K · '+f.watt+'W/ft'
+        : (f.watt?f.watt+'W · ':'')+'';
+      const install = f.installTime ? (specLine?' · ':'')+f.installTime+'m install' : '';
+      return `<div class="fx-card">
+        <div class="fx-main">
+          <div class="fx-name">${f.name}${f.custom?' <span class="muted" style="font-size:10px;">· custom</span>':''}</div>
+          <div class="fx-desc">${f.desc||''}</div>
+          <div class="fx-spec">${specLine}${install}</div>
+        </div>
+        <div class="fx-side">
+          <div class="fx-price">${money(f.price)}</div>
+          <div class="fx-actions"><button data-edit="${f.id}">Edit</button></div>
+        </div>
+      </div>`;
+    }).join('');
+    $('fixtureMgmtList').querySelectorAll('[data-edit]').forEach(b=>b.addEventListener('click', e=> openFixtureForm(e.currentTarget.dataset.edit)));
+  }
+
+  let fixtureFormState = {editingId:null};
+  function setCatSeg(cat){
+    document.querySelectorAll('#fxCatSeg button').forEach(b=> b.classList.toggle('active', b.dataset.cat===cat));
+    $('fxLightFields').style.display = cat==='fixture' ? '' : 'none';
+    $('fxStripFields').style.display = cat==='strip' ? '' : 'none';
+  }
+  function setAimSeg(rot){
+    document.querySelectorAll('#fxAimSeg button').forEach(b=> b.classList.toggle('active', b.dataset.aim===(rot>=90&&rot<=270?'down':'up')));
+  }
+  function openFixtureForm(fixtureId){
+    fixtureFormState.editingId = fixtureId || null;
+    const f = fixtureId ? findFixture(fixtureId) : null;
+    $('fixtureModalTitle').textContent = f ? 'Edit fixture' : 'Add fixture';
+    setCatSeg(f ? f.cat : 'fixture');
+    $('fxName').value = f ? f.name : '';
+    $('fxDesc').value = f ? (f.desc||'') : '';
+    $('fxWatt').value = f ? f.watt : '';
+    $('fxInstall').value = f ? (f.installTime||0) : '';
+    $('fxBeam').value = f ? f.beam : '';
+    $('fxKelvin').value = f ? f.kelvin : '';
+    $('fxLumens').value = f ? f.lumens : '';
+    $('fxStripKelvin').value = f ? f.kelvin : 3000;
+    setAimSeg(f ? (f.rot||0) : 0);
+    $('fxCost').value = f ? f.cost : '';
+    $('fxPrice').value = f ? f.price : '';
+    const isCustom = f && f.custom;
+    $('fxDelete').hidden = !isCustom;
+    $('fixtureModal').hidden = false;
+  }
+  function closeFixtureForm(){ $('fixtureModal').hidden = true; }
+  function saveFixtureForm(){
+    const cat = document.querySelector('#fxCatSeg button.active').dataset.cat;
+    const name = $('fxName').value.trim() || 'Untitled';
+    const desc = $('fxDesc').value.trim();
+    const watt = parseFloat($('fxWatt').value)||0;
+    const installTime = parseFloat($('fxInstall').value)||0;
+    const cost = parseFloat($('fxCost').value)||0;
+    const price = parseFloat($('fxPrice').value)||0;
+    const beam = cat==='fixture' ? (parseFloat($('fxBeam').value)||40) : 0;
+    let kelvin = cat==='fixture' ? (parseFloat($('fxKelvin').value)||2700) : 0;
+    if(cat==='strip') kelvin = parseFloat($('fxStripKelvin').value)||3000;
+    const lumens = cat==='fixture' ? (parseFloat($('fxLumens').value)||0) : 0;
+    const aimBtn = document.querySelector('#fxAimSeg button.active');
+    const rot = (cat==='fixture' && aimBtn && aimBtn.dataset.aim==='down') ? 180 : 0;
+    const data = {name,desc,cat,watt,installTime,cost,price,beam,kelvin,lumens,rot};
+
+    if(fixtureFormState.editingId){
+      const id = fixtureFormState.editingId;
+      const existingCustom = state.customFixtures.find(f=>f.id===id);
+      if(existingCustom){ Object.assign(existingCustom, data); }
+      else { state.fixtureOverrides[id] = data; }
+    } else {
+      const id = 'c'+Date.now();
+      state.customFixtures.push({id, custom:true, ...data});
+    }
+    closeFixtureForm();
+    renderFixtureMgmtList();
+    if(!$('editorScreen').hidden) renderSheetList();
+  }
+  function deleteFixtureForm(){
+    const id = fixtureFormState.editingId;
+    if(!id) return;
+    if(!confirm('Delete this fixture from your library?')) return;
+    state.customFixtures = state.customFixtures.filter(f=>f.id!==id);
+    closeFixtureForm();
+    renderFixtureMgmtList();
+    if(!$('editorScreen').hidden) renderSheetList();
+  }
+
+
+  // ---------------- fixture import template download ----------------
+  // The Duskline fixture-import Excel template, embedded as base64 so the app stays a single
+  // self-contained file with no server-side dependency for this download.
+  const FIXTURE_TEMPLATE_B64 =
+'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';
+  function downloadFixtureTemplate(){
+    const byteChars = atob(FIXTURE_TEMPLATE_B64);
+    const byteNumbers = new Array(byteChars.length);
+    for(let i=0;i<byteChars.length;i++){ byteNumbers[i] = byteChars.charCodeAt(i); }
+    const byteArray = new Uint8Array(byteNumbers);
+    const blob = new Blob([byteArray], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'duskline-fixture-import-template.xlsx';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(()=> URL.revokeObjectURL(url), 2000);
+  }
+
+  // ---------------- bulk import from Excel ----------------
+  function showImportStatus(msg, ok){
+    const el = $('importStatus');
+    if(!el) return;
+    el.textContent = msg;
+    el.className = 'import-status ' + (ok ? 'ok' : 'err');
+    el.hidden = false;
+  }
+  function findFixtureHeaderRow(rows){
+    for(let i=0; i<Math.min(rows.length,10); i++){
+      const first = (rows[i] && rows[i][0] || '').toString().trim().toLowerCase();
+      if(first==='name') return i;
+    }
+    return -1;
+  }
+  function parseFixtureRows(rows){
+    const headerIdx = findFixtureHeaderRow(rows);
+    const dataStart = headerIdx>=0 ? headerIdx+1 : 1;
+    const results = [];
+    for(let i=dataStart; i<rows.length; i++){
+      const row = rows[i];
+      if(!row || row[0]==null || row[0]==='') continue;
+      const name = row[0].toString().trim();
+      if(!name) continue;
+      const catRaw = (row[1]||'').toString().trim().toLowerCase();
+      const cat = catRaw.startsWith('access') ? 'accessory' : catRaw.startsWith('strip') ? 'strip' : 'fixture';
+      const desc = (row[2]||'').toString().trim();
+      let beam = 0, kelvin = 0, lumens = 0;
+      if(cat==='fixture'){
+        const beamRaw = row[3];
+        beam = (beamRaw===undefined || beamRaw===null || beamRaw==='') ? 360 : (parseFloat(beamRaw) || 360);
+        kelvin = parseFloat(row[4]) || 2700;
+        lumens = parseFloat(row[5]) || 0;
+      } else if(cat==='strip'){
+        kelvin = parseFloat(row[4]) || 3000;
+      }
+      const watt = parseFloat(row[6]) || 0;
+      const installTime = parseFloat(row[7]) || 0;
+      const cost = parseFloat(row[8]) || 0;
+      const price = parseFloat(row[9]) || 0;
+      results.push({name, cat, desc, beam, kelvin, lumens, watt, installTime, cost, price, rot:0});
+    }
+    return results;
+  }
+  function importFixturesFromFile(file){
+    if(typeof XLSX==='undefined'){
+      showImportStatus("The Excel import library didn't load (check your internet connection) — could not import.", false);
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = e=>{
+      try{
+        const data = new Uint8Array(e.target.result);
+        const wb = XLSX.read(data, {type:'array'});
+        const sheet = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(sheet, {header:1, defval:''});
+        const parsed = parseFixtureRows(rows);
+        if(!parsed.length){
+          showImportStatus('No fixture rows found. Make sure column A has a "Name" header, with your items in the rows below it.', false);
+          return;
+        }
+        parsed.forEach(f=>{
+          const id = 'c'+Date.now()+'_'+(uidCounter++);
+          state.customFixtures.push({id, custom:true, ...f});
+        });
+        renderFixtureMgmtList();
+        if(!$('editorScreen').hidden) renderSheetList();
+        showImportStatus(`Imported ${parsed.length} item${parsed.length!==1?'s':''} into your library.`, true);
+      }catch(err){
+        console.error(err);
+        showImportStatus("Could not read that file. Make sure it's a .xlsx file exported from Excel (or the Duskline import template).", false);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  // ---------------- company ----------------
+  function companyHeaderHtml(c, placeholders){
+    const size = Math.round((c.pdfLogoSize||30) * 3.78); // real mm-to-px conversion (96dpi) so the preview is dramatic and physically accurate
+    const name = c.name || (placeholders?'Your company name':'');
+    const phoneEmail = [c.phone,c.email].filter(Boolean).join(' · ') || (placeholders?'Phone · Email':'');
+    const address = c.address || (placeholders?'Business address':'');
+    const centered = c.headingAlign==='center';
+    const rowStyle = centered
+      ? 'flex-direction:column;align-items:center;text-align:center;'
+      : 'flex-direction:row;align-items:center;text-align:left;';
+    return `<div class="print-header-mock" style="${rowStyle}">
+        ${c.logo?`<img src="${c.logo}" style="width:${size}px;height:${size}px;">`:''}
+        <div class="print-header-mock-text">
+          <strong>${escapeHtml(name)}</strong>
+          <span>${escapeHtml(phoneEmail)}</span>
+          <span>${escapeHtml(address)}</span>
+          ${c.website?`<span>${escapeHtml(c.website)}</span>`:''}
+        </div>
+      </div>`;
+  }
+  function renderCompanyPreview(){
+    const c = state.company;
+    $('companyPreview').innerHTML = `
+      <div class="company-preview-label">How it appears on your quote</div>
+      ${companyHeaderHtml(c, true)}`;
+    $('logoPreviewBox').innerHTML = c.logo ? `<img src="${c.logo}">` : `<span class="muted" style="font-size:10px;">No logo</span>`;
+    renderCompanyHeaderForPrint();
+  }
+  function renderCompanyHeaderForPrint(){
+    const c = state.company;
+    const hasInfo = c.logo||c.name||c.phone||c.email||c.address||c.website;
+    $('printCompanyHeader').innerHTML = hasInfo ? companyHeaderHtml(c, false) : '';
+  }
+
+  // ---------------- PDF export ----------------
+  // Generates a real PDF file client-side (jsPDF) and triggers a download, rather than relying
+  // on window.print() / the browser's print dialog. A file download works far more reliably
+  // across mobile browsers and embedded webviews than the print API does, and it gives full
+  // control over logo size, text size, background color, and section order.
+  function applyQuoteAppearance(){
+    const c = state.company;
+    const scale = (c.pdfFontSize||10)/10;
+    document.documentElement.style.setProperty('--quote-font-scale', scale);
+    document.documentElement.style.setProperty('--quote-accent', c.quoteAccent || '#F0A84E');
+    document.documentElement.style.setProperty('--pdf-bg-color', c.pdfBgColor || '#FFFFFF');
+  }
+  function hexToRgb(hex){
+    hex = (hex||'#000000').replace('#','');
+    if(hex.length===3) hex = hex.split('').map(ch=>ch+ch).join('');
+    const num = parseInt(hex,16) || 0;
+    return [(num>>16)&255, (num>>8)&255, num&255];
+  }
+  function kelvinRGB(k){
+    if(k<=2700) return [255,183,107];
+    if(k<=3000) return [255,205,148];
+    if(k<=3500) return [255,219,181];
+    return [214,231,255];
+  }
+  const SECTION_LABELS = {header:'Company header', customer:'Customer info', areas:'Area designs & photos',
+    load:'Load & wire summary (internal only)', quote:'Quote table'};
+  const DEFAULT_SECTION_ORDER = ['header','customer','areas','load','quote'];
+  function getSectionOrder(){
+    const order = (state.company.sectionOrder||[]).filter(k=>SECTION_LABELS[k]);
+    DEFAULT_SECTION_ORDER.forEach(k=>{ if(!order.includes(k)) order.push(k); });
+    return order;
+  }
+  function applySectionOrder(){
+    const order = getSectionOrder();
+    const container = $('screen-project-detail');
+    if(!container) return;
+    container.querySelectorAll('[data-section]').forEach(el=>{
+      const idx = order.indexOf(el.dataset.section);
+      el.style.order = idx>=0 ? idx : 0;
+    });
+  }
+  function renderSectionOrderList(){
+    const order = getSectionOrder();
+    $('sectionOrderList').innerHTML = order.map((key,i)=>`
+      <div class="order-row">
+        <span>${SECTION_LABELS[key]}</span>
+        <div class="order-btns">
+          <button data-up="${i}" ${i===0?'disabled':''} aria-label="Move up">↑</button>
+          <button data-down="${i}" ${i===order.length-1?'disabled':''} aria-label="Move down">↓</button>
+        </div>
+      </div>`).join('');
+    $('sectionOrderList').querySelectorAll('[data-up]').forEach(b=> b.addEventListener('click', ()=>{
+      const i = +b.dataset.up;
+      const order = getSectionOrder();
+      [order[i-1], order[i]] = [order[i], order[i-1]];
+      state.company.sectionOrder = order;
+      renderSectionOrderList();
+      applySectionOrder();
+    }));
+    $('sectionOrderList').querySelectorAll('[data-down]').forEach(b=> b.addEventListener('click', ()=>{
+      const i = +b.dataset.down;
+      const order = getSectionOrder();
+      [order[i+1], order[i]] = [order[i], order[i+1]];
+      state.company.sectionOrder = order;
+      renderSectionOrderList();
+      applySectionOrder();
+    }));
+  }
+  // Printing/export uses the browser's native print (window.print()), scoped via @media print
+  // CSS to just the project detail content. This gives an exact match to what's on screen —
+  // real CSS gradients, real fonts — since it's literally the live page being rendered, not a
+  // reconstruction. Known tradeoff: this can be unreliable in some mobile/embedded browser
+  // contexts; that's an accepted limitation for now in exchange for visual accuracy.
+  function printProject(){
+    const pr = currentProject();
+    if(!pr){ alert('Open a project first.'); return; }
+    if($('toggleJpgOnly').checked){
+      exportAreaImagesOnly();
+      return;
+    }
+    applyQuoteAppearance();
+    applySectionOrder();
+    window.print();
+  }
+
+  // Captures a single area's design exactly as it's rendered on screen (real photo, real CSS/SVG
+  // gradient beams, dots, labels, wires) as a flat JPG, for the "export design as image only"
+  // option. Renders it off-screen at higher resolution first, since the live area cards on the
+  // Projects page are small thumbnails.
+  // Draws the design directly onto a canvas using the native Canvas 2D API (real radial
+  // gradients, real arc-shaped sectors, real glow via shadowBlur) instead of asking a
+  // DOM-to-canvas library to reinterpret CSS — which is what kept going wrong.
+  function roundRectPath(ctx,x,y,w,h,r){
+    ctx.beginPath();
+    ctx.moveTo(x+r,y);
+    ctx.arcTo(x+w,y,x+w,y+h,r);
+    ctx.arcTo(x+w,y+h,x,y+h,r);
+    ctx.arcTo(x,y+h,x,y,r);
+    ctx.arcTo(x,y,x+w,y,r);
+    ctx.closePath();
+  }
+  function drawPillLabel(ctx, cx, cy, text, color, cw){
+    ctx.save();
+    const fontPx = Math.max(13, Math.round(cw*0.011));
+    ctx.font = `${fontPx}px 'Courier New', monospace`;
+    const padX=8, padY=5;
+    const textW = ctx.measureText(text).width;
+    const boxW=textW+padX*2, boxH=fontPx+padY*2;
+    const bx=cx-boxW/2, by=cy-boxH/2;
+    ctx.fillStyle='rgba(20,23,28,0.88)';
+    roundRectPath(ctx,bx,by,boxW,boxH,4); ctx.fill();
+    ctx.fillStyle=color;
+    ctx.textBaseline='middle';
+    ctx.fillText(text, bx+padX, by+boxH/2+1);
+    ctx.restore();
+  }
+  function drawBeamOnCanvas(ctx, p, f, cw, ch, masterBB){
+    const bb = (p.brightness!=null ? p.brightness : (masterBB==null?1:masterBB));
+    const kelvin = (p.kelvin!=null ? p.kelvin : f.kelvin);
+    const col = kelvinColor(kelvin);
+    const beamW = (p.beamWidth!=null ? p.beamWidth : f.beam);
+    const mx = (p.xPct/100)*cw, my = (p.yPct/100)*ch;
+    const rectRef = {width:cw, height:ch};
+    ctx.save();
+    if(beamW>=360){
+      const Rp = clampR((60+f.lumens/5)*p.reach*(cw/380), rectRef) * 0.7;
+      const o1 = Math.min(1,0.65*bb), o2 = Math.min(1,0.3*bb);
+      const grad = ctx.createRadialGradient(mx,my,0,mx,my,Rp);
+      grad.addColorStop(0, `rgba(${col},${o1})`);
+      grad.addColorStop(0.45, `rgba(${col},${o2})`);
+      grad.addColorStop(1, `rgba(${col},0)`);
+      ctx.fillStyle = grad;
+      ctx.beginPath(); ctx.arc(mx,my,Rp,0,Math.PI*2); ctx.fill();
+    } else {
+      const R = clampR((60+f.lumens/5)*p.reach*(cw/380), rectRef);
+      const half = beamW/2;
+      // our convention: 0deg = up, clockwise. canvas arc(): 0rad = +X (right), clockwise. Offset by -90deg.
+      const startRad = (p.rotation-half-90)*Math.PI/180;
+      const endRad = (p.rotation+half-90)*Math.PI/180;
+      const o1 = Math.min(1,0.8*bb), o2 = Math.min(1,0.38*bb);
+      const grad = ctx.createRadialGradient(mx,my,0,mx,my,R);
+      grad.addColorStop(0, `rgba(${col},${o1})`);
+      grad.addColorStop(0.45, `rgba(${col},${o2})`);
+      grad.addColorStop(1, `rgba(${col},0)`);
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.moveTo(mx,my);
+      ctx.arc(mx,my,R,startRad,endRad);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+  function drawDotAndLabelOnCanvas(ctx, p, f, cw, showLabels){
+    const mx = (p.xPct/100)*cw, my = (p.yPct/100)*(ctx.canvas.height);
+    const dotR = Math.max(4, cw*0.006);
+    ctx.save();
+    ctx.beginPath(); ctx.arc(mx,my,dotR,0,Math.PI*2);
+    ctx.fillStyle = '#262C36'; ctx.fill();
+    ctx.lineWidth = Math.max(1.5, dotR*0.4); ctx.strokeStyle = '#F0A84E'; ctx.stroke();
+    ctx.restore();
+    if(showLabels){
+      drawPillLabel(ctx, mx+dotR+40, my, f.name, '#ffffff', cw);
+    }
+  }
+  function drawWireOnCanvas(ctx, w, cw, ch){
+    ctx.save();
+    ctx.strokeStyle = '#5EC8E0'; ctx.lineWidth = Math.max(2,cw*0.0025);
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.beginPath();
+    w.points.forEach((pt,i)=>{
+      const x=(pt.xPct/100)*cw, y=(pt.yPct/100)*ch;
+      if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+    });
+    ctx.stroke();
+    ctx.restore();
+    const mid = w.points[Math.floor(w.points.length/2)];
+    drawPillLabel(ctx, (mid.xPct/100)*cw, (mid.yPct/100)*ch, Math.round(w.distanceFt||0)+' ft', '#5EC8E0', cw);
+  }
+  function drawStripOnCanvas(ctx, s, cw, ch, showLabels){
+    const f = findFixture(s.fixtureId);
+    const col = f ? kelvinColor(f.kelvin) : '255,205,148';
+    ctx.save();
+    ctx.shadowColor = `rgba(${col},0.9)`;
+    ctx.shadowBlur = cw*0.012;
+    ctx.strokeStyle = `rgb(${col})`;
+    ctx.lineWidth = Math.max(2,cw*0.0018);
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.beginPath();
+    s.points.forEach((pt,i)=>{
+      const x=(pt.xPct/100)*cw, y=(pt.yPct/100)*ch;
+      if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+    });
+    ctx.stroke();
+    ctx.restore();
+    if(showLabels){
+      const mid = s.points[Math.floor(s.points.length/2)];
+      drawPillLabel(ctx, (mid.xPct/100)*cw, (mid.yPct/100)*ch, Math.round(s.lengthFt||0)+' ft', `rgb(${col})`, cw);
+    }
+  }
+  function captureAreaDesignImage(area){
+    return new Promise(resolve=>{
+      const aspect = area.photoAspect || 0.8;
+      const cw = 1600, ch = Math.round(cw/aspect);
+      const canvas = document.createElement('canvas');
+      canvas.width = cw; canvas.height = ch;
+      const ctx = canvas.getContext('2d');
+      const showLabels = $('toggleExportLabels').checked;
+      const showWires = $('toggleExportWires').checked;
+
+      const img = new Image();
+      img.onload = ()=>{
+        ctx.save();
+        ctx.filter = photoFilterFor(area); // same dusk-dim CSS filter used on screen
+        ctx.drawImage(img, 0, 0, cw, ch);
+        ctx.restore();
+
+        area.placements.forEach(p=>{
+          const f = findFixture(p.fixtureId); if(!f) return;
+          drawBeamOnCanvas(ctx, p, f, cw, ch, area.beamBrightness);
+        });
+        if(showWires && area.wireRuns && area.wireRuns.length){
+          area.wireRuns.forEach(w=> drawWireOnCanvas(ctx, w, cw, ch));
+        }
+        if(area.lightStrips && area.lightStrips.length){
+          area.lightStrips.forEach(s=> drawStripOnCanvas(ctx, s, cw, ch, showLabels));
+        }
+        area.placements.forEach(p=>{
+          const f = findFixture(p.fixtureId); if(!f) return;
+          drawDotAndLabelOnCanvas(ctx, p, f, cw, showLabels);
+        });
+
+        resolve(canvas.toDataURL('image/jpeg', 0.92));
+      };
+      img.onerror = ()=> resolve(null);
+      img.src = area.photo;
+    });
+  }
+  async function exportAreaImagesOnly(){
+    const pr = currentProject();
+    if(!pr){ alert('Open a project first.'); return; }
+    const areas = pr.areas.filter(a=>a.photo);
+    if(!areas.length){ alert('No area photos to export yet.'); return; }
+    const btn = $('btnPrintProject');
+    const originalLabel = btn.textContent;
+    btn.disabled = true;
+    try{
+      const projectSlug = (pr.customer.name||'project').replace(/[^a-z0-9]+/gi,'-').toLowerCase();
+      for(let i=0;i<areas.length;i++){
+        btn.textContent = `Exporting image ${i+1} of ${areas.length}…`;
+        const dataUrl = await captureAreaDesignImage(areas[i]);
+        if(!dataUrl) continue;
+        const areaSlug = areas[i].name.replace(/[^a-z0-9]+/gi,'-').toLowerCase();
+        const a = document.createElement('a');
+        a.href = dataUrl;
+        a.download = `${projectSlug}-${areaSlug}-design.jpg`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        await new Promise(r=> setTimeout(r, 400));
+      }
+    }catch(err){
+      console.error(err);
+      alert('Something went wrong exporting the images. Please try again.');
+    }finally{
+      btn.disabled = false;
+      btn.textContent = originalLabel;
+    }
+  }
+
+  // ---------------- theme (light/dark) ----------------
+  function applyTheme(theme){
+    document.documentElement.setAttribute('data-theme', theme);
+    $('btnThemeToggle').textContent = theme==='light' ? '☀️' : '🌙';
+    try{ localStorage.setItem('duskline_theme', theme); }catch(err){}
+  }
+  function toggleTheme(){
+    const current = document.documentElement.getAttribute('data-theme')==='light' ? 'light' : 'dark';
+    applyTheme(current==='light' ? 'dark' : 'light');
+  }
+
+  // ---------------- local save / "login" (this device & browser only, no cloud account) ----------------
+  function profileKey(name){ return 'duskline_profile_'+name; }
+  function saveProfile(){
+    if(!state.activeProfile) return;
+    try{
+      localStorage.setItem(profileKey(state.activeProfile), JSON.stringify(state));
+      localStorage.setItem('duskline_active_profile', state.activeProfile);
+    }catch(err){
+      console.warn('Duskline: local save failed (browser storage may be full).', err);
+    }
+  }
+  function loadProfile(name){
+    try{
+      const raw = localStorage.getItem(profileKey(name));
+      if(!raw) return false;
+      const data = JSON.parse(raw);
+      Object.assign(state, data);
+      state.activeProfile = name;
+      return true;
+    }catch(err){ return false; }
+  }
+  function syncCompanyFormFromState(){
+    const c = state.company;
+    $('companyName').value = c.name||''; $('companyPhone').value = c.phone||'';
+    $('companyEmail').value = c.email||''; $('companyAddress').value = c.address||'';
+    $('companyWebsite').value = c.website||'';
+    $('companyTaxRate').value = c.taxRate||''; $('companyTaxLabel').value = c.taxLabel||'';
+    $('logoSizeSlider').value = c.pdfLogoSize||30; $('logoSizeVal').textContent = (c.pdfLogoSize||30)+'mm';
+    $('fontSizeSlider').value = c.pdfFontSize||10; $('fontSizeVal').textContent = (c.pdfFontSize||10)+'pt';
+    document.querySelectorAll('#headingAlignSeg button').forEach(b=> b.classList.toggle('active', b.dataset.align===(c.headingAlign||'left')));
+    $('quoteAccentColor').value = c.quoteAccent || '#F0A84E';
+    $('pdfBgColor').value = c.pdfBgColor || '#FFFFFF';
+    renderSectionOrderList();
+  }
+  function afterProfileLoaded(){
+    state.currentProjectId = null; state.currentAreaId = null;
+    switchTopScreen('projects');
+    syncCompanyFormFromState();
+    renderCompanyPreview();
+    renderFixtureMgmtList();
+    applyQuoteAppearance();
+    closeAccountModal();
+  }
+  // ---------------- real auth (Supabase) ----------------
+  // Accounts and company/user records live in Supabase. Project/fixture/company data still lives
+  // in localStorage for now (that migration is a later phase) — it's just keyed by the signed-in
+  // user's id instead of a typed name, so it can't be picked up by anyone else on a shared device.
+  async function refreshAuthProfileRow(){
+    if(!authUser){ authProfile = null; return; }
+    try{
+      const { data, error } = await sb.from('profiles')
+        .select('company_id, full_name, role, companies(name)')
+        .eq('id', authUser.id)
+        .single();
+      if(!error && data){
+        authProfile = {
+          companyId: data.company_id,
+          companyName: data.companies ? data.companies.name : '',
+          fullName: data.full_name,
+          role: data.role,
+        };
+      }else{
+        authProfile = null;
+      }
+    }catch(err){
+      console.warn('Duskline: could not load profile row.', err);
+      authProfile = null;
+    }
+  }
+  function setAppVisible(visible){
+    document.querySelector('.app').classList.toggle('auth-hidden', !visible);
+  }
+  function setAuthMode(mode){
+    authMode = mode;
+    document.querySelectorAll('#authModeTabs .tab').forEach(b=> b.classList.toggle('active', b.dataset.authmode===mode));
+    $('authCompanyField').hidden = mode!=='signup';
+    $('authNameField').hidden = mode!=='signup';
+    $('accountModalTitle').textContent = mode==='signup' ? 'Create your account' : 'Sign in';
+    $('accountSubmit').textContent = mode==='signup' ? 'Create account' : 'Sign in';
+    $('authError').textContent = '';
+  }
+  function openAccountModal(){
+    if(authUser){
+      $('authForms').hidden = true;
+      $('accountInfo').hidden = false;
+      $('accountModalTitle').textContent = 'Account';
+      $('accountSubmit').hidden = true;
+      $('accountLogout').hidden = false;
+      $('accountCancel').hidden = false;
+      const bits = [`Signed in as ${authUser.email}`];
+      if(authProfile && authProfile.companyName) bits.push(authProfile.companyName);
+      if(authProfile && authProfile.role) bits.push(authProfile.role);
+      $('accountInfoBody').textContent = bits.join(' — ');
+    }else{
+      $('authForms').hidden = false;
+      $('accountInfo').hidden = true;
+      $('accountSubmit').hidden = false;
+      $('accountLogout').hidden = true;
+      $('accountCancel').hidden = true; // signing in isn't optional — nothing to cancel back to
+      setAuthMode('signin');
+    }
+    $('accountModal').hidden = false;
+  }
+  function closeAccountModal(){
+    if(!authUser) return; // can't dismiss the sign-in gate
+    $('accountModal').hidden = true;
+  }
+  async function submitAuthForm(){
+    const email = $('authEmail').value.trim();
+    const password = $('authPassword').value;
+    const errEl = $('authError');
+    errEl.style.color = '';
+    errEl.textContent = '';
+    if(!email || !password){ errEl.textContent = 'Enter an email and password.'; return; }
+    const btn = $('accountSubmit');
+    btn.disabled = true;
+    try{
+      if(authMode==='signup'){
+        const companyName = $('authCompanyName').value.trim();
+        if(!companyName){ errEl.textContent = 'Enter a company name.'; return; }
+        const fullName = $('authFullName').value.trim();
+        const { data, error } = await sb.auth.signUp({
+          email, password,
+          options: { data: { company_name: companyName, full_name: fullName } }
+        });
+        if(error) throw error;
+        if(!data.session){
+          errEl.style.color = 'var(--muted)';
+          errEl.textContent = 'Account created — check your email to confirm it, then sign in.';
+          setAuthMode('signin');
+        }
+      }else{
+        const { error } = await sb.auth.signInWithPassword({ email, password });
+        if(error) throw error;
+      }
+      // a successful sign-in/sign-up with an active session moves us into the app via
+      // the onAuthStateChange listener below, not from here.
+    }catch(err){
+      errEl.textContent = err.message || 'Something went wrong.';
+    }finally{
+      btn.disabled = false;
+    }
+  }
+  async function handleLogout(){
+    if(state.activeProfile) saveProfile();
+    await sb.auth.signOut();
+  }
+  async function enterAppForUser(user){
+    authUser = { id: user.id, email: user.email };
+    await refreshAuthProfileRow();
+    Object.assign(state, freshState());
+    state.activeProfile = user.id;
+    loadProfile(user.id);
+    afterProfileLoaded();
+    setAppVisible(true);
+    closeAccountModal();
+  }
+  function leaveApp(){
+    authUser = null;
+    authProfile = null;
+    Object.assign(state, freshState());
+    setAppVisible(false);
+    openAccountModal();
+  }
+
+  // ---------------- init ----------------
+  function init(){
+    // photo pickers (used both for a fresh area and "change photo")
+    $('btnTakePhoto').addEventListener('click', ()=> $('fileInputCamera').click());
+    $('btnChoosePhoto').addEventListener('click', ()=> $('fileInput').click());
+    $('btnChangePhoto').addEventListener('click', ()=> $('fileInput').click());
+    $('fileInput').addEventListener('change', handleFile);
+    $('fileInputCamera').addEventListener('change', handleFile);
+    $('btnAdjustCrop').addEventListener('click', ()=>{
+      const area = currentArea();
+      if(area && area.photo) openCropScreen(area.photo, (url,aspect)=>{ area.photo=url; area.photoAspect=aspect; refreshEditorPhotoState(); });
+    });
+
+    $('canvasPhoto').addEventListener('click', handleCanvasClick);
+    $('btnClearDesign').addEventListener('click', clearDesign);
+    $('btnEditorBack').addEventListener('click', closeAreaEditor);
+    $('btnEditorSave').addEventListener('click', closeAreaEditor);
+
+    // desktop: ctrl + scroll to zoom in/out on the point under the cursor, for precise placement
+    $('canvasPhoto').addEventListener('wheel', e=>{
+      if(!e.ctrlKey) return;
+      const area = currentArea(); if(!area || !area.photo) return;
+      e.preventDefault();
+      const containerRect = $('canvasPhoto').getBoundingClientRect();
+      const cx = e.clientX-containerRect.left, cy = e.clientY-containerRect.top;
+      const factor = Math.exp(-e.deltaY*0.0015);
+      const newZoom = Math.min(6, Math.max(0.3, view.zoom*factor));
+      const lx = (cx-view.panX)/view.zoom, ly = (cy-view.panY)/view.zoom;
+      view.panX = cx - newZoom*lx;
+      view.panY = cy - newZoom*ly;
+      view.zoom = newZoom;
+      clampPan(containerRect);
+      applyZoomTransform();
+    }, {passive:false});
+    $('btnResetZoom').addEventListener('click', resetView);
+
+    // wire run drawing tool
+    $('btnDrawWire').addEventListener('click', ()=>{
+      const area = currentArea(); if(!area || !area.photo) return;
+      state.drawingWire = !state.drawingWire;
+      if(state.drawingWire){ state.armed=null; state.selected=null; closeInfoSheet(); renderSheetList(); }
+      state.currentWirePath = null;
+      updateDrawWireBtn();
+      updatePlacementBanner();
+      renderOverlays();
+    });
+
+    // unified pointer gestures on the canvas: left-click-drag / one-finger-drag pans,
+    // two-finger touch pinches to zoom, and (when the wire tool is active) a drag draws a wire run.
+    let activePointers = new Map();
+    let panStart = null;
+    let pinchStart = null;
+    $('canvasPhoto').addEventListener('pointerdown', e=>{
+      const area = currentArea(); if(!area || !area.photo) return;
+      if(e.target.closest('.marker-dot') || e.target.closest('.beam-handle') || e.target.closest('.width-handle') || e.target.closest('.wire-hit') || e.target.closest('.strip-hit')) return;
+      activePointers.set(e.pointerId, {x:e.clientX, y:e.clientY});
+      try{ $('canvasPhoto').setPointerCapture(e.pointerId); }catch(err){}
+
+      if(state.drawingWire){
+        if(activePointers.size===1){
+          const loc = screenToLocalPct(e.clientX, e.clientY);
+          state.currentWirePath = [{xPct:loc.xPct, yPct:loc.yPct}];
+          renderWireLayer();
+        }
+        return;
+      }
+      if(state.drawingStripFixtureId){
+        if(activePointers.size===1){
+          const loc = screenToLocalPct(e.clientX, e.clientY);
+          state.currentStripPath = [{xPct:loc.xPct, yPct:loc.yPct}];
+          renderStripLayer();
+        }
+        return;
+      }
+      if(state.armed) return; // let the click handler place the fixture; no panning while armed
+      if(activePointers.size===2){
+        const pts = Array.from(activePointers.values());
+        const dist = Math.hypot(pts[0].x-pts[1].x, pts[0].y-pts[1].y);
+        const containerRect = $('canvasPhoto').getBoundingClientRect();
+        pinchStart = { dist, zoom:view.zoom, panX:view.panX, panY:view.panY,
+          midX:(pts[0].x+pts[1].x)/2-containerRect.left, midY:(pts[0].y+pts[1].y)/2-containerRect.top };
+        panStart = null;
+      } else if(activePointers.size===1){
+        panStart = { x:e.clientX, y:e.clientY, panX:view.panX, panY:view.panY, dragging:false };
+      }
+    });
+    $('canvasPhoto').addEventListener('pointermove', e=>{
+      if(!activePointers.has(e.pointerId)) return;
+      activePointers.set(e.pointerId, {x:e.clientX, y:e.clientY});
+
+      if(state.drawingWire){
+        if(!state.currentWirePath) return;
+        const loc = screenToLocalPct(e.clientX, e.clientY);
+        const last = state.currentWirePath[state.currentWirePath.length-1];
+        if(Math.hypot(loc.xPct-last.xPct, loc.yPct-last.yPct) > 0.6){
+          state.currentWirePath.push({xPct:loc.xPct, yPct:loc.yPct});
+          renderWireLayer();
+        }
+        return;
+      }
+      if(state.drawingStripFixtureId){
+        if(!state.currentStripPath) return;
+        const loc = screenToLocalPct(e.clientX, e.clientY);
+        const last = state.currentStripPath[state.currentStripPath.length-1];
+        if(Math.hypot(loc.xPct-last.xPct, loc.yPct-last.yPct) > 0.6){
+          state.currentStripPath.push({xPct:loc.xPct, yPct:loc.yPct});
+          renderStripLayer();
+        }
+        return;
+      }
+      if(pinchStart && activePointers.size===2){
+        e.preventDefault();
+        const pts = Array.from(activePointers.values());
+        const dist = Math.hypot(pts[0].x-pts[1].x, pts[0].y-pts[1].y);
+        if(pinchStart.dist>0){
+          const containerRect = $('canvasPhoto').getBoundingClientRect();
+          const newZoom = Math.min(6, Math.max(0.3, pinchStart.zoom*(dist/pinchStart.dist)));
+          const lx = (pinchStart.midX-pinchStart.panX)/pinchStart.zoom;
+          const ly = (pinchStart.midY-pinchStart.panY)/pinchStart.zoom;
+          view.panX = pinchStart.midX - newZoom*lx;
+          view.panY = pinchStart.midY - newZoom*ly;
+          view.zoom = newZoom;
+          clampPan(containerRect);
+          applyZoomTransform();
+        }
+        return;
+      }
+      if(panStart && activePointers.size===1){
+        const dx = e.clientX-panStart.x, dy = e.clientY-panStart.y;
+        if(!panStart.dragging && Math.hypot(dx,dy)>4) panStart.dragging=true;
+        if(panStart.dragging){
+          e.preventDefault();
+          view.panX = panStart.panX+dx;
+          view.panY = panStart.panY+dy;
+          clampPan($('canvasPhoto').getBoundingClientRect());
+          applyZoomTransform();
+        }
+      }
+    }, {passive:false});
+    function endCanvasPointer(e){
+      const wasPanning = panStart && panStart.dragging;
+      activePointers.delete(e.pointerId);
+      if(state.drawingWire){
+        if(activePointers.size===0 && state.currentWirePath){
+          const path = state.currentWirePath;
+          state.currentWirePath = null;
+          if(path.length<2){ renderWireLayer(); } else { openWireDistanceModal(path); }
+        }
+        return;
+      }
+      if(state.drawingStripFixtureId){
+        if(activePointers.size===0 && state.currentStripPath){
+          const path = state.currentStripPath;
+          const fixtureId = state.drawingStripFixtureId;
+          state.currentStripPath = null;
+          if(path.length<2){ renderStripLayer(); } else { openStripLengthModal(path, fixtureId); }
+        }
+        return;
+      }
+      if(activePointers.size<2) pinchStart = null;
+      if(activePointers.size===0){
+        panStart = null;
+        if(wasPanning) suppressNextCanvasClick = true;
+      }
+    }
+    $('canvasPhoto').addEventListener('pointerup', endCanvasPointer);
+    $('canvasPhoto').addEventListener('pointercancel', endCanvasPointer);
+    $('wireCancel').addEventListener('click', closeWireModal);
+    $('wireBackdrop').addEventListener('click', closeWireModal);
+    $('wireSave').addEventListener('click', saveWireModal);
+    $('wireDelete').addEventListener('click', deleteWireRun);
+    $('stripCancel').addEventListener('click', closeStripModal);
+    $('stripBackdrop').addEventListener('click', closeStripModal);
+    $('stripSave').addEventListener('click', saveStripModal);
+    $('stripDelete').addEventListener('click', deleteLightStrip);
+    $('toggleExportWires').addEventListener('change', e=>{
+      document.body.classList.toggle('export-wires', e.target.checked);
+    });
+
+    $('ctrlDarkness').addEventListener('input', e=>{
+      const area = currentArea(); if(!area) return;
+      area.darkness = +e.target.value/100;
+      $('darknessVal').textContent = e.target.value+'%';
+      applyPhotoFilter();
+    });
+    $('ctrlBeamBrightness').addEventListener('input', e=>{
+      const area = currentArea(); if(!area) return;
+      area.beamBrightness = +e.target.value/100;
+      $('beamBrightnessVal').textContent = e.target.value+'%';
+      renderOverlays();
+    });
+
+    $('sheetToggleTab').addEventListener('click', ()=> toggleSheet());
+    $('sheetClose').addEventListener('click', ()=> toggleSheet(false));
+    document.querySelectorAll('.sheet-tab').forEach(t=>{
+      t.addEventListener('click', ()=>{
+        state.sheetCat = t.dataset.cat;
+        document.querySelectorAll('.sheet-tab').forEach(x=>x.classList.toggle('active', x===t));
+        toggleSheet(true);
+        renderSheetList();
+      });
+    });
+
+    $('infoRemove').addEventListener('click', infoRemove);
+    $('infoDuplicate').addEventListener('click', duplicatePlacement);
+    $('infoDone').addEventListener('click', infoDone);
+    $('infoBackdrop').addEventListener('click', infoDone);
+    $('infoKelvin').addEventListener('input', e=>{
+      const area = currentArea(); const p = area && area.placements.find(pp=>pp.uid===state.selected);
+      if(!p) return;
+      p.kelvin = +e.target.value;
+      $('infoKelvinVal').textContent = p.kelvin+'K';
+      const rect = $('canvasPhoto').getBoundingClientRect();
+      const f = findFixture(p.fixtureId);
+      updatePlacementBeam(p,f,rect);
+    });
+    $('infoBrightness').addEventListener('input', e=>{
+      const area = currentArea(); const p = area && area.placements.find(pp=>pp.uid===state.selected);
+      if(!p) return;
+      p.brightness = +e.target.value/100;
+      $('infoBrightnessVal').textContent = e.target.value+'%';
+      $('infoUseMasterBrightness').style.display = 'block';
+      const rect = $('canvasPhoto').getBoundingClientRect();
+      const f = findFixture(p.fixtureId);
+      updatePlacementBeam(p,f,rect);
+    });
+    $('infoUseMasterBrightness').addEventListener('click', ()=>{
+      const area = currentArea(); const p = area && area.placements.find(pp=>pp.uid===state.selected);
+      if(!p) return;
+      p.brightness = null;
+      $('infoBrightness').value = Math.round(area.beamBrightness*100);
+      $('infoBrightnessVal').textContent = 'Master · '+Math.round(area.beamBrightness*100)+'%';
+      $('infoUseMasterBrightness').style.display = 'none';
+      const rect = $('canvasPhoto').getBoundingClientRect();
+      const f = findFixture(p.fixtureId);
+      updatePlacementBeam(p,f,rect);
+    });
+
+    let resizeT;
+    window.addEventListener('resize', ()=>{
+      clearTimeout(resizeT);
+      resizeT = setTimeout(()=>{
+        if(!$('editorScreen').hidden){
+          const cp = $('canvasPhoto');
+          if(cp && !cp.hidden){
+            sizeCanvasToAspect();
+            clampPan(cp.getBoundingClientRect());
+            applyZoomTransform();
+          }
+          renderOverlays();
+        }
+        if(cropCtx) layoutCropStage();
+      },120);
+    });
+
+    // top-level tabs
+    document.querySelectorAll('#screenTabs .tab').forEach(t=> t.addEventListener('click', ()=> switchTopScreen(t.dataset.screen)));
+
+    // projects
+    $('btnNewProject').addEventListener('click', ()=>{
+      customerModalMode='new';
+      $('customerModalTitle').textContent='New project';
+      $('custName').value=''; $('custPhone').value=''; $('custEmail').value=''; $('custAddress').value='';
+      $('customerModal').hidden=false;
+    });
+    $('btnBackToProjects').addEventListener('click', ()=> switchTopScreen('projects'));
+    $('btnEditCustomer').addEventListener('click', ()=>{
+      const pr = currentProject(); if(!pr) return;
+      customerModalMode='edit';
+      $('customerModalTitle').textContent='Edit customer';
+      $('custName').value=pr.customer.name||''; $('custPhone').value=pr.customer.phone||'';
+      $('custEmail').value=pr.customer.email||''; $('custAddress').value=pr.customer.address||'';
+      $('customerModal').hidden=false;
+    });
+    $('customerCancel').addEventListener('click', ()=> $('customerModal').hidden=true);
+    $('customerBackdrop').addEventListener('click', ()=> $('customerModal').hidden=true);
+    $('customerSave').addEventListener('click', ()=>{
+      const data = {name:$('custName').value.trim(), phone:$('custPhone').value.trim(), email:$('custEmail').value.trim(), address:$('custAddress').value.trim()};
+      if(customerModalMode==='new'){
+        const pr = {id:'pr'+Date.now(), customer:data, areas:[], createdAt:Date.now()};
+        state.projects.push(pr);
+        $('customerModal').hidden=true;
+        openProjectDetail(pr.id);
+      } else {
+        const pr = currentProject();
+        if(pr){ pr.customer=data; renderProjectDetail(); }
+        $('customerModal').hidden=true;
+      }
+    });
+
+    $('btnAddArea').addEventListener('click', ()=>{
+      const pr = currentProject(); if(!pr) return;
+      $('areaNameInput').value = 'Area '+(pr.areas.length+1);
+      $('areaNameModal').hidden=false;
+    });
+    $('areaNameCancel').addEventListener('click', ()=> $('areaNameModal').hidden=true);
+    $('areaNameBackdrop').addEventListener('click', ()=> $('areaNameModal').hidden=true);
+    $('areaNameCreate').addEventListener('click', ()=>{
+      const pr = currentProject(); if(!pr) return;
+      const name = $('areaNameInput').value.trim() || ('Area '+(pr.areas.length+1));
+      const area = {id:'a'+Date.now(), name, photo:null, darkness:0.6, beamBrightness:1, placements:[], accessoryQty:{}, wireRuns:[], lightStrips:[]};
+      pr.areas.push(area);
+      $('areaNameModal').hidden=true;
+      openAreaEditor(area.id);
+    });
+
+    document.querySelectorAll('#projQuoteModeTabs .tab').forEach(t=>{
+      t.addEventListener('click', ()=>{
+        state.quoteMode = t.dataset.mode;
+        document.querySelectorAll('#projQuoteModeTabs .tab').forEach(x=>x.classList.toggle('active', x===t));
+        const pr = currentProject();
+        renderAreaList(pr);
+        renderLoadSummary(pr);
+        renderProjectQuote(pr);
+      });
+    });
+    $('discountPercent').addEventListener('input', ()=>{
+      const pr = currentProject(); if(!pr) return;
+      pr.discountPercent = parseFloat($('discountPercent').value)||0;
+      renderProjectQuote(pr);
+    });
+    $('discountReason').addEventListener('input', ()=>{
+      const pr = currentProject(); if(!pr) return;
+      pr.discountReason = $('discountReason').value;
+      renderProjectQuote(pr);
+    });
+    $('btnPrintProject').addEventListener('click', printProject);
+    $('toggleExportLabels').addEventListener('change', e=>{
+      document.body.classList.toggle('no-export-labels', !e.target.checked);
+    });
+
+    // fixtures tab
+    $('btnAddFixture').addEventListener('click', ()=> openFixtureForm(null));
+    $('btnDownloadTemplate').addEventListener('click', downloadFixtureTemplate);
+    $('btnImportFixtures').addEventListener('click', ()=> $('fixtureImportInput').click());
+    $('fixtureImportInput').addEventListener('change', e=>{
+      const file = e.target.files[0]; if(!file) return;
+      importFixturesFromFile(file);
+      e.target.value = '';
+    });
+    document.querySelectorAll('.fmgmt-tab').forEach(t=>{
+      t.addEventListener('click', ()=>{
+        state.fixtureMgmtCat = t.dataset.fcat;
+        document.querySelectorAll('.fmgmt-tab').forEach(x=>x.classList.toggle('active', x===t));
+        renderFixtureMgmtList();
+      });
+    });
+    document.querySelectorAll('#fxCatSeg button').forEach(b=> b.addEventListener('click', ()=> setCatSeg(b.dataset.cat)));
+    document.querySelectorAll('#fxAimSeg button').forEach(b=> b.addEventListener('click', ()=>{
+      document.querySelectorAll('#fxAimSeg button').forEach(x=>x.classList.toggle('active', x===b));
+    }));
+    $('fixtureCancel').addEventListener('click', closeFixtureForm);
+    $('fixtureBackdrop').addEventListener('click', closeFixtureForm);
+    $('fixtureSave').addEventListener('click', saveFixtureForm);
+    $('fxDelete').addEventListener('click', deleteFixtureForm);
+
+    // company tab
+    $('btnUploadLogo').addEventListener('click', ()=> $('logoInput').click());
+    $('logoInput').addEventListener('change', e=>{
+      const file = e.target.files[0]; if(!file) return;
+      const reader = new FileReader();
+      reader.onload = ev=>{ state.company.logo = ev.target.result; renderCompanyPreview(); };
+      reader.readAsDataURL(file);
+      e.target.value='';
+    });
+    [['companyName','name'],['companyPhone','phone'],['companyEmail','email'],['companyAddress','address'],['companyWebsite','website']].forEach(([id,key])=>{
+      $(id).addEventListener('input', ()=>{ state.company[key] = $(id).value; renderCompanyPreview(); });
+    });
+    $('companyTaxRate').addEventListener('input', ()=>{ state.company.taxRate = parseFloat($('companyTaxRate').value)||0; });
+    $('companyTaxLabel').addEventListener('input', ()=>{ state.company.taxLabel = $('companyTaxLabel').value || 'Tax'; });
+    $('logoSizeSlider').addEventListener('input', e=>{
+      state.company.pdfLogoSize = +e.target.value;
+      $('logoSizeVal').textContent = e.target.value+'mm';
+      renderCompanyPreview();
+    });
+    document.querySelectorAll('#headingAlignSeg button').forEach(b=> b.addEventListener('click', ()=>{
+      document.querySelectorAll('#headingAlignSeg button').forEach(x=>x.classList.toggle('active', x===b));
+      state.company.headingAlign = b.dataset.align;
+      renderCompanyPreview();
+    }));
+    $('fontSizeSlider').addEventListener('input', e=>{
+      state.company.pdfFontSize = +e.target.value;
+      $('fontSizeVal').textContent = e.target.value+'pt';
+      applyQuoteAppearance();
+    });
+    const SWATCHES = ['#F0A84E','#5EC8E0','#6FBF8B','#E2685C','#B48CE0','#F2EFE8'];
+    $('swatchList').innerHTML = SWATCHES.map(c=>`<div class="swatch" data-color="${c}" style="background:${c};"></div>`).join('');
+    $('swatchList').querySelectorAll('.swatch').forEach(s=> s.addEventListener('click', ()=>{
+      state.company.quoteAccent = s.dataset.color;
+      $('quoteAccentColor').value = s.dataset.color;
+      applyQuoteAppearance();
+    }));
+    $('quoteAccentColor').addEventListener('input', e=>{ state.company.quoteAccent = e.target.value; applyQuoteAppearance(); });
+    const BG_SWATCHES = ['#FFFFFF','#FBF7EE','#F3F0E8','#EFEDE9','#111111'];
+    $('bgSwatchList').innerHTML = BG_SWATCHES.map(c=>`<div class="swatch" data-color="${c}" style="background:${c};"></div>`).join('');
+    $('bgSwatchList').querySelectorAll('.swatch').forEach(s=> s.addEventListener('click', ()=>{
+      state.company.pdfBgColor = s.dataset.color;
+      $('pdfBgColor').value = s.dataset.color;
+      applyQuoteAppearance();
+    }));
+    $('pdfBgColor').addEventListener('input', e=>{ state.company.pdfBgColor = e.target.value; applyQuoteAppearance(); });
+    renderSectionOrderList();
+
+    // crop screen
+    document.querySelectorAll('.crop-aspects .chip').forEach(c=>{
+      c.addEventListener('click', ()=>{
+        if(!cropCtx) return;
+        document.querySelectorAll('.crop-aspects .chip').forEach(x=>x.classList.toggle('active', x===c));
+        cropCtx.aspect = parseFloat(c.dataset.aspect);
+        layoutCropStage();
+      });
+    });
+    $('cropZoom').addEventListener('input', e=>{
+      if(!cropCtx) return;
+      const v = +e.target.value;
+      const maxScale = cropCtx.containScale*3.5;
+      cropCtx.scale = cropCtx.containScale + (v/100)*(maxScale-cropCtx.containScale);
+      renderCropTransform();
+    });
+    $('cropFrame').addEventListener('pointerdown', e=>{
+      if(!cropCtx) return;
+      e.preventDefault();
+      const startX=e.clientX, startY=e.clientY, ox=cropCtx.tx, oy=cropCtx.ty;
+      try{ $('cropFrame').setPointerCapture(e.pointerId); }catch(err){}
+      function move(ev){ cropCtx.tx=ox+(ev.clientX-startX); cropCtx.ty=oy+(ev.clientY-startY); renderCropTransform(); }
+      function up(){ $('cropFrame').removeEventListener('pointermove',move); $('cropFrame').removeEventListener('pointerup',up); $('cropFrame').removeEventListener('pointercancel',up); }
+      $('cropFrame').addEventListener('pointermove',move);
+      $('cropFrame').addEventListener('pointerup',up);
+      $('cropFrame').addEventListener('pointercancel',up);
+    });
+    $('btnCropCancel').addEventListener('click', closeCropScreen);
+    $('btnCropUse').addEventListener('click', ()=>{
+      if(!cropCtx) return;
+      const outputW = 1000, outputH = Math.round(1000/cropCtx.aspect);
+      const canvas = document.createElement('canvas');
+      canvas.width = outputW; canvas.height = outputH;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#000'; ctx.fillRect(0,0,outputW,outputH);
+      const factor = outputW/cropCtx.stageW;
+      const dw = cropCtx.natW*cropCtx.scale*factor, dh = cropCtx.natH*cropCtx.scale*factor;
+      const dx = outputW/2 + cropCtx.tx*factor - dw/2;
+      const dy = outputH/2 + cropCtx.ty*factor - dh/2;
+      ctx.drawImage(cropCtx.img, dx, dy, dw, dh);
+      const dataUrl = canvas.toDataURL('image/jpeg',0.88);
+      const cb = cropCtx.onDone;
+      const aspect = cropCtx.aspect;
+      closeCropScreen();
+      cb(dataUrl, aspect);
+    });
+
+    renderProjectList();
+    renderCompanyPreview();
+    applyQuoteAppearance();
+
+    // theme: restore saved preference (defaults to dark, matching the app's original look)
+    let savedTheme = 'dark';
+    try{ savedTheme = localStorage.getItem('duskline_theme') || 'dark'; }catch(err){}
+    applyTheme(savedTheme);
+    $('btnThemeToggle').addEventListener('click', toggleTheme);
+
+    // account / auth
+    $('btnAccount').addEventListener('click', openAccountModal);
+    $('accountCancel').addEventListener('click', closeAccountModal);
+    $('accountBackdrop').addEventListener('click', closeAccountModal);
+    $('accountSubmit').addEventListener('click', submitAuthForm);
+    $('accountLogout').addEventListener('click', handleLogout);
+    document.querySelectorAll('#authModeTabs .tab').forEach(b=>{
+      b.addEventListener('click', ()=> setAuthMode(b.dataset.authmode));
+    });
+    setAppVisible(false);
+    openAccountModal();
+    sb.auth.onAuthStateChange((event, session)=>{
+      if(session && session.user){ enterAppForUser(session.user); }
+      else{ leaveApp(); }
+    });
+    setInterval(()=>{ if(state.activeProfile) saveProfile(); }, 8000);
+    window.addEventListener('beforeunload', ()=>{ if(state.activeProfile) saveProfile(); });
+    window.addEventListener('pagehide', ()=>{ if(state.activeProfile) saveProfile(); });
+  }
+
+  document.addEventListener('DOMContentLoaded', init);
+})();
+</script>
+</body>
+</html>

@@ -435,6 +435,15 @@
     .quote-table th{background:#f3f3f3;color:#333;}
     .quote-table td,.quote-table th{color:#000;border-color:#ddd;}
     .tfoot-row td{background:#fafafa;border-top:2px solid #000;}
+    /* #projQuoteThead used to be a real <thead> and #projQuoteTfoot a real <tfoot> — correct
+       semantically, but browsers automatically repeat both on every printed page a table spans,
+       which for the totals block meant the subtotal/discount/tax/total rows appeared once per
+       page instead of once at the true end (a real user-reported bug: looked like two separate
+       partial quotes). Both are plain <tbody> elements now (see the markup) specifically to avoid
+       that auto-repeat behavior, which only applies to <thead>/<tfoot>. Keep it that way — don't
+       "fix" them back to semantic thead/tfoot without re-solving this. */
+    .quote-table tr{break-inside:avoid;}
+    #projQuoteTfoot{break-inside:avoid;}
     .margin{color:#2a7a45;}
     .below-cost{color:#b3261e;}
     .detail-header{border-color:#ccc;}
@@ -548,7 +557,7 @@
       </div>
       <div class="quote-table-wrap">
         <table class="quote-table" id="projQuoteTable">
-          <thead id="projQuoteThead"></thead><tbody id="projQuoteTbody"></tbody><tfoot id="projQuoteTfoot"></tfoot>
+          <thead id="projQuoteThead"></thead><tbody id="projQuoteTbody"></tbody><tbody id="projQuoteTfoot"></tbody>
         </table>
       </div>
       <div class="quote-empty" id="projQuoteEmpty" hidden>No fixtures added in any area yet.</div>

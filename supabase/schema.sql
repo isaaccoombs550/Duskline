@@ -207,3 +207,11 @@ create policy "Company members manage their own photos"
   on storage.objects for all
   using (bucket_id = 'photos' and (storage.foldername(name))[1] = public.current_company_id()::text)
   with check (bucket_id = 'photos' and (storage.foldername(name))[1] = public.current_company_id()::text);
+
+-- ============================================================================
+-- Quote footer: free-text field shown at the very end of every printed/exported
+-- quote (payment terms, a thank-you note, license info, etc.). Not part of the
+-- reorderable PDF section list (section_order) — a footer is always last by
+-- definition, so it renders via a fixed high CSS order value instead.
+alter table public.companies
+  add column footer_text text not null default '';

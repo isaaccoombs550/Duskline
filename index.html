@@ -196,6 +196,7 @@
   .print-header-mock img{width:44px;height:44px;object-fit:contain;border-radius:6px;}
   .print-header-mock-text strong{display:block;font-family:var(--font-display);font-size:14px;color:var(--quote-accent, var(--fog));}
   .print-header-mock-text span{display:block;font-size:11px;color:var(--muted);margin-top:2px;}
+  .print-footer-text{border-top:1px solid var(--line);padding-top:12px;margin-top:8px;font-size:11.5px;line-height:1.6;color:var(--muted);}
 
   /* ===== modal (customer / area name / fixture form) ===== */
   .edit-sheet{position:fixed;inset:0;z-index:60;display:flex;align-items:flex-end;}
@@ -385,7 +386,14 @@
     #screen-projects,#screen-fixtures,#screen-company{display:none !important;}
     #screen-project-detail{display:flex !important;overflow:visible;}
     .print-only{display:block !important;}
-    .app{box-shadow:none;max-width:100%;}
+    /* .app normally carries the on-screen theme's background (--ink), which in light theme is
+       a cream tone (#F4F1EA), not white. The quote table/cards have their own explicit white
+       surface so they look fine, but any leftover space in .app's flex column (it's
+       min-height:100vh) showed that cream color bleeding through below the content — the
+       "weird tan color" a customer would see at the end of a printed quote. Print should always
+       use the dedicated print background setting, not whatever theme happens to be active
+       on-screen when someone hits print. */
+    .app{box-shadow:none;max-width:100%;background:var(--pdf-bg-color, #fff);}
     /* On screen, area photos are fixed-height thumbnails (object-fit:cover) — fine for a
        scrolling list, but it crops off whatever doesn't fit, which can hide part of a design
        (a beam or fixture placed lower in the photo). The printed quote is the actual
@@ -568,6 +576,8 @@
         <button class="btn btn-primary" id="btnPrintProject">Print / Export project</button>
       </div>
     </div>
+
+    <div class="print-only" id="printFooter" style="order:100;padding:14px;"></div>
   </main>
 
   <!-- ===================== FIXTURES LIBRARY ===================== -->
@@ -637,6 +647,10 @@
       <div class="field"><label>PDF section order</label>
         <div class="section-order-list" id="sectionOrderList"></div>
         <div class="edit-hint" style="margin-top:6px;">Use the arrows to change what appears first on the exported PDF.</div>
+      </div>
+      <div class="field"><label>Quote footer (optional)</label>
+        <textarea id="companyFooterText" rows="3" placeholder="e.g. Thank you for your business! A 50% deposit is due to schedule installation, with the balance due on completion."></textarea>
+        <div class="edit-hint" style="margin-top:6px;">Shown at the very end of every printed/exported quote — payment terms, a thank-you note, license info, whatever you'd like customers to see last.</div>
       </div>
     </div>
 
@@ -969,7 +983,7 @@
       fixtureMgmtCat: 'fixture',
       company: {logo:null, name:'', phone:'', email:'', address:'', website:'', taxRate:0, taxLabel:'Tax',
         quoteAccent:'#F0A84E', pdfLogoSize:30, pdfFontSize:10, pdfBgColor:'#FFFFFF', headingAlign:'left',
-        sectionOrder:['header','customer','areas','load','quote']},
+        sectionOrder:['header','customer','areas','load','quote'], footerText:''},
       sheetCat: 'fixture',
       armed: null,
       selected: null,
@@ -2323,11 +2337,16 @@
       ${companyHeaderHtml(c, true)}`;
     $('logoPreviewBox').innerHTML = c.logo ? `<img src="${c.logo}">` : `<span class="muted" style="font-size:10px;">No logo</span>`;
     renderCompanyHeaderForPrint();
+    renderCompanyFooterForPrint();
   }
   function renderCompanyHeaderForPrint(){
     const c = state.company;
     const hasInfo = c.logo||c.name||c.phone||c.email||c.address||c.website;
     $('printCompanyHeader').innerHTML = hasInfo ? companyHeaderHtml(c, false) : '';
+  }
+  function renderCompanyFooterForPrint(){
+    const text = (state.company.footerText||'').trim();
+    $('printFooter').innerHTML = text ? `<div class="print-footer-text">${escapeHtml(text).replace(/\n/g,'<br>')}</div>` : '';
   }
 
   // ---------------- PDF export ----------------
@@ -2641,6 +2660,7 @@
     document.querySelectorAll('#headingAlignSeg button').forEach(b=> b.classList.toggle('active', b.dataset.align===(c.headingAlign||'left')));
     $('quoteAccentColor').value = c.quoteAccent || '#F0A84E';
     $('pdfBgColor').value = c.pdfBgColor || '#FFFFFF';
+    $('companyFooterText').value = c.footerText || '';
     renderSectionOrderList();
   }
   function afterProfileLoaded(){
@@ -2695,6 +2715,7 @@
       quote_accent: c.quoteAccent||'#F0A84E', pdf_logo_size: c.pdfLogoSize||30, pdf_font_size: c.pdfFontSize||10,
       pdf_bg_color: c.pdfBgColor||'#FFFFFF', heading_align: c.headingAlign||'left',
       section_order: c.sectionOrder||['header','customer','areas','load','quote'],
+      footer_text: c.footerText||'',
     };
   }
   function rowToCompany(row){
@@ -2704,6 +2725,7 @@
       quoteAccent: row.quote_accent||'#F0A84E', pdfLogoSize: row.pdf_logo_size||30, pdfFontSize: row.pdf_font_size||10,
       pdfBgColor: row.pdf_bg_color||'#FFFFFF', headingAlign: row.heading_align||'left',
       sectionOrder: row.section_order||['header','customer','areas','load','quote'],
+      footerText: row.footer_text||'',
     };
   }
   function projectToRow(pr){
@@ -3338,6 +3360,7 @@
       applyQuoteAppearance();
     }));
     $('pdfBgColor').addEventListener('input', e=>{ state.company.pdfBgColor = e.target.value; applyQuoteAppearance(); });
+    $('companyFooterText').addEventListener('input', e=>{ state.company.footerText = e.target.value; renderCompanyFooterForPrint(); });
     renderSectionOrderList();
 
     // crop screen

@@ -53,6 +53,8 @@ A single in-memory `state` object (declared ~line 840) holds everything:
 
 Three top-level tabs (`switchTopScreen`, ~line 1614) — Projects, Fixtures, Company — plus two fullscreen overlay modes that aren't tabs: the **Area Editor** (`#editorScreen`, `openAreaEditor`/`closeAreaEditor` ~line 1792) where photo-based design happens, and the **Crop screen** (`#cropScreen`, `openCropScreen` ~line 1844) used after any photo upload/capture.
 
+There's also a **marketing landing page** (`#landingScreen`, top of `<body>`, `showLandingScreen()`/`hideLandingScreen()` near `setAppVisible`) shown to logged-out first-time visitors instead of the sign-in gate appearing immediately — its "Get started free"/"Sign in" buttons hide it and open `#accountModal` in the corresponding mode. A *returning* logged-in visitor never sees it: the `onAuthStateChange` listener resolves to `enterAppForUser()` before the landing page would matter, so it goes straight into the app. `leaveApp()` (fired on logout or no session) and a logged-out `closeAccountModal()`/Cancel both route back to the landing page now — it's the true "nothing to show" resting state, not the auth modal directly.
+
 ### Key subsystems (search these section-comment banners, e.g. `// ---------------- wire runs ----------------`, to navigate)
 
 - **Canvas pan/zoom** (~line 894): desktop ctrl+scroll / pinch-to-zoom for precise fixture placement on the photo, independent of the CSS layout.

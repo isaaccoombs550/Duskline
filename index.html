@@ -29,6 +29,28 @@
   .app{max-width:520px;margin:0 auto;min-height:100vh;background:var(--ink);display:flex;flex-direction:column;position:relative;box-shadow:0 0 60px rgba(0,0,0,.5);}
   .app.auth-hidden{display:none;}
 
+  /* ===== Landing page ===== */
+  .landing{display:none;flex-direction:column;min-height:100vh;background:var(--ink-2);}
+  .landing.visible{display:flex;}
+  .landing-nav{display:flex;align-items:center;justify-content:space-between;padding:20px clamp(20px,5vw,64px);max-width:1080px;margin:0 auto;width:100%;box-sizing:border-box;}
+  .landing-hero{padding:clamp(24px,6vw,56px) clamp(20px,5vw,64px) clamp(40px,7vw,72px);max-width:1080px;margin:0 auto;width:100%;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;text-align:center;gap:22px;}
+  .landing-hero-art{width:100%;max-width:640px;border-radius:16px;overflow:hidden;border:1px solid var(--line);background:#0B0D10;}
+  .landing-hero-art svg{display:block;width:100%;height:auto;}
+  .landing-hero h1{font-family:var(--font-display);font-weight:700;font-size:clamp(28px,4.4vw,44px);line-height:1.12;letter-spacing:-.01em;margin:0;max-width:16ch;text-wrap:balance;}
+  .landing-sub{font-size:clamp(15px,1.6vw,17px);color:var(--muted);max-width:52ch;line-height:1.6;margin:0;}
+  .landing-cta{display:flex;gap:12px;flex-wrap:wrap;justify-content:center;margin-top:4px;}
+  .landing-cta .btn{padding:12px 22px;font-size:14px;}
+  .landing-features{padding:0 clamp(20px,5vw,64px) clamp(48px,7vw,80px);max-width:1080px;margin:0 auto;width:100%;box-sizing:border-box;
+    display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;}
+  .landing-feature{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:22px 20px;display:flex;flex-direction:column;gap:8px;text-align:left;}
+  .landing-feature-icon{width:34px;height:34px;border-radius:9px;background:var(--amber-soft, var(--amber));
+    display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:0 0 14px 1px rgba(240,168,78,.35);}
+  .landing-feature-icon svg{width:18px;height:18px;stroke:#191308;}
+  .landing-feature h3{font-family:var(--font-display);font-size:16px;margin:0;}
+  .landing-feature p{font-size:13.5px;color:var(--muted);line-height:1.55;margin:0;}
+  .landing-footer{padding:20px clamp(20px,5vw,64px) 32px;text-align:center;color:var(--muted);font-size:12px;}
+  @media (min-width:640px){ .landing-hero{text-align:center;} }
+
   header.topbar{position:sticky;top:0;z-index:20;display:flex;align-items:center;justify-content:space-between;gap:8px;
     padding:12px 14px;border-bottom:1px solid var(--line);background:var(--ink);}
   .brand{display:flex;align-items:center;gap:8px;flex-shrink:0;}
@@ -387,6 +409,81 @@
 </style>
 </head>
 <body>
+<div class="landing" id="landingScreen">
+  <header class="landing-nav">
+    <div class="brand"><span class="brand-dot"></span><span class="brand-name">Duskline</span></div>
+    <button class="btn btn-ghost btn-sm" id="landingSignIn">Sign in</button>
+  </header>
+
+  <section class="landing-hero">
+    <div class="landing-hero-art">
+      <svg viewBox="0 0 640 320" role="img" aria-label="An illustration of a house at night with three landscape lighting fixtures uplighting the facade and two trees, each fixture glowing amber against the dark yard.">
+        <defs>
+          <radialGradient id="beamCore" cx="50%" cy="100%" r="85%">
+            <stop offset="0%" stop-color="#FFC97A" stop-opacity=".55"/>
+            <stop offset="55%" stop-color="#F0A84E" stop-opacity=".16"/>
+            <stop offset="100%" stop-color="#F0A84E" stop-opacity="0"/>
+          </radialGradient>
+          <radialGradient id="fixtureGlow" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stop-color="#FFFFFF"/>
+            <stop offset="35%" stop-color="#FFC97A"/>
+            <stop offset="100%" stop-color="#F0A84E" stop-opacity="0"/>
+          </radialGradient>
+        </defs>
+        <rect x="0" y="0" width="640" height="320" fill="#0B0D10"/>
+        <ellipse cx="320" cy="300" rx="360" ry="26" fill="#14171C"/>
+        <polygon points="230,300 250,150 390,150 410,300" fill="url(#beamCore)"/>
+        <polygon points="110,300 128,175 172,175 190,300" fill="url(#beamCore)"/>
+        <polygon points="450,300 468,175 512,175 530,300" fill="url(#beamCore)"/>
+        <ellipse cx="150" cy="205" rx="46" ry="58" fill="#1B2027"/>
+        <ellipse cx="490" cy="205" rx="46" ry="58" fill="#1B2027"/>
+        <rect x="250" y="150" width="140" height="150" fill="#1B2027"/>
+        <polygon points="240,150 320,90 400,150" fill="#20262F"/>
+        <rect x="300" y="220" width="40" height="80" fill="#0B0D10"/>
+        <rect x="266" y="180" width="26" height="26" fill="#F0A84E" opacity=".45"/>
+        <rect x="348" y="180" width="26" height="26" fill="#F0A84E" opacity=".45"/>
+        <circle cx="150" cy="298" r="16" fill="url(#fixtureGlow)"/>
+        <circle cx="320" cy="298" r="18" fill="url(#fixtureGlow)"/>
+        <circle cx="490" cy="298" r="16" fill="url(#fixtureGlow)"/>
+        <circle cx="150" cy="298" r="4.5" fill="#FFF6E8"/>
+        <circle cx="320" cy="298" r="5" fill="#FFF6E8"/>
+        <circle cx="490" cy="298" r="4.5" fill="#FFF6E8"/>
+      </svg>
+    </div>
+    <h1>Design landscape lighting your customers can actually see</h1>
+    <p class="landing-sub">Duskline is landscape lighting design &amp; quoting software. Place fixtures on a photo of the property, aim every beam, and turn that same design into a professional quote — in minutes, not hours.</p>
+    <div class="landing-cta">
+      <button class="btn btn-primary" id="landingGetStarted">Get started free</button>
+      <button class="btn btn-ghost" id="landingSignIn2">Sign in</button>
+    </div>
+  </section>
+
+  <section class="landing-features">
+    <div class="landing-feature">
+      <div class="landing-feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></svg></div>
+      <h3>Design on their real photo</h3>
+      <p>Drag fixtures onto a photo of the property, aim beams, and draw wire runs and LED strips — exactly where they'll actually go.</p>
+    </div>
+    <div class="landing-feature">
+      <div class="landing-feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h9l5 5v13H6z"/><path d="M9 12h6M9 16h6"/></svg></div>
+      <h3>Quotes, built right in</h3>
+      <p>The same design becomes an itemized, branded quote. Toggle between what the customer sees and your internal cost view in one click.</p>
+    </div>
+    <div class="landing-feature">
+      <div class="landing-feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 8l10 6 10-6z"/><path d="m2 15 10 6 10-6"/></svg></div>
+      <h3>Built for the trade</h3>
+      <p>Real fixture specs — beam angle, lumens, color temperature — plus accessories, install-time estimates, and your own pricing.</p>
+    </div>
+    <div class="landing-feature">
+      <div class="landing-feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a8 8 0 0 1 14-5"/><path d="M20 12a8 8 0 0 1-14 5"/><path d="M14 3h4v4M10 21H6v-4"/></svg></div>
+      <h3>Everywhere, synced</h3>
+      <p>Real accounts and cloud-synced projects — start a design on-site, finish the quote back at the shop.</p>
+    </div>
+  </section>
+
+  <footer class="landing-footer">&copy; Duskline</footer>
+</div>
+
 <div class="app auth-hidden">
 
   <header class="topbar">
@@ -2684,6 +2781,13 @@
   function setAppVisible(visible){
     document.querySelector('.app').classList.toggle('auth-hidden', !visible);
   }
+  function showLandingScreen(){
+    $('accountModal').hidden = true;
+    $('landingScreen').classList.add('visible');
+  }
+  function hideLandingScreen(){
+    $('landingScreen').classList.remove('visible');
+  }
   function setAuthMode(mode){
     authMode = mode;
     document.querySelectorAll('#authModeTabs .tab').forEach(b=> b.classList.toggle('active', b.dataset.authmode===mode));
@@ -2710,14 +2814,14 @@
       $('accountInfo').hidden = true;
       $('accountSubmit').hidden = false;
       $('accountLogout').hidden = true;
-      $('accountCancel').hidden = true; // signing in isn't optional — nothing to cancel back to
+      $('accountCancel').hidden = false; // cancel goes back to the landing page, not nowhere
       setAuthMode('signin');
     }
     $('accountModal').hidden = false;
   }
   function closeAccountModal(){
-    if(!authUser) return; // can't dismiss the sign-in gate
     $('accountModal').hidden = true;
+    if(!authUser) showLandingScreen(); // logged-out cancel returns to the landing page
   }
   async function submitAuthForm(){
     const email = $('authEmail').value.trim();
@@ -2773,15 +2877,16 @@
       }
     }
     afterProfileLoaded();
+    hideLandingScreen();
     setAppVisible(true);
-    closeAccountModal();
+    $('accountModal').hidden = true;
   }
   function leaveApp(){
     authUser = null;
     authProfile = null;
     Object.assign(state, freshState());
     setAppVisible(false);
-    openAccountModal();
+    showLandingScreen();
   }
 
   // ---------------- init ----------------
@@ -3274,8 +3379,14 @@
     document.querySelectorAll('#authModeTabs .tab').forEach(b=>{
       b.addEventListener('click', ()=> setAuthMode(b.dataset.authmode));
     });
+
+    // landing page
+    $('landingSignIn').addEventListener('click', ()=>{ hideLandingScreen(); openAccountModal(); setAuthMode('signin'); });
+    $('landingSignIn2').addEventListener('click', ()=>{ hideLandingScreen(); openAccountModal(); setAuthMode('signin'); });
+    $('landingGetStarted').addEventListener('click', ()=>{ hideLandingScreen(); openAccountModal(); setAuthMode('signup'); });
+
     setAppVisible(false);
-    openAccountModal();
+    showLandingScreen();
     sb.auth.onAuthStateChange((event, session)=>{
       if(session && session.user){ enterAppForUser(session.user); }
       else{ leaveApp(); }

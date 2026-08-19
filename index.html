@@ -168,6 +168,12 @@
   .fx-actions{display:flex;gap:6px;}
   .fx-actions button{background:var(--surface);border:1px solid var(--line);color:var(--fog);border-radius:7px;
     padding:5px 9px;font-size:11px;cursor:pointer;}
+  #fixtureMgmtRemoved{padding:4px 12px 18px;}
+  .fx-removed-title{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;padding:0 2px 8px;}
+  .fx-removed-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 12px;
+    border:1px dashed var(--line);border-radius:10px;margin-bottom:6px;font-size:12.5px;color:var(--muted);}
+  .fx-removed-row button{background:transparent;border:1px solid var(--line);color:var(--amber-soft);border-radius:7px;
+    padding:5px 10px;font-size:11px;cursor:pointer;}
   .import-status{margin:0 14px 12px;padding:10px 12px;border-radius:10px;font-size:12px;line-height:1.5;}
   .import-status.ok{background:rgba(111,191,139,.12);border:1px solid var(--good);color:var(--good);}
   .import-status.err{background:rgba(226,104,92,.12);border:1px solid var(--danger);color:var(--danger);}
@@ -577,6 +583,7 @@
       <button class="fmgmt-tab" data-fcat="strip">Strips</button>
     </div>
     <div class="sheet-list" id="fixtureMgmtList"></div>
+    <div id="fixtureMgmtRemoved"></div>
   </main>
 
   <!-- ===================== COMPANY ===================== -->
@@ -1003,9 +1010,20 @@
   // ---------------- fixture catalog helpers ----------------
   function allFixtures(){
     return BASE_FIXTURES.map(f=> state.fixtureOverrides[f.id] ? {...f, ...state.fixtureOverrides[f.id], id:f.id} : f)
+      .filter(f=> !f.hidden)
       .concat(state.customFixtures);
   }
-  function findFixture(id){ return allFixtures().find(f=>f.id===id); }
+  // Built-in catalog items can't actually be deleted (BASE_FIXTURES is hardcoded), so "removing"
+  // one from the library just marks it hidden via the same fixture_overrides mechanism used for
+  // editing a built-in — allFixtures() filters these out. findFixture() deliberately bypasses that
+  // filter (via the id param) so a hidden fixture already placed on an existing design still
+  // resolves correctly instead of vanishing from past quotes/designs.
+  function findFixture(id){
+    const hit = allFixtures().find(f=>f.id===id);
+    if(hit) return hit;
+    const base = BASE_FIXTURES.find(f=>f.id===id);
+    return base && state.fixtureOverrides[id] ? {...base, ...state.fixtureOverrides[id], id} : base;
+  }
 
   // ---------------- project / area helpers ----------------
   function currentProject(){ return state.projects.find(p=>p.id===state.currentProjectId); }
@@ -2061,6 +2079,15 @@
       </div>`;
     }).join('');
     $('fixtureMgmtList').querySelectorAll('[data-edit]').forEach(b=>b.addEventListener('click', e=> openFixtureForm(e.currentTarget.dataset.edit)));
+
+    const removed = BASE_FIXTURES.filter(f=> f.cat===cat && state.fixtureOverrides[f.id] && state.fixtureOverrides[f.id].hidden);
+    const removedList = $('fixtureMgmtRemoved');
+    if(!removed.length){ removedList.innerHTML=''; return; }
+    removedList.innerHTML = `<div class="fx-removed-title">Removed from your library</div>` + removed.map(f=>{
+      const name = (state.fixtureOverrides[f.id] && state.fixtureOverrides[f.id].name) || f.name;
+      return `<div class="fx-removed-row"><span>${escapeHtml(name)}</span><button data-restore="${f.id}">Restore</button></div>`;
+    }).join('');
+    removedList.querySelectorAll('[data-restore]').forEach(b=>b.addEventListener('click', e=> restoreFixture(e.currentTarget.dataset.restore)));
   }
 
   let fixtureFormState = {editingId:null};
@@ -2088,8 +2115,8 @@
     setAimSeg(f ? (f.rot||0) : 0);
     $('fxCost').value = f ? f.cost : '';
     $('fxPrice').value = f ? f.price : '';
-    const isCustom = f && f.custom;
-    $('fxDelete').hidden = !isCustom;
+    $('fxDelete').hidden = !f;
+    $('fxDelete').textContent = (f && f.custom) ? 'Delete' : 'Remove from library';
     $('fixtureModal').hidden = false;
   }
   function closeFixtureForm(){ $('fixtureModal').hidden = true; }
@@ -2137,12 +2164,41 @@
   function deleteFixtureForm(){
     const id = fixtureFormState.editingId;
     if(!id) return;
-    if(!confirm('Delete this fixture from your library?')) return;
-    state.customFixtures = state.customFixtures.filter(f=>f.id!==id);
-    sb.from('custom_fixtures').delete().eq('id', id).then(({error})=>{
-      if(error) console.warn('Duskline: custom fixture delete failed.', error);
-    });
+    const isCustom = state.customFixtures.some(f=>f.id===id);
+    if(isCustom){
+      if(!confirm('Delete this fixture from your library? This can\'t be undone.')) return;
+      state.customFixtures = state.customFixtures.filter(f=>f.id!==id);
+      sb.from('custom_fixtures').delete().eq('id', id).then(({error})=>{
+        if(error) console.warn('Duskline: custom fixture delete failed.', error);
+      });
+    } else {
+      // Built-in catalog items aren't real rows -- can't be deleted, only hidden. Restorable
+      // from "Removed from your library" at the bottom of this category's list.
+      if(!confirm('Remove this fixture from your library? You can restore it later from "Removed from your library" at the bottom of this list.')) return;
+      state.fixtureOverrides[id] = {...(state.fixtureOverrides[id]||{}), hidden:true};
+      sb.from('fixture_overrides').upsert({ company_id: authProfile.companyId, base_fixture_id: id, data: state.fixtureOverrides[id] }).then(({error})=>{
+        if(error) console.warn('Duskline: fixture hide failed.', error);
+      });
+    }
     closeFixtureForm();
+    renderFixtureMgmtList();
+    if(!$('editorScreen').hidden) renderSheetList();
+  }
+  function restoreFixture(id){
+    const ov = state.fixtureOverrides[id];
+    if(!ov) return;
+    delete ov.hidden;
+    const stillCustomized = Object.keys(ov).length>0;
+    if(stillCustomized){
+      sb.from('fixture_overrides').upsert({ company_id: authProfile.companyId, base_fixture_id: id, data: ov }).then(({error})=>{
+        if(error) console.warn('Duskline: fixture restore failed.', error);
+      });
+    } else {
+      delete state.fixtureOverrides[id];
+      sb.from('fixture_overrides').delete().eq('company_id', authProfile.companyId).eq('base_fixture_id', id).then(({error})=>{
+        if(error) console.warn('Duskline: fixture restore failed.', error);
+      });
+    }
     renderFixtureMgmtList();
     if(!$('editorScreen').hidden) renderSheetList();
   }

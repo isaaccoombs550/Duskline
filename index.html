@@ -386,8 +386,16 @@
     #screen-project-detail{display:flex !important;overflow:visible;}
     .print-only{display:block !important;}
     .app{box-shadow:none;max-width:100%;}
+    /* On screen, area photos are fixed-height thumbnails (object-fit:cover) — fine for a
+       scrolling list, but it crops off whatever doesn't fit, which can hide part of a design
+       (a beam or fixture placed lower in the photo). The printed quote is the actual
+       deliverable a customer sees, so it shows the full, uncropped photo at its real aspect
+       ratio instead. The beam/placement overlay HTML already scales off the container's
+       *width*, which is unchanged here (only height goes from fixed to auto), so the
+       overlays still line up correctly on the now-taller frame. */
+    .area-card-photo{height:auto !important;}
+    .area-card-photo img{height:auto !important;object-fit:contain;}
     .area-card{break-inside:avoid;border-color:#ccc;}
-    .area-card-photo{height:260px;}
     .place-label{display:block;background:rgba(255,255,255,.92);color:#000;border:1px solid #999;}
     .place-dot{border-color:#000;background:#fff;}
     body.no-export-labels .place-label{display:none !important;}

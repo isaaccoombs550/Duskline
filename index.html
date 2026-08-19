@@ -246,6 +246,14 @@
   .editor-canvas .canvas-empty h2{font-family:var(--font-display);font-size:18px;margin:0;color:#F2EFE8;}
   .editor-canvas .canvas-empty p{margin:0;color:#AEB4BF;font-size:13px;line-height:1.55;max-width:300px;}
   .empty-actions{display:flex;gap:10px;margin-top:4px;flex-wrap:wrap;justify-content:center;}
+  /* The design canvas is always black regardless of light/dark theme (it's meant to simulate
+     nighttime), and .btn-ghost's text/border colors are theme-dependent (var(--fog)/var(--line))
+     — correct on a normal light or dark surface, but in light theme --fog is a dark brown-black,
+     which nearly disappears against the canvas's fixed black background. "Take photo" next to it
+     doesn't have this problem because its own solid amber fill guarantees contrast no matter what
+     theme is active; "Choose photo" (the only .btn-ghost that lives on the canvas) needs the same
+     always-readable treatment via hardcoded light colors, not theme tokens. */
+  .canvas-empty .btn-ghost{border-color:rgba(242,239,232,.4);color:#F2EFE8;}
 
   .canvas-photo{position:relative;touch-action:none;overflow:hidden;cursor:grab;}
   .canvas-photo.is-armed{cursor:copy;}

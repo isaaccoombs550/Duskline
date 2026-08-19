@@ -2533,28 +2533,42 @@
       const showWires = $('toggleExportWires').checked;
 
       const img = new Image();
+      // Required for areas whose photo now lives in Supabase Storage (an https:// URL,
+      // post-Phase-3) rather than the old inline data: URL: without this, the browser loads
+      // the image in non-CORS mode regardless of the server's CORS headers, which taints the
+      // canvas and makes canvas.toDataURL() throw below. Same root cause as the crossOrigin
+      // fix on openCropScreen's <img> — this is a separate <img> that needed the same fix.
+      img.crossOrigin = 'anonymous';
       img.onload = ()=>{
-        ctx.save();
-        ctx.filter = photoFilterFor(area); // same dusk-dim CSS filter used on screen
-        ctx.drawImage(img, 0, 0, cw, ch);
-        ctx.restore();
+        try{
+          ctx.save();
+          ctx.filter = photoFilterFor(area); // same dusk-dim CSS filter used on screen
+          ctx.drawImage(img, 0, 0, cw, ch);
+          ctx.restore();
 
-        area.placements.forEach(p=>{
-          const f = findFixture(p.fixtureId); if(!f) return;
-          drawBeamOnCanvas(ctx, p, f, cw, ch, area.beamBrightness);
-        });
-        if(showWires && area.wireRuns && area.wireRuns.length){
-          area.wireRuns.forEach(w=> drawWireOnCanvas(ctx, w, cw, ch));
-        }
-        if(area.lightStrips && area.lightStrips.length){
-          area.lightStrips.forEach(s=> drawStripOnCanvas(ctx, s, cw, ch, showLabels));
-        }
-        area.placements.forEach(p=>{
-          const f = findFixture(p.fixtureId); if(!f) return;
-          drawDotAndLabelOnCanvas(ctx, p, f, cw, showLabels);
-        });
+          area.placements.forEach(p=>{
+            const f = findFixture(p.fixtureId); if(!f) return;
+            drawBeamOnCanvas(ctx, p, f, cw, ch, area.beamBrightness);
+          });
+          if(showWires && area.wireRuns && area.wireRuns.length){
+            area.wireRuns.forEach(w=> drawWireOnCanvas(ctx, w, cw, ch));
+          }
+          if(area.lightStrips && area.lightStrips.length){
+            area.lightStrips.forEach(s=> drawStripOnCanvas(ctx, s, cw, ch, showLabels));
+          }
+          area.placements.forEach(p=>{
+            const f = findFixture(p.fixtureId); if(!f) return;
+            drawDotAndLabelOnCanvas(ctx, p, f, cw, showLabels);
+          });
 
-        resolve(canvas.toDataURL('image/jpeg', 0.92));
+          resolve(canvas.toDataURL('image/jpeg', 0.92));
+        }catch(err){
+          // Without this catch, a thrown error here (tainted canvas or otherwise) would leave
+          // this Promise pending forever instead of resolving/rejecting — the export would
+          // just silently hang with no feedback, which is exactly the bug this fixes.
+          console.error('Duskline: failed to capture area design image.', err);
+          resolve(null);
+        }
       };
       img.onerror = ()=> resolve(null);
       img.src = area.photo;
@@ -2570,10 +2584,12 @@
     btn.disabled = true;
     try{
       const projectSlug = (pr.customer.name||'project').replace(/[^a-z0-9]+/gi,'-').toLowerCase();
+      let exported = 0;
       for(let i=0;i<areas.length;i++){
         btn.textContent = `Exporting image ${i+1} of ${areas.length}…`;
         const dataUrl = await captureAreaDesignImage(areas[i]);
         if(!dataUrl) continue;
+        exported++;
         const areaSlug = areas[i].name.replace(/[^a-z0-9]+/gi,'-').toLowerCase();
         const a = document.createElement('a');
         a.href = dataUrl;
@@ -2582,6 +2598,9 @@
         a.click();
         document.body.removeChild(a);
         await new Promise(r=> setTimeout(r, 400));
+      }
+      if(!exported){
+        alert("Couldn't export any of this project's area photos. Please check your connection and try again.");
       }
     }catch(err){
       console.error(err);

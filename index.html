@@ -379,7 +379,11 @@
       print-color-adjust: exact !important;
       color-adjust: exact !important;
     }
-    body{background:var(--pdf-bg-color, #fff);}
+    /* html and body both carry their own explicit background (html,body{background:var(--ink-2)}
+       appears twice: the base rule, and again at the >=860px desktop breakpoint) — overriding
+       just body left html's tan/cream --ink-2 showing through wherever body/.app didn't fully
+       cover the printed page. Both need the print override, not just body. */
+    html,body{background:var(--pdf-bg-color, #fff);}
     header.topbar,.editor-screen,.crop-screen,.edit-sheet,
     #btnBackToProjects,#btnEditCustomer,#btnAddArea,.area-card-del,.quote-actions,#projQuoteModeTabs,.discount-row,
     .export-label-toggle,.area-card-body .btn{display:none !important;}

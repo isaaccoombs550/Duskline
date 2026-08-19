@@ -820,6 +820,7 @@
       <div class="modal-form-body">
         <div class="field" id="authCompanyField" hidden><label>Company name</label><input id="authCompanyName" placeholder="e.g. Summit Landscape Lighting"></div>
         <div class="field" id="authNameField" hidden><label>Your name</label><input id="authFullName" placeholder="e.g. Jordan"></div>
+        <div class="field" id="authAccessCodeField" hidden><label>Access code</label><input id="authAccessCode" placeholder="Enter your invite code"></div>
         <div class="field"><label>Email</label><input id="authEmail" type="email" placeholder="you@company.com"></div>
         <div class="field"><label>Password</label><input id="authPassword" type="password" placeholder="At least 6 characters"></div>
       </div>
@@ -2887,6 +2888,7 @@
     document.querySelectorAll('#authModeTabs .tab').forEach(b=> b.classList.toggle('active', b.dataset.authmode===mode));
     $('authCompanyField').hidden = mode!=='signup';
     $('authNameField').hidden = mode!=='signup';
+    $('authAccessCodeField').hidden = mode!=='signup';
     $('accountModalTitle').textContent = mode==='signup' ? 'Create your account' : 'Sign in';
     $('accountSubmit').textContent = mode==='signup' ? 'Create account' : 'Sign in';
     $('authError').textContent = '';
@@ -2931,11 +2933,18 @@
         const companyName = $('authCompanyName').value.trim();
         if(!companyName){ errEl.textContent = 'Enter a company name.'; return; }
         const fullName = $('authFullName').value.trim();
+        const accessCode = $('authAccessCode').value.trim();
+        if(!accessCode){ errEl.textContent = 'Enter your access code.'; return; }
         const { data, error } = await sb.auth.signUp({
           email, password,
-          options: { data: { company_name: companyName, full_name: fullName } }
+          options: { data: { company_name: companyName, full_name: fullName, access_code: accessCode } }
         });
-        if(error) throw error;
+        if(error){
+          if(/database error saving new user/i.test(error.message||'')){
+            throw new Error('That access code is not valid.');
+          }
+          throw error;
+        }
         if(!data.session){
           errEl.style.color = 'var(--muted)';
           errEl.textContent = 'Account created — check your email to confirm it, then sign in.';

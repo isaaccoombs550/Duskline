@@ -59,6 +59,16 @@ create policy "Users can update their own profile"
 -- one new company + one profile (role: 'owner') per signup. There is currently no way
 -- for a second person to join an EXISTING company — every signup creates its own tenant.
 -- Adding a real invite flow is future work, not yet scoped.
+--
+-- Access-code gate (added while onboarding is by invite only, see ../CLAUDE.md): if
+-- new.raw_user_meta_data->>'access_code' doesn't match the hardcoded value below, this
+-- raises, which rolls back the whole trigger transaction — including the auth.users row
+-- Supabase Auth had just inserted — so the signup fails atomically rather than leaving an
+-- orphaned auth user with no company/profile row. This intentionally lives in the trigger
+-- (server-side), not just as a client-side field check, so it can't be bypassed by editing
+-- the page's JS. To change the code or remove the gate entirely, re-run this whole
+-- `create or replace function` block via the SQL Editor with the code updated (or the
+-- `if` block deleted to remove the gate).
 create or replace function public.handle_new_user()
 returns trigger
 language plpgsql
@@ -67,6 +77,10 @@ as $$
 declare
   new_company_id uuid;
 begin
+  if new.raw_user_meta_data->>'access_code' is distinct from 'DUSKLINEBETAV12026' then
+    raise exception 'invalid access code';
+  end if;
+
   insert into public.companies (name)
   values (coalesce(new.raw_user_meta_data->>'company_name', 'My Company'))
   returning id into new_company_id;

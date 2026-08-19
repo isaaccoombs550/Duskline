@@ -7,8 +7,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" integrity="sha384-vtjasyidUo0kW94K5MXDXntzOJpQgBKXmE7e2Ga4LG0skTTLeBi97eFAXsqewJjw" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.3" integrity="sha384-l8ah+VgaWtk1mvOe9VC+OirC6qHFF4yH7l7mKRidV9MSti3E9F463bMp6ZVN4kuC" crossorigin="anonymous"></script>
 <style>
   :root{
     --ink:#14171C; --ink-2:#0B0D10; --surface:#1E232B; --surface-2:#262C36; --line:#2E3540;
@@ -1429,8 +1429,8 @@
         const armed = state.armed===f.id;
         return `<div class="fx-card ${armed?'is-armed':''}">
           <div class="fx-main">
-            <div class="fx-name">${f.name}</div>
-            <div class="fx-desc">${f.desc||''}</div>
+            <div class="fx-name">${escapeHtml(f.name)}</div>
+            <div class="fx-desc">${escapeHtml(f.desc)}</div>
             <div class="fx-spec">${specStr(f)}</div>
           </div>
           <div class="fx-side">
@@ -1443,8 +1443,8 @@
         const totalFt = (area.lightStrips||[]).filter(s=>s.fixtureId===f.id).reduce((s,r)=>s+(r.lengthFt||0),0);
         return `<div class="fx-card ${drawing?'is-armed':''}">
           <div class="fx-main">
-            <div class="fx-name">${f.name}</div>
-            <div class="fx-desc">${f.desc||''}</div>
+            <div class="fx-name">${escapeHtml(f.name)}</div>
+            <div class="fx-desc">${escapeHtml(f.desc)}</div>
             <div class="fx-spec">${f.kelvin}K · ${f.watt}W/ft${totalFt>0?' · '+Math.round(totalFt)+' ft drawn':''}</div>
           </div>
           <div class="fx-side">
@@ -1455,7 +1455,7 @@
       } else {
         const qty = area.accessoryQty[f.id]||0;
         return `<div class="fx-card">
-          <div class="fx-main"><div class="fx-name">${f.name}</div><div class="fx-desc">${f.desc||''}</div></div>
+          <div class="fx-main"><div class="fx-name">${escapeHtml(f.name)}</div><div class="fx-desc">${escapeHtml(f.desc)}</div></div>
           <div class="fx-side">
             <div class="fx-price">${money(f.price)}</div>
             <div class="stepper"><button data-dec="${f.id}">−</button><span class="mono">${qty}</span><button data-inc="${f.id}">+</button></div>
@@ -1563,7 +1563,7 @@
     if(state.quoteMode==='customer'){
       $('projQuoteThead').innerHTML = `<tr><th>Item</th><th>Qty</th><th>Price</th><th>Total</th></tr>`;
       $('projQuoteTbody').innerHTML = items.map(i=>`<tr>
-          <td>${i.name}<div class="cell-sub">${i.desc||''}</div></td>
+          <td>${escapeHtml(i.name)}<div class="cell-sub">${escapeHtml(i.desc)}</div></td>
           <td class="mono">${i.qty}</td><td class="mono">${money(i.price)}</td><td class="mono">${money(i.linePrice)}</td>
         </tr>`).join('');
       const subtotal = items.reduce((s,i)=>s+i.linePrice,0);
@@ -1594,7 +1594,7 @@
         const md = i.linePrice-i.lineCost;
         const mp = i.linePrice ? (md/i.linePrice*100) : 0;
         const belowCost = i.price < i.cost;
-        return `<tr><td>${i.name}</td><td class="mono">${i.qty}</td><td class="mono">${money(i.lineCost)}</td>
+        return `<tr><td>${escapeHtml(i.name)}</td><td class="mono">${i.qty}</td><td class="mono">${money(i.lineCost)}</td>
           <td class="mono ${belowCost?'below-cost':''}">${money(i.linePrice)}</td>
           <td class="mono ${belowCost?'below-cost':'margin'}">${money(md)} <span class="muted">(${mp.toFixed(0)}%)</span></td></tr>`;
       }).join('');
@@ -1613,14 +1613,14 @@
   function renderLoadSummary(pr){
     const el = $('loadSummary');
     if(!pr || !pr.areas.length || state.quoteMode!=='cost'){ el.innerHTML=''; return; }
-    const rows = pr.areas.map(a=>`<div class="load-row"><span>${a.name}</span><span class="mono">${Math.round(areaWatts(a))} W</span></div>`).join('');
+    const rows = pr.areas.map(a=>`<div class="load-row"><span>${escapeHtml(a.name)}</span><span class="mono">${Math.round(areaWatts(a))} W</span></div>`).join('');
     const total = pr.areas.reduce((s,a)=>s+areaWatts(a),0);
     const rec = Math.ceil((total/0.8)/50)*50;
     const wireTotal = pr.areas.reduce((s,a)=>s+areaWireFeet(a),0);
-    const wireRows = pr.areas.some(a=>a.wireRuns&&a.wireRuns.length) ? pr.areas.map(a=>`<div class="load-row"><span>${a.name}</span><span class="mono">${Math.round(areaWireFeet(a))} ft</span></div>`).join('') : '';
+    const wireRows = pr.areas.some(a=>a.wireRuns&&a.wireRuns.length) ? pr.areas.map(a=>`<div class="load-row"><span>${escapeHtml(a.name)}</span><span class="mono">${Math.round(areaWireFeet(a))} ft</span></div>`).join('') : '';
     const spools = Math.ceil(wireTotal/100);
     const stripTotal = pr.areas.reduce((s,a)=>s+areaStripFeet(a),0);
-    const stripRows = pr.areas.some(a=>a.lightStrips&&a.lightStrips.length) ? pr.areas.map(a=>`<div class="load-row"><span>${a.name}</span><span class="mono">${Math.round(areaStripFeet(a))} ft</span></div>`).join('') : '';
+    const stripRows = pr.areas.some(a=>a.lightStrips&&a.lightStrips.length) ? pr.areas.map(a=>`<div class="load-row"><span>${escapeHtml(a.name)}</span><span class="mono">${Math.round(areaStripFeet(a))} ft</span></div>`).join('') : '';
     el.innerHTML = `
       <div class="load-summary-title">Load &amp; transformer sizing</div>
       ${rows}
@@ -1660,7 +1660,7 @@
       const total = items.reduce((s,i)=>s+i.linePrice,0);
       return `<div class="project-card" data-id="${pr.id}">
         <div>
-          <div class="project-card-name">${pr.customer.name||'Untitled project'}</div>
+          <div class="project-card-name">${escapeHtml(pr.customer.name)||'Untitled project'}</div>
           <div class="project-card-sub">${pr.areas.length} area${pr.areas.length!==1?'s':''} · ${new Date(pr.createdAt).toLocaleDateString()}</div>
         </div>
         <div style="display:flex;align-items:center;gap:10px;">
@@ -1728,7 +1728,7 @@
         </div>
         <div class="area-card-body">
           <div>
-            <div class="area-card-name">${a.name}</div>
+            <div class="area-card-name">${escapeHtml(a.name)}</div>
             <div class="area-card-stat">${a.placements.length} fixture${a.placements.length!==1?'s':''} · ${money(total)}${showTech?' · '+w+'W':''}</div>
           </div>
           <button class="btn btn-ghost btn-sm">Edit</button>
@@ -1951,8 +1951,8 @@
       const install = f.installTime ? (specLine?' · ':'')+f.installTime+'m install' : '';
       return `<div class="fx-card">
         <div class="fx-main">
-          <div class="fx-name">${f.name}${f.custom?' <span class="muted" style="font-size:10px;">· custom</span>':''}</div>
-          <div class="fx-desc">${f.desc||''}</div>
+          <div class="fx-name">${escapeHtml(f.name)}${f.custom?' <span class="muted" style="font-size:10px;">· custom</span>':''}</div>
+          <div class="fx-desc">${escapeHtml(f.desc)}</div>
           <div class="fx-spec">${specLine}${install}</div>
         </div>
         <div class="fx-side">

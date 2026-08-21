@@ -1109,9 +1109,9 @@
     let html, hx, hy, wx, wy;
     if(beamW>=360){
       const R = clampR((60+f.lumens/5)*p.reach*(rect.width/380), rect) * 0.7;
-      const o1 = Math.min(1,(selected?0.85:0.7)*bb);
-      const o2 = Math.min(1,(selected?0.5:0.4)*bb);
-      const o3 = Math.min(1,(selected?0.22:0.16)*bb);
+      const o1 = Math.min(1,(selected?0.4:0.32)*bb);
+      const o2 = Math.min(1,(selected?0.22:0.17)*bb);
+      const o3 = Math.min(1,(selected?0.1:0.07)*bb);
       const blur = Math.max(1, R*0.06);
       html = `<div class="pool" style="width:${R*2}px;height:${R*2}px;filter:blur(${blur.toFixed(1)}px);background:radial-gradient(circle, rgba(${col},${o1}) 0%, rgba(${col},${o2}) 30%, rgba(${col},${o3}) 62%, rgba(${col},0) 100%);"></div>`;
       hx = R*Math.sin(135*Math.PI/180); hy = -R*Math.cos(135*Math.PI/180);
@@ -1122,10 +1122,10 @@
       const p1 = polar(-half,190), p2 = polar(half,190);
       const largeArc = beamW>180?1:0;
       const gid = 'g'+p.uid, fid = 'f'+p.uid, hid = 'h'+p.uid;
-      const o1 = Math.min(1,(selected?0.85:0.7)*bb);
-      const o2 = Math.min(1,(selected?0.48:0.36)*bb);
-      const o3 = Math.min(1,(selected?0.2:0.14)*bb);
-      const hOp = Math.min(1,(selected?1:0.9)*bb);
+      const o1 = Math.min(1,(selected?0.38:0.3)*bb);
+      const o2 = Math.min(1,(selected?0.2:0.15)*bb);
+      const o3 = Math.min(1,(selected?0.09:0.06)*bb);
+      const hOp = Math.min(1,(selected?0.55:0.45)*bb);
       const d = `M200,200 L${p1.x.toFixed(1)},${p1.y.toFixed(1)} A190,190 0 ${largeArc} 1 ${p2.x.toFixed(1)},${p2.y.toFixed(1)} Z`;
       html = `<svg viewBox="0 0 400 400" width="${R*2}" height="${R*2}" class="beam-svg" style="transform:translate(-50%,-50%) rotate(${p.rotation}deg)">
         <defs>
@@ -2551,7 +2551,7 @@
     ctx.globalCompositeOperation = 'screen';
     if(beamW>=360){
       const Rp = clampR((60+f.lumens/5)*p.reach*(cw/380), rectRef) * 0.7;
-      const o1 = Math.min(1,0.7*bb), o2 = Math.min(1,0.4*bb), o3 = Math.min(1,0.16*bb);
+      const o1 = Math.min(1,0.32*bb), o2 = Math.min(1,0.17*bb), o3 = Math.min(1,0.07*bb);
       ctx.filter = `blur(${Math.max(1,Rp*0.06).toFixed(1)}px)`;
       const grad = ctx.createRadialGradient(mx,my,0,mx,my,Rp);
       grad.addColorStop(0, `rgba(${col},${o1})`);
@@ -2566,7 +2566,7 @@
       // our convention: 0deg = up, clockwise. canvas arc(): 0rad = +X (right), clockwise. Offset by -90deg.
       const startRad = (p.rotation-half-90)*Math.PI/180;
       const endRad = (p.rotation+half-90)*Math.PI/180;
-      const o1 = Math.min(1,0.7*bb), o2 = Math.min(1,0.36*bb), o3 = Math.min(1,0.14*bb);
+      const o1 = Math.min(1,0.3*bb), o2 = Math.min(1,0.15*bb), o3 = Math.min(1,0.06*bb);
       ctx.filter = `blur(${Math.max(1,R*0.018).toFixed(1)}px)`;
       const grad = ctx.createRadialGradient(mx,my,0,mx,my,R);
       grad.addColorStop(0, `rgba(${col},${o1})`);
@@ -2582,7 +2582,7 @@
       // bright hotspot at the fixture's own base, independent of beam direction/width
       ctx.filter = 'none';
       const hR = Math.max(6, R*0.145);
-      const hOp = Math.min(1,0.9*bb);
+      const hOp = Math.min(1,0.45*bb);
       const hGrad = ctx.createRadialGradient(mx,my,0,mx,my,hR);
       hGrad.addColorStop(0, `rgba(${col},${hOp})`);
       hGrad.addColorStop(1, `rgba(${col},0)`);

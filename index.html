@@ -248,8 +248,14 @@
   .mini-stat-value{font-family:var(--font-mono);font-size:15px;color:var(--amber-soft);margin-top:2px;}
 
   .editor-body{position:relative;flex:1;min-height:0;display:flex;flex-direction:row;overflow:hidden;}
+  /* Belt-and-suspenders alongside the pointerdown/pointermove preventDefault() in the wire/
+     strip/pan drag handlers below: those cover drags that start on #canvasPhoto itself, but the
+     photo doesn't always fill this whole area (aspect-ratio letterboxing can leave black margin
+     on the sides) and a drag starting in that margin isn't caught by those handlers at all. This
+     makes the entire canvas -- photo and margin alike -- immune to the browser's native drag-to-
+     select-text gesture, which is what caused the whole area to flash blue mid-drag.  */
   .editor-canvas{position:relative;flex:1;min-width:0;background:#000;overflow:hidden;
-    display:flex;align-items:center;justify-content:center;}
+    display:flex;align-items:center;justify-content:center;user-select:none;-webkit-user-select:none;}
   /* Legend mapping fixture-type colors (see FIXTURE_TYPES/fixtureTypeMeta in the script) to
      their labels — shared base look, reused both floating over the always-dark design canvas
      (.editor-legend) and inline in the project detail / printed "Areas" section. */
@@ -3148,6 +3154,13 @@
     $('canvasPhoto').addEventListener('pointerdown', e=>{
       const area = currentArea(); if(!area || !area.photo) return;
       if(e.target.closest('.marker-dot') || e.target.closest('.beam-handle') || e.target.closest('.width-handle') || e.target.closest('.wire-hit') || e.target.closest('.strip-hit')) return;
+      // Without this, the browser treats any drag starting here as a text/image-selection drag
+      // (the mousedown default action sets a selection anchor even before the first pointermove
+      // fires), which is what caused the whole photo to flash blue with a selection highlight
+      // while drawing a wire run or LED strip -- a real user-reported bug. preventDefault() here
+      // doesn't affect the click handling below (a plain click still fires as its own event,
+      // separate from this default action), so it's safe for the placement/pan/pinch paths too.
+      e.preventDefault();
       activePointers.set(e.pointerId, {x:e.clientX, y:e.clientY});
       try{ $('canvasPhoto').setPointerCapture(e.pointerId); }catch(err){}
 
@@ -3184,6 +3197,12 @@
       activePointers.set(e.pointerId, {x:e.clientX, y:e.clientY});
 
       if(state.drawingWire){
+        // Without this, a mouse drag across the photo while drawing is indistinguishable from a
+        // text/image-selection drag to the browser, which highlights everything it passes over
+        // in blue for the duration of the drag -- a real user-reported bug that looked like the
+        // page flashing blue. The pan/pinch branches below already do this; this branch just
+        // never had it.
+        e.preventDefault();
         if(!state.currentWirePath) return;
         const loc = screenToLocalPct(e.clientX, e.clientY);
         const last = state.currentWirePath[state.currentWirePath.length-1];
@@ -3194,6 +3213,7 @@
         return;
       }
       if(state.drawingStripFixtureId){
+        e.preventDefault(); // see the identical comment in the drawingWire branch above
         if(!state.currentStripPath) return;
         const loc = screenToLocalPct(e.clientX, e.clientY);
         const last = state.currentStripPath[state.currentStripPath.length-1];

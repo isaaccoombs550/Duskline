@@ -105,6 +105,7 @@
   .detail-sub{font-size:11.5px;color:var(--muted);margin-top:2px;}
 
   .area-list{padding:0 14px;display:flex;flex-direction:column;gap:10px;margin-bottom:4px;}
+  .area-type-legend{padding:0 14px 12px;}
   .area-card{position:relative;border-radius:12px;overflow:hidden;border:1px solid var(--line);cursor:pointer;background:var(--surface);}
   .area-card-photo{position:relative;height:150px;background:#000;}
   .area-card-photo img{width:100%;height:100%;object-fit:cover;display:block;}
@@ -185,7 +186,7 @@
     display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0;}
   .logo-preview img{width:100%;height:100%;object-fit:contain;}
   .field label{display:block;font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px;}
-  .field input,.field textarea{width:100%;background:var(--surface-2);border:1px solid var(--line);border-radius:8px;
+  .field input,.field textarea,.field select{width:100%;background:var(--surface-2);border:1px solid var(--line);border-radius:8px;
     padding:9px 10px;color:var(--fog);font-size:13.5px;}
   .company-preview{margin:0 14px 24px;padding:16px;background:var(--surface-2);border:1px solid var(--line);border-radius:12px;}
   .company-preview-label{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px;}
@@ -249,6 +250,15 @@
   .editor-body{position:relative;flex:1;min-height:0;display:flex;flex-direction:row;overflow:hidden;}
   .editor-canvas{position:relative;flex:1;min-width:0;background:#000;overflow:hidden;
     display:flex;align-items:center;justify-content:center;}
+  /* Legend mapping fixture-type colors (see FIXTURE_TYPES/fixtureTypeMeta in the script) to
+     their labels — shared base look, reused both floating over the always-dark design canvas
+     (.editor-legend) and inline in the project detail / printed "Areas" section. */
+  .type-legend{display:flex;flex-wrap:wrap;gap:6px 14px;}
+  .type-legend-item{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);white-space:nowrap;}
+  .type-legend-dot{width:9px;height:9px;border-radius:50%;flex:0 0 auto;}
+  .editor-legend{position:absolute;left:10px;top:10px;z-index:5;background:rgba(10,12,16,.72);
+    border-radius:10px;padding:8px 10px;pointer-events:none;max-width:calc(100% - 20px);}
+  .editor-legend .type-legend-item{color:#EAECEF;}
   .editor-canvas .canvas-empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;
     justify-content:center;text-align:center;padding:30px 24px;gap:14px;}
   .editor-canvas .canvas-empty h2{font-family:var(--font-display);font-size:18px;margin:0;color:#F2EFE8;}
@@ -300,10 +310,13 @@
   .beam-svg{position:absolute;left:0;top:0;pointer-events:none;}
   .pool{position:absolute;left:0;top:0;border-radius:50%;pointer-events:none;transform:translate(-50%,-50%);}
 
+  /* border-color and box-shadow are set inline per-placement (renderOverlays()) from the
+     fixture's type color (FIXTURE_TYPES) rather than fixed here — every fixture type gets its
+     own dot color so it's identifiable on the canvas. border/shadow values below are just a
+     sane fallback if that inline style is ever missing. */
   .marker-dot{position:absolute;left:0;top:0;width:16px;height:16px;border-radius:50%;
     background:var(--surface-2);border:2px solid var(--amber);box-shadow:0 0 0 3px rgba(240,168,78,.25);
     transform:translate(-50%,-50%);pointer-events:auto;cursor:grab;z-index:4;touch-action:none;}
-  .marker-dot.is-selected{box-shadow:0 0 0 5px rgba(240,168,78,.4),0 0 14px 2px rgba(240,168,78,.7);}
   .marker-dot.just-placed{animation:placedPop .5s ease-out;}
   @keyframes placedPop{0%{transform:translate(-50%,-50%) scale(.2);}60%{transform:translate(-50%,-50%) scale(1.4);}100%{transform:translate(-50%,-50%) scale(1);}}
 
@@ -370,6 +383,7 @@
     .section-head{padding:20px 24px 12px;}
     .project-list{padding:0 24px 24px;display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px;}
     .area-list{padding:0 24px;display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px;}
+    .area-type-legend{padding:0 24px 14px;}
     .area-card-photo{height:190px;}
     .detail-header{padding:18px 24px;}
     .load-summary{margin:10px 24px 4px;}
@@ -425,6 +439,10 @@
     .area-card-photo img{height:auto !important;object-fit:contain;}
     .area-card{break-inside:avoid;border-color:#ccc;}
     .place-label{display:block;background:rgba(255,255,255,.92);color:#000;border:1px solid #999;}
+    /* background stays forced white for contrast against any printed photo regardless of
+       theme; border-color here is just a fallback and normally loses to the inline per-type
+       color set in buildStaticOverlaysHtml() (inline style outranks this class rule), so the
+       dot still prints as "white fill, type-colored ring" — same identity color as on-screen. */
     .place-dot{border-color:#000;background:#fff;}
     body.no-export-labels .place-label{display:none !important;}
     .wire-layer{display:none;}
@@ -538,6 +556,7 @@
         <h3>Areas</h3>
         <button class="btn btn-ghost btn-sm" id="btnAddArea">+ Add area</button>
       </div>
+      <div class="type-legend area-type-legend" id="areaTypeLegend"></div>
       <div class="area-list" id="areaList"></div>
     </div>
 
@@ -681,6 +700,7 @@
 
   <div class="editor-body">
     <div class="editor-canvas">
+      <div class="type-legend editor-legend" id="editorLegend" hidden></div>
       <div class="canvas-empty" id="editorEmpty">
         <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#8D95A3" stroke-width="1.4">
           <circle cx="12" cy="9" r="5.5"/><path d="M9.5 21h5M10 18.5h4M8 14l-2-3M16 14l2-3" stroke-linecap="round"/>
@@ -911,6 +931,16 @@
         <div class="field"><label>Install time (min)</label><input id="fxInstall" type="number" step="1" placeholder="15"></div>
       </div>
       <div id="fxLightFields">
+        <div class="field"><label>Fixture type (sets the color-coded dot)</label>
+          <select id="fxType">
+            <option value="accent">Accent / Uplight</option>
+            <option value="path">Path Light</option>
+            <option value="inground">In-Ground / Well</option>
+            <option value="flood">Flood / Wash</option>
+            <option value="downlight">Downlight</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
         <div class="form-row-2">
           <div class="field"><label>Beam angle (°)</label><input id="fxBeam" type="number" step="1" placeholder="40 (use 360 for path lights)"></div>
           <div class="field"><label>Color temp (K)</label><input id="fxKelvin" type="number" step="50" placeholder="2700"></div>
@@ -951,15 +981,15 @@
 
   // ---------------- built-in fixture data ----------------
   const BASE_FIXTURES = [
-    {id:'f1', cat:'fixture', name:'Contour Spot — Small', desc:'Compact accent uplight for shrubs & small trees', beam:40, kelvin:2700, lumens:300, watt:5, rot:0, cost:68, price:145, installTime:15},
-    {id:'f2', cat:'fixture', name:'Contour Spot — Large', desc:'High-output uplight for mature trees & facades', beam:60, kelvin:3000, lumens:500, watt:9, rot:0, cost:92, price:189, installTime:15},
-    {id:'f3', cat:'fixture', name:'Canopy Downlight', desc:'Mounted high in canopy for a moonlighting effect', beam:40, kelvin:2700, lumens:400, watt:7, rot:180, cost:85, price:175, installTime:25},
-    {id:'f4', cat:'fixture', name:'Precision Accent Spot', desc:'Narrow beam for statuary & architectural detail', beam:25, kelvin:2700, lumens:250, watt:4, rot:0, cost:58, price:125, installTime:15},
-    {id:'f5', cat:'fixture', name:'Wide Wash Flood', desc:'Broad wash for walls & building facades', beam:80, kelvin:3000, lumens:600, watt:10, rot:0, cost:98, price:199, installTime:20},
-    {id:'f6', cat:'fixture', name:'Path Light — Classic', desc:'Soft pool of light along walkways', beam:360, kelvin:2700, lumens:150, watt:3, rot:0, cost:75, price:155, installTime:12},
-    {id:'f7', cat:'fixture', name:'Path Light — Modern', desc:'Clean-lined path marker', beam:360, kelvin:3000, lumens:180, watt:3.5, rot:0, cost:82, price:165, installTime:12},
-    {id:'f8', cat:'fixture', name:'In-Ground Well Light', desc:'Flush-mounted uplight for hardscapes & trees', beam:60, kelvin:2700, lumens:300, watt:6, rot:0, cost:95, price:195, installTime:25},
-    {id:'f9', cat:'fixture', name:'Security Flood — Cool', desc:'Bright cool-white wash for entries & driveways', beam:70, kelvin:4000, lumens:700, watt:12, rot:180, cost:110, price:225, installTime:20},
+    {id:'f1', cat:'fixture', type:'accent', name:'Contour Spot — Small', desc:'Compact accent uplight for shrubs & small trees', beam:40, kelvin:2700, lumens:300, watt:5, rot:0, cost:68, price:145, installTime:15},
+    {id:'f2', cat:'fixture', type:'accent', name:'Contour Spot — Large', desc:'High-output uplight for mature trees & facades', beam:60, kelvin:3000, lumens:500, watt:9, rot:0, cost:92, price:189, installTime:15},
+    {id:'f3', cat:'fixture', type:'downlight', name:'Canopy Downlight', desc:'Mounted high in canopy for a moonlighting effect', beam:40, kelvin:2700, lumens:400, watt:7, rot:180, cost:85, price:175, installTime:25},
+    {id:'f4', cat:'fixture', type:'accent', name:'Precision Accent Spot', desc:'Narrow beam for statuary & architectural detail', beam:25, kelvin:2700, lumens:250, watt:4, rot:0, cost:58, price:125, installTime:15},
+    {id:'f5', cat:'fixture', type:'flood', name:'Wide Wash Flood', desc:'Broad wash for walls & building facades', beam:80, kelvin:3000, lumens:600, watt:10, rot:0, cost:98, price:199, installTime:20},
+    {id:'f6', cat:'fixture', type:'path', name:'Path Light — Classic', desc:'Soft pool of light along walkways', beam:360, kelvin:2700, lumens:150, watt:3, rot:0, cost:75, price:155, installTime:12},
+    {id:'f7', cat:'fixture', type:'path', name:'Path Light — Modern', desc:'Clean-lined path marker', beam:360, kelvin:3000, lumens:180, watt:3.5, rot:0, cost:82, price:165, installTime:12},
+    {id:'f8', cat:'fixture', type:'inground', name:'In-Ground Well Light', desc:'Flush-mounted uplight for hardscapes & trees', beam:60, kelvin:2700, lumens:300, watt:6, rot:0, cost:95, price:195, installTime:25},
+    {id:'f9', cat:'fixture', type:'flood', name:'Security Flood — Cool', desc:'Bright cool-white wash for entries & driveways', beam:70, kelvin:4000, lumens:700, watt:12, rot:180, cost:110, price:225, installTime:20},
     {id:'a1', cat:'accessory', name:'300W Transformer', desc:'Multi-tap transformer with photocell & timer', watt:0, cost:210, price:385, installTime:30},
     {id:'a2', cat:'accessory', name:'600W Transformer', desc:'For larger designs (30+ fixtures)', watt:0, cost:340, price:595, installTime:35},
     {id:'a3', cat:'accessory', name:'12AWG Cable (100ft)', desc:'Direct-burial low-voltage cable', watt:0, cost:65, price:120, installTime:10},
@@ -1087,6 +1117,35 @@
     if(k<=3500) return '255,219,181';
     return '214,231,255';
   }
+  // Per-fixture-type identity color, independent of kelvinColor() above (that's the beam's
+  // light-temperature color; this is a fixed identity color per fixture *type* so a placement
+  // dot, its row in the materials list, and the legend all agree on "which color means what" —
+  // unrelated to the color temperature the fixture actually emits. "r,g,b" strings, same
+  // convention as kelvinColor(), so both can feed straight into rgb()/rgba().
+  const FIXTURE_TYPES = {
+    accent:    {label:'Accent / Uplight',   col:'240,168,78'},
+    path:      {label:'Path Light',         col:'111,191,139'},
+    inground:  {label:'In-Ground / Well',   col:'185,140,224'},
+    flood:     {label:'Flood / Wash',       col:'91,155,213'},
+    downlight: {label:'Downlight',          col:'224,129,156'},
+    other:     {label:'Other',              col:'154,163,174'},
+  };
+  function fixtureTypeMeta(f){ return FIXTURE_TYPES[f && f.type] || FIXTURE_TYPES.other; }
+  // Fixed display order (not insertion/alphabetical) so the legend reads the same way every
+  // time regardless of which fixtures happen to be placed first.
+  const FIXTURE_TYPE_ORDER = ['accent','path','inground','flood','downlight','other'];
+  function usedFixtureTypes(placements){
+    const seen = new Set();
+    (placements||[]).forEach(p=>{ const f=findFixture(p.fixtureId); if(f) seen.add(f.type||'other'); });
+    return FIXTURE_TYPE_ORDER.filter(t=>seen.has(t));
+  }
+  function buildTypeLegendHtml(types){
+    if(!types.length) return '';
+    return types.map(t=>{
+      const m = FIXTURE_TYPES[t];
+      return `<div class="type-legend-item"><span class="type-legend-dot" style="background:rgb(${m.col});"></span>${escapeHtml(m.label)}</div>`;
+    }).join('');
+  }
   function polar(a,r){ const rad=a*Math.PI/180; return {x:200+r*Math.sin(rad), y:200-r*Math.cos(rad)}; }
   function clampR(v,rect){ return Math.min(Math.max(v,40), Math.max(rect.width,rect.height)*0.85); }
 
@@ -1139,9 +1198,10 @@
     return area.placements.map(p=>{
       const f = findFixture(p.fixtureId); if(!f) return '';
       const {html} = buildBeamHtml(p,f,rect,false,area.beamBrightness);
+      const tcol = fixtureTypeMeta(f).col;
       return `<div class="placement" style="left:${p.xPct}%;top:${p.yPct}%;">
         <div class="beam-layer">${html}</div>
-        <div class="place-dot"></div>
+        <div class="place-dot" style="border-color:rgb(${tcol});"></div>
         <div class="place-label">${escapeHtml(f.name)}</div>
       </div>`;
     }).join('');
@@ -1151,9 +1211,12 @@
   function renderOverlays(){
     const area = currentArea();
     const wrap = $('overlays');
-    if(!area || !area.photo){ wrap.innerHTML=''; renderWireLayer(); return; }
+    if(!area || !area.photo){ wrap.innerHTML=''; $('editorLegend').hidden = true; renderWireLayer(); return; }
     const rect = $('canvasPhoto').getBoundingClientRect();
     if(!rect.width) return;
+    const legendTypes = usedFixtureTypes(area.placements);
+    $('editorLegend').innerHTML = buildTypeLegendHtml(legendTypes);
+    $('editorLegend').hidden = legendTypes.length===0;
     wrap.innerHTML = area.placements.map(p=>{
       const f = findFixture(p.fixtureId);
       if(!f) return '';
@@ -1162,11 +1225,15 @@
       const {html, hx, hy, wx, wy} = buildBeamHtml(p,f,rect,selected,area.beamBrightness);
       const beamW = (p.beamWidth!=null ? p.beamWidth : f.beam);
       const widthHandle = beamW<360 ? `<div class="width-handle" data-uid="${p.uid}" style="left:${wx}px;top:${wy}px;"></div>` : '';
+      const tcol = fixtureTypeMeta(f).col;
+      const dotGlow = selected
+        ? `box-shadow:0 0 0 5px rgba(${tcol},.4),0 0 14px 2px rgba(${tcol},.7);`
+        : `box-shadow:0 0 0 3px rgba(${tcol},.25);`;
       return `<div class="placement" data-uid="${p.uid}" style="left:${p.xPct}%;top:${p.yPct}%;">
         <div class="beam-layer">${html}</div>
         <div class="beam-handle" data-uid="${p.uid}" style="left:${hx}px;top:${hy}px;"></div>
         ${widthHandle}
-        <div class="marker-dot ${selected?'is-selected':''} ${justPlaced?'just-placed':''}" data-uid="${p.uid}"></div>
+        <div class="marker-dot ${selected?'is-selected':''} ${justPlaced?'just-placed':''}" data-uid="${p.uid}" style="border-color:rgb(${tcol});${dotGlow}"></div>
       </div>`;
     }).join('');
     attachPlacementHandlers();
@@ -1561,7 +1628,7 @@
         const armed = state.armed===f.id;
         return `<div class="fx-card ${armed?'is-armed':''}">
           <div class="fx-main">
-            <div class="fx-name">${escapeHtml(f.name)}</div>
+            <div class="fx-name">${quoteItemNameCell(f)}</div>
             <div class="fx-desc">${escapeHtml(f.desc)}</div>
             <div class="fx-spec">${specStr(f)}</div>
           </div>
@@ -1684,6 +1751,15 @@
     $('editorLoadVal').textContent = Math.round(areaWatts(area))+' W' + (wireFt>0 ? ' · '+Math.round(wireFt)+' ft' : '');
   }
 
+  // Same identity color as the placement dots/legend, so a fixture line in the materials list
+  // can be matched back to its dot on the area photos above it. Only fixtures get placed as
+  // dots on the canvas, so accessories/strips don't get a swatch here.
+  function quoteItemNameCell(i){
+    const name = escapeHtml(i.name);
+    if(i.cat!=='fixture') return name;
+    const col = fixtureTypeMeta(i).col;
+    return `<span class="type-legend-dot" style="display:inline-block;margin-right:6px;vertical-align:middle;background:rgb(${col});"></span>${name}`;
+  }
   function renderProjectQuote(pr){
     if(!pr) return;
     const items = computeProjectLineItems(pr);
@@ -1695,7 +1771,7 @@
     if(state.quoteMode==='customer'){
       $('projQuoteThead').innerHTML = `<tr><th>Item</th><th>Qty</th><th>Price</th><th>Total</th></tr>`;
       $('projQuoteTbody').innerHTML = items.map(i=>`<tr>
-          <td>${escapeHtml(i.name)}<div class="cell-sub">${escapeHtml(i.desc)}</div></td>
+          <td>${quoteItemNameCell(i)}<div class="cell-sub">${escapeHtml(i.desc)}</div></td>
           <td class="mono">${i.qty}</td><td class="mono">${money(i.price)}</td><td class="mono">${money(i.linePrice)}</td>
         </tr>`).join('');
       const subtotal = items.reduce((s,i)=>s+i.linePrice,0);
@@ -1726,7 +1802,7 @@
         const md = i.linePrice-i.lineCost;
         const mp = i.linePrice ? (md/i.linePrice*100) : 0;
         const belowCost = i.price < i.cost;
-        return `<tr><td>${escapeHtml(i.name)}</td><td class="mono">${i.qty}</td><td class="mono">${money(i.lineCost)}</td>
+        return `<tr><td>${quoteItemNameCell(i)}</td><td class="mono">${i.qty}</td><td class="mono">${money(i.lineCost)}</td>
           <td class="mono ${belowCost?'below-cost':''}">${money(i.linePrice)}</td>
           <td class="mono ${belowCost?'below-cost':'margin'}">${money(md)} <span class="muted">(${mp.toFixed(0)}%)</span></td></tr>`;
       }).join('');
@@ -1846,6 +1922,8 @@
   }
   function renderAreaList(pr){
     const showTech = state.quoteMode==='cost';
+    const allPlacements = pr.areas.flatMap(a=>a.placements);
+    $('areaTypeLegend').innerHTML = buildTypeLegendHtml(usedFixtureTypes(allPlacements));
     $('areaList').innerHTML = pr.areas.map(a=>{
       const items = computeAreaLineItems(a);
       const total = items.reduce((s,i)=>s+i.linePrice,0);
@@ -2083,7 +2161,7 @@
       const install = f.installTime ? (specLine?' · ':'')+f.installTime+'m install' : '';
       return `<div class="fx-card">
         <div class="fx-main">
-          <div class="fx-name">${escapeHtml(f.name)}${f.custom?' <span class="muted" style="font-size:10px;">· custom</span>':''}</div>
+          <div class="fx-name">${quoteItemNameCell(f)}${f.custom?' <span class="muted" style="font-size:10px;">· custom</span>':''}</div>
           <div class="fx-desc">${escapeHtml(f.desc)}</div>
           <div class="fx-spec">${specLine}${install}</div>
         </div>
@@ -2123,6 +2201,7 @@
     $('fxDesc').value = f ? (f.desc||'') : '';
     $('fxWatt').value = f ? f.watt : '';
     $('fxInstall').value = f ? (f.installTime||0) : '';
+    $('fxType').value = f ? (f.type||'accent') : 'accent';
     $('fxBeam').value = f ? f.beam : '';
     $('fxKelvin').value = f ? f.kelvin : '';
     $('fxLumens').value = f ? f.lumens : '';
@@ -2147,9 +2226,10 @@
     let kelvin = cat==='fixture' ? (parseFloat($('fxKelvin').value)||2700) : 0;
     if(cat==='strip') kelvin = parseFloat($('fxStripKelvin').value)||3000;
     const lumens = cat==='fixture' ? (parseFloat($('fxLumens').value)||0) : 0;
+    const type = cat==='fixture' ? ($('fxType').value||'accent') : undefined;
     const aimBtn = document.querySelector('#fxAimSeg button.active');
     const rot = (cat==='fixture' && aimBtn && aimBtn.dataset.aim==='down') ? 180 : 0;
-    const data = {name,desc,cat,watt,installTime,cost,price,beam,kelvin,lumens,rot};
+    const data = {name,desc,cat,watt,installTime,cost,price,beam,kelvin,lumens,rot,type};
 
     if(fixtureFormState.editingId){
       const id = fixtureFormState.editingId;
@@ -2558,10 +2638,11 @@
   function drawDotAndLabelOnCanvas(ctx, p, f, cw, showLabels){
     const mx = (p.xPct/100)*cw, my = (p.yPct/100)*(ctx.canvas.height);
     const dotR = Math.max(4, cw*0.006);
+    const tcol = fixtureTypeMeta(f).col;
     ctx.save();
     ctx.beginPath(); ctx.arc(mx,my,dotR,0,Math.PI*2);
     ctx.fillStyle = '#262C36'; ctx.fill();
-    ctx.lineWidth = Math.max(1.5, dotR*0.4); ctx.strokeStyle = '#F0A84E'; ctx.stroke();
+    ctx.lineWidth = Math.max(1.5, dotR*0.4); ctx.strokeStyle = `rgb(${tcol})`; ctx.stroke();
     ctx.restore();
     if(showLabels){
       drawPillLabel(ctx, mx+dotR+40, my, f.name, '#ffffff', cw);

@@ -260,6 +260,7 @@
      their labels — shared base look, reused both floating over the always-dark design canvas
      (.editor-legend) and inline in the project detail / printed "Areas" section. */
   .type-legend{display:flex;flex-wrap:wrap;gap:6px 14px;}
+  .type-legend[hidden]{display:none;} /* #editorLegend toggles this via .hidden -- see the .placement-banner[hidden] comment for why this override is needed */
   .type-legend-item{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);white-space:nowrap;}
   .type-legend-dot{width:9px;height:9px;border-radius:50%;flex:0 0 auto;}
   .editor-legend{position:absolute;left:10px;top:10px;z-index:5;background:rgba(10,12,16,.72);
@@ -337,10 +338,19 @@
     background:rgba(30,35,43,.94);backdrop-filter:blur(6px);border:1px solid var(--line);color:#F2EFE8;
     border-radius:10px;padding:10px 12px;display:flex;align-items:center;justify-content:space-between;
     gap:10px;font-size:12.5px;box-shadow:0 8px 20px rgba(0,0,0,.4);}
+  /* Without this, the [hidden] attribute set via JS (banner.hidden = true) doesn't actually hide
+     the element -- .placement-banner's own unconditional display:flex above is an AUTHOR rule,
+     which beats the browser's built-in `[hidden]{display:none}` UA-stylesheet default regardless
+     of the hidden attribute being set. A real user-reported bug: hitting "Done" after placing a
+     fixture correctly cleared state and set hidden=true, but the banner (with its now-stale text)
+     never actually disappeared. .edit-sheet/.editor-screen/.crop-screen elsewhere in this file
+     already have this same [hidden] override for the same reason -- this one was just missed. */
+  .placement-banner[hidden]{display:none;}
   .placement-banner button{background:var(--amber);color:#191308;border:none;border-radius:7px;
     padding:6px 12px;font-weight:700;font-size:12px;cursor:pointer;white-space:nowrap;}
 
   .canvas-toolbar{position:absolute;left:10px;bottom:10px;z-index:4;display:flex;gap:8px;flex-wrap:wrap;max-width:calc(100% - 20px);}
+  .canvas-toolbar[hidden]{display:none;} /* see the .placement-banner[hidden] comment above -- same gap, same fix */
   .chip.is-active{background:rgba(240,168,78,.18);border-color:var(--amber);color:var(--amber-soft);}
 
   /* ===== fixture library: side panel ===== */

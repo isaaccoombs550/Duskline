@@ -113,6 +113,11 @@
   .area-card-photo .overlays{position:absolute;inset:0;pointer-events:none;}
   .place-dot{position:absolute;left:0;top:0;width:10px;height:10px;border-radius:50%;
     background:var(--surface-2);border:2px solid var(--amber);transform:translate(-50%,-50%);pointer-events:none;}
+  /* Hardscape fixtures are a real 6"+ linear bar, not a point source, so their marker is a
+     short bar instead of the round dot every other fixture uses -- rotated per-placement via an
+     inline transform (see buildStaticOverlaysHtml/renderOverlays) rather than here, since the
+     rotation angle is per-instance data, not something a CSS class can express. */
+  .place-dot.is-bar{width:16px;height:4px;border-radius:2px;}
   .place-label{position:absolute;left:8px;top:-2px;transform:translateY(-100%);
     background:rgba(20,23,28,.85);color:#fff;font-size:10px;font-family:var(--font-mono);
     padding:2px 6px;border-radius:4px;white-space:nowrap;display:none;pointer-events:none;}
@@ -325,6 +330,8 @@
   .marker-dot{position:absolute;left:0;top:0;width:16px;height:16px;border-radius:50%;
     background:var(--surface-2);border:2px solid var(--amber);box-shadow:0 0 0 3px rgba(240,168,78,.25);
     transform:translate(-50%,-50%);pointer-events:auto;cursor:grab;z-index:4;touch-action:none;}
+  /* see the .place-dot.is-bar comment -- same idea, for the live editor's draggable marker */
+  .marker-dot.is-bar{width:26px;height:6px;border-radius:3px;}
   .marker-dot.just-placed{animation:placedPop .5s ease-out;}
   @keyframes placedPop{0%{transform:translate(-50%,-50%) scale(.2);}60%{transform:translate(-50%,-50%) scale(1.4);}100%{transform:translate(-50%,-50%) scale(1);}}
 
@@ -1246,6 +1253,7 @@
   // otherwise, per explicit feedback after trying a softer/glow-blend alternative that missed
   // the mark) found the original too opaque, masking photo detail instead of sitting over it
   // translucently. Values below are ~30% lower than the original per-stop opacities.
+  const HARDSCAPE_BASE = 22; // flat-base half-width, in the same 400-unit space as the 190-unit far radius below
   function buildBeamHtml(p,f,rect,selected,masterBB){
     const bb = (p.brightness!=null ? p.brightness : (masterBB==null?1:masterBB));
     const kelvin = (p.kelvin!=null ? p.kelvin : f.kelvin);
@@ -1267,7 +1275,16 @@
       const gid = 'g'+p.uid;
       const o1 = Math.min(1,(selected?0.66:0.56)*bb);
       const o2 = Math.min(1,(selected?0.35:0.27)*bb);
-      const d = `M200,200 L${p1.x.toFixed(1)},${p1.y.toFixed(1)} A190,190 0 ${largeArc} 1 ${p2.x.toFixed(1)},${p2.y.toFixed(1)} Z`;
+      // A 6"+ linear hardscape bar doesn't converge to a single point the way a spot fixture's
+      // lens does -- give its beam a flat base matching the fixture's own width instead of a
+      // sharp apex, then let it spread out to the same far arc as any other beam. HARDSCAPE_BASE
+      // is in the same fixed 400-unit viewBox space as the 190-unit far radius, so it scales
+      // automatically with R regardless of zoom/reach (see drawBeamOnCanvas for the canvas
+      // equivalent, which has to convert this ratio into real pixels itself).
+      const d = f.type==='hardscape'
+        ? (()=>{ const b1=polar(-90,HARDSCAPE_BASE), b2=polar(90,HARDSCAPE_BASE);
+            return `M${b1.x.toFixed(1)},${b1.y.toFixed(1)} L${p1.x.toFixed(1)},${p1.y.toFixed(1)} A190,190 0 ${largeArc} 1 ${p2.x.toFixed(1)},${p2.y.toFixed(1)} L${b2.x.toFixed(1)},${b2.y.toFixed(1)} Z`; })()
+        : `M200,200 L${p1.x.toFixed(1)},${p1.y.toFixed(1)} A190,190 0 ${largeArc} 1 ${p2.x.toFixed(1)},${p2.y.toFixed(1)} Z`;
       html = `<svg viewBox="0 0 400 400" width="${R*2}" height="${R*2}" class="beam-svg" style="transform:translate(-50%,-50%) rotate(${p.rotation}deg)">
         <defs><radialGradient id="${gid}" cx="200" cy="200" r="190" gradientUnits="userSpaceOnUse">
           <stop offset="0%" stop-color="rgb(${col})" stop-opacity="${o1}"/>
@@ -1290,9 +1307,11 @@
       const f = findFixture(p.fixtureId); if(!f) return '';
       const {html} = buildBeamHtml(p,f,rect,false,area.beamBrightness);
       const tcol = fixtureTypeMeta(f).col;
+      const isBar = f.type==='hardscape';
+      const barStyle = isBar ? `transform:translate(-50%,-50%) rotate(${p.rotation}deg);` : '';
       return `<div class="placement" style="left:${p.xPct}%;top:${p.yPct}%;">
         <div class="beam-layer">${html}</div>
-        <div class="place-dot" style="border-color:rgb(${tcol});"></div>
+        <div class="place-dot ${isBar?'is-bar':''}" style="border-color:rgb(${tcol});${barStyle}"></div>
         <div class="place-label">${escapeHtml(f.name)}</div>
       </div>`;
     }).join('');
@@ -1320,11 +1339,13 @@
       const dotGlow = selected
         ? `box-shadow:0 0 0 5px rgba(${tcol},.4),0 0 14px 2px rgba(${tcol},.7);`
         : `box-shadow:0 0 0 3px rgba(${tcol},.25);`;
+      const isBar = f.type==='hardscape';
+      const barStyle = isBar ? `transform:translate(-50%,-50%) rotate(${p.rotation}deg);` : '';
       return `<div class="placement" data-uid="${p.uid}" style="left:${p.xPct}%;top:${p.yPct}%;">
         <div class="beam-layer">${html}</div>
         <div class="beam-handle" data-uid="${p.uid}" style="left:${hx}px;top:${hy}px;"></div>
         ${widthHandle}
-        <div class="marker-dot ${selected?'is-selected':''} ${justPlaced?'just-placed':''}" data-uid="${p.uid}" style="border-color:rgb(${tcol});${dotGlow}"></div>
+        <div class="marker-dot ${isBar?'is-bar':''} ${selected?'is-selected':''} ${justPlaced?'just-placed':''}" data-uid="${p.uid}" style="border-color:rgb(${tcol});${dotGlow}${barStyle}"></div>
       </div>`;
     }).join('');
     attachPlacementHandlers();
@@ -2741,8 +2762,20 @@
       grad.addColorStop(1, `rgba(${col},0)`);
       ctx.fillStyle = grad;
       ctx.beginPath();
-      ctx.moveTo(mx,my);
-      ctx.arc(mx,my,R,startRad,endRad);
+      if(f.type==='hardscape'){
+        // Mirrors the flat-base trapezoid in buildBeamHtml() -- HARDSCAPE_BASE there is in a
+        // fixed 400-unit space that scales for free with the SVG viewBox; here there's no
+        // viewBox, so the same base/far ratio (22/190) has to be reapplied against the real
+        // pixel radius R by hand.
+        const baseHalf = R*(HARDSCAPE_BASE/190);
+        const b1Rad = (p.rotation-180)*Math.PI/180, b2Rad = p.rotation*Math.PI/180;
+        ctx.moveTo(mx+baseHalf*Math.cos(b1Rad), my+baseHalf*Math.sin(b1Rad));
+        ctx.arc(mx,my,R,startRad,endRad);
+        ctx.lineTo(mx+baseHalf*Math.cos(b2Rad), my+baseHalf*Math.sin(b2Rad));
+      } else {
+        ctx.moveTo(mx,my);
+        ctx.arc(mx,my,R,startRad,endRad);
+      }
       ctx.closePath();
       ctx.fill();
     }
@@ -2753,9 +2786,21 @@
     const dotR = Math.max(4, cw*0.006);
     const tcol = fixtureTypeMeta(f).col;
     ctx.save();
-    ctx.beginPath(); ctx.arc(mx,my,dotR,0,Math.PI*2);
-    ctx.fillStyle = '#262C36'; ctx.fill();
-    ctx.lineWidth = Math.max(1.5, dotR*0.4); ctx.strokeStyle = `rgb(${tcol})`; ctx.stroke();
+    if(f.type==='hardscape'){
+      // Mirrors the .marker-dot.is-bar / .place-dot.is-bar rectangle used on-screen and in print.
+      const barLen = dotR*3.2, barW = dotR*0.9;
+      ctx.translate(mx,my); ctx.rotate(p.rotation*Math.PI/180);
+      const rx = barW*0.4;
+      ctx.beginPath();
+      if(ctx.roundRect) ctx.roundRect(-barLen/2,-barW/2,barLen,barW,rx);
+      else ctx.rect(-barLen/2,-barW/2,barLen,barW);
+      ctx.fillStyle = '#262C36'; ctx.fill();
+      ctx.lineWidth = Math.max(1.5, dotR*0.4); ctx.strokeStyle = `rgb(${tcol})`; ctx.stroke();
+    } else {
+      ctx.beginPath(); ctx.arc(mx,my,dotR,0,Math.PI*2);
+      ctx.fillStyle = '#262C36'; ctx.fill();
+      ctx.lineWidth = Math.max(1.5, dotR*0.4); ctx.strokeStyle = `rgb(${tcol})`; ctx.stroke();
+    }
     ctx.restore();
     if(showLabels){
       drawPillLabel(ctx, mx+dotR+40, my, f.name, '#ffffff', cw);

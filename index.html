@@ -85,6 +85,7 @@
   .chip-danger{color:var(--danger);border-color:rgba(226,104,92,.4);}
   .icon-btn{background:var(--surface-2);border:1px solid var(--line);color:var(--fog);width:34px;height:34px;
     border-radius:9px;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+  .icon-btn:disabled{opacity:.35;cursor:not-allowed;}
   .mono{font-family:var(--font-mono);}
   .muted{color:var(--muted);}
 
@@ -695,6 +696,8 @@
 <div class="editor-screen" id="editorScreen" hidden>
   <div class="editor-top">
     <button class="icon-btn" id="btnEditorBack" aria-label="Back">←</button>
+    <button class="icon-btn" id="btnUndo" aria-label="Undo" title="Undo (Ctrl+Z)" disabled>↶</button>
+    <button class="icon-btn" id="btnRedo" aria-label="Redo" title="Redo (Ctrl+Shift+Z)" disabled>↷</button>
     <div class="editor-title" id="editorAreaTitle">Area</div>
     <button class="btn btn-primary btn-sm" id="btnEditorSave">Save design</button>
   </div>
@@ -1051,6 +1054,75 @@
   let suppressNextCanvasClick = false;
   let view = {zoom:1, panX:0, panY:0}; // canvas pan/zoom for precise placement (desktop ctrl+scroll)
 
+  // ---------------- undo/redo (area editor) ----------------
+  // Snapshot-based rather than a command pattern: simpler, and safe here because a single
+  // area's design data (placements/wireRuns/lightStrips/accessoryQty/darkness/beamBrightness)
+  // is small. Each stack entry is a JSON string so later mutation of the live area objects can
+  // never retroactively corrupt a past snapshot. Scoped to the area currently open in the
+  // editor -- reset whenever a different area is opened, since undoing into a different area's
+  // history wouldn't make sense.
+  let undoStack = [];
+  let redoStack = [];
+  const UNDO_LIMIT = 50;
+  function snapshotDesign(area){
+    return JSON.stringify({
+      placements: area.placements,
+      wireRuns: area.wireRuns,
+      lightStrips: area.lightStrips,
+      accessoryQty: area.accessoryQty,
+      darkness: area.darkness,
+      beamBrightness: area.beamBrightness,
+    });
+  }
+  function applySnapshot(json){
+    const area = currentArea(); if(!area) return;
+    const d = JSON.parse(json);
+    area.placements = d.placements;
+    area.wireRuns = d.wireRuns;
+    area.lightStrips = d.lightStrips;
+    area.accessoryQty = d.accessoryQty;
+    area.darkness = d.darkness;
+    area.beamBrightness = d.beamBrightness;
+  }
+  // Call this right BEFORE a mutation, not after -- it captures the state an undo should
+  // return to. Any new action clears the redo stack, matching standard undo/redo behavior
+  // (once you make a fresh change, the old "future" is gone).
+  function pushUndoSnapshot(){
+    const area = currentArea(); if(!area) return;
+    undoStack.push(snapshotDesign(area));
+    if(undoStack.length>UNDO_LIMIT) undoStack.shift();
+    redoStack = [];
+    updateUndoRedoButtons();
+  }
+  function updateUndoRedoButtons(){
+    const undoBtn = $('btnUndo'), redoBtn = $('btnRedo');
+    if(undoBtn) undoBtn.disabled = undoStack.length===0;
+    if(redoBtn) redoBtn.disabled = redoStack.length===0;
+  }
+  function afterHistoryChange(){
+    const area = currentArea(); if(!area) return;
+    state.selected = null; state.armed = null; closeInfoSheet();
+    const darknessPct = Math.round((area.darkness!=null?area.darkness:0.6)*100);
+    const brightnessPct = Math.round((area.beamBrightness!=null?area.beamBrightness:1)*100);
+    $('ctrlDarkness').value = darknessPct; $('darknessVal').textContent = darknessPct+'%';
+    $('ctrlBeamBrightness').value = brightnessPct; $('beamBrightnessVal').textContent = brightnessPct+'%';
+    applyPhotoFilter();
+    renderOverlays(); renderSheetList(); updateQuoteBar(); updatePlacementBanner(); updateEditorStats();
+    updateUndoRedoButtons();
+  }
+  function undoDesign(){
+    const area = currentArea(); if(!area || !undoStack.length) return;
+    redoStack.push(snapshotDesign(area));
+    applySnapshot(undoStack.pop());
+    afterHistoryChange();
+  }
+  function redoDesign(){
+    const area = currentArea(); if(!area || !redoStack.length) return;
+    undoStack.push(snapshotDesign(area));
+    applySnapshot(redoStack.pop());
+    afterHistoryChange();
+  }
+
   // ---------------- Supabase auth ----------------
   const SUPABASE_URL = 'https://bolwcxusbfsizsjtulvr.supabase.co';
   const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJvbHdjeHVzYmZzaXpzanR1bHZyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY5ODI4NzksImV4cCI6MjEwMjU1ODg3OX0.5P0-V9moSXtfus5h77kHZfiCIyZU8SV9PNz5PyNDRac';
@@ -1341,6 +1413,7 @@
   }
   function saveStripModal(){
     const area = currentArea(); if(!area) return;
+    pushUndoSnapshot();
     const len = parseFloat($('stripLengthInput').value)||0;
     if(!area.lightStrips) area.lightStrips = [];
     if(pendingStripPath){
@@ -1358,6 +1431,7 @@
   }
   function deleteLightStrip(){
     const area = currentArea(); if(!area || !editingStripId) return;
+    pushUndoSnapshot();
     area.lightStrips = (area.lightStrips||[]).filter(s=>s.id!==editingStripId);
     $('stripModal').hidden = true;
     editingStripId = null;
@@ -1389,6 +1463,7 @@
   }
   function saveWireModal(){
     const area = currentArea(); if(!area) return;
+    pushUndoSnapshot();
     const dist = parseFloat($('wireDistanceInput').value)||0;
     if(!area.wireRuns) area.wireRuns = [];
     if(pendingWirePath){
@@ -1407,6 +1482,7 @@
   }
   function deleteWireRun(){
     const area = currentArea(); if(!area || !editingWireId) return;
+    pushUndoSnapshot();
     area.wireRuns = (area.wireRuns||[]).filter(w=>w.id!==editingWireId);
     $('wireModal').hidden = true;
     editingWireId = null;
@@ -1440,7 +1516,10 @@
       let dragging=false;
       function move(ev){
         const dx=ev.clientX-startX, dy=ev.clientY-startY;
-        if(!dragging && Math.hypot(dx,dy)>4) dragging=true;
+        if(!dragging && Math.hypot(dx,dy)>4){
+          dragging=true;
+          pushUndoSnapshot(); // one undo step per drag gesture, taken right before it starts mutating
+        }
         if(dragging){ ev.preventDefault(); onMove(ev); }
       }
       function up(ev){
@@ -1547,6 +1626,7 @@
     let yPct = Math.min(96, Math.max(4, loc.yPct));
 
     if(state.armed){
+      pushUndoSnapshot();
       const f = findFixture(state.armed);
       const uid = 'p'+(uidCounter++);
       area.placements.push({uid, fixtureId:f.id, xPct, yPct, rotation:f.rot||0, reach:1});
@@ -1580,6 +1660,7 @@
   function infoDone(){ state.selected=null; closeInfoSheet(); renderOverlays(); }
   function infoRemove(){
     const area = currentArea(); if(!area) return;
+    pushUndoSnapshot();
     area.placements = area.placements.filter(p=>p.uid!==state.selected);
     state.selected = null; closeInfoSheet(); renderOverlays(); renderSheetList(); updateQuoteBar(); updateEditorStats();
   }
@@ -1587,6 +1668,7 @@
     const area = currentArea(); if(!area) return;
     const p = area.placements.find(pp=>pp.uid===state.selected);
     if(!p) return;
+    pushUndoSnapshot();
     const uid = 'p'+(uidCounter++);
     const copy = {
       uid,
@@ -1694,11 +1776,13 @@
     }));
     $('sheetList').querySelectorAll('[data-inc]').forEach(b=>b.addEventListener('click', e=>{
       const id = e.currentTarget.dataset.inc;
+      pushUndoSnapshot();
       area.accessoryQty[id] = (area.accessoryQty[id]||0)+1;
       renderSheetList(); updateQuoteBar(); updateEditorStats();
     }));
     $('sheetList').querySelectorAll('[data-dec]').forEach(b=>b.addEventListener('click', e=>{
       const id = e.currentTarget.dataset.dec;
+      pushUndoSnapshot();
       area.accessoryQty[id] = Math.max(0,(area.accessoryQty[id]||0)-1);
       renderSheetList(); updateQuoteBar(); updateEditorStats();
     }));
@@ -2070,6 +2154,7 @@
     if(!area.lightStrips) area.lightStrips = [];
     state.armed=null; state.selected=null; state.drawingWire=false; state.currentWirePath=null;
     state.drawingStripFixtureId=null; state.currentStripPath=null; closeInfoSheet();
+    undoStack = []; redoStack = []; updateUndoRedoButtons();
     $('editorScreen').hidden = false;
     document.body.style.overflow = 'hidden';
     $('editorAreaTitle').textContent = area.name;
@@ -2096,6 +2181,7 @@
   function clearDesign(){
     const area = currentArea(); if(!area) return;
     if(!confirm('Clear all placed fixtures, accessories, wire runs, and LED strips in this area? The photo will stay.')) return;
+    pushUndoSnapshot();
     area.placements=[]; area.accessoryQty={}; area.wireRuns=[]; area.lightStrips=[]; state.selected=null; state.armed=null;
     closeInfoSheet(); renderOverlays(); renderSheetList(); updateQuoteBar(); updatePlacementBanner(); updateEditorStats();
   }
@@ -3126,6 +3212,24 @@
     $('btnClearDesign').addEventListener('click', clearDesign);
     $('btnEditorBack').addEventListener('click', closeAreaEditor);
     $('btnEditorSave').addEventListener('click', closeAreaEditor);
+    $('btnUndo').addEventListener('click', undoDesign);
+    $('btnRedo').addEventListener('click', redoDesign);
+    // Ctrl+Z / Cmd+Z to undo, Ctrl+Shift+Z or Ctrl+Y to redo -- only while the area editor is
+    // open, and not while a text field has focus (so it doesn't fight a browser text-undo the
+    // user is actually trying to do in, say, the customer-name field). Range sliders are
+    // exempted from that text-field check since they have no native undo of their own.
+    document.addEventListener('keydown', e=>{
+      if($('editorScreen').hidden) return;
+      const key = e.key.toLowerCase();
+      if(key!=='z' && key!=='y') return;
+      const t = e.target;
+      const isTextField = t.tagName==='TEXTAREA' || t.isContentEditable ||
+        (t.tagName==='INPUT' && !['range','checkbox','radio'].includes(t.type));
+      if(isTextField) return;
+      if(!(e.ctrlKey||e.metaKey)) return;
+      if(key==='z' && !e.shiftKey){ e.preventDefault(); undoDesign(); }
+      else if(key==='y' || (key==='z' && e.shiftKey)){ e.preventDefault(); redoDesign(); }
+    });
 
     // desktop: ctrl + scroll to zoom in/out on the point under the cursor, for precise placement
     $('canvasPhoto').addEventListener('wheel', e=>{
@@ -3302,12 +3406,16 @@
       document.body.classList.toggle('export-wires', e.target.checked);
     });
 
+    // pushUndoSnapshot on pointerdown (not on 'input', which fires continuously while dragging
+    // the slider) so a whole drag of the slider is one undo step, not dozens.
+    $('ctrlDarkness').addEventListener('pointerdown', pushUndoSnapshot);
     $('ctrlDarkness').addEventListener('input', e=>{
       const area = currentArea(); if(!area) return;
       area.darkness = +e.target.value/100;
       $('darknessVal').textContent = e.target.value+'%';
       applyPhotoFilter();
     });
+    $('ctrlBeamBrightness').addEventListener('pointerdown', pushUndoSnapshot);
     $('ctrlBeamBrightness').addEventListener('input', e=>{
       const area = currentArea(); if(!area) return;
       area.beamBrightness = +e.target.value/100;
@@ -3330,6 +3438,7 @@
     $('infoDuplicate').addEventListener('click', duplicatePlacement);
     $('infoDone').addEventListener('click', infoDone);
     $('infoBackdrop').addEventListener('click', infoDone);
+    $('infoKelvin').addEventListener('pointerdown', pushUndoSnapshot);
     $('infoKelvin').addEventListener('input', e=>{
       const area = currentArea(); const p = area && area.placements.find(pp=>pp.uid===state.selected);
       if(!p) return;
@@ -3339,6 +3448,7 @@
       const f = findFixture(p.fixtureId);
       updatePlacementBeam(p,f,rect);
     });
+    $('infoBrightness').addEventListener('pointerdown', pushUndoSnapshot);
     $('infoBrightness').addEventListener('input', e=>{
       const area = currentArea(); const p = area && area.placements.find(pp=>pp.uid===state.selected);
       if(!p) return;

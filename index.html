@@ -1352,6 +1352,17 @@
   // the mark) found the original too opaque, masking photo detail instead of sitting over it
   // translucently. Values below are ~30% lower than the original per-stop opacities.
   const HARDSCAPE_BASE = 22; // flat-base half-width, in the same 400-unit space as the 190-unit far radius below
+  // Real light falls off much faster near the source than a straight line suggests (roughly
+  // inverse-square for a point source) and then tails gradually rather than stopping abruptly.
+  // The original 3-stop gradient (o1 at 0%, o2 at 45%, transparent at 100%) reads as more evenly
+  // graded than that. Two extra stops -- a steep early drop toward o1, and a longer soft tail
+  // below o2 -- bias the curve toward "bright close in, gentle fade at the edge" without changing
+  // o1/o2 themselves (already-tuned values, see the opacity note above) or the beam's hard-edged
+  // shape/size. Used identically by both the DOM gradient (buildBeamHtml) and the Canvas 2D
+  // gradient (drawBeamOnCanvas) so the two stay visually identical.
+  function falloffStops(o1,o2){
+    return [[0,o1],[20,o1*0.65],[45,o2],[75,o2*0.35],[100,0]];
+  }
   // responsive=true (only used by buildStaticOverlaysHtml, never the live editor) outputs the
   // beam's size as CSS percentage-of-width + aspect-ratio:1 instead of fixed pixel width/height
   // attributes, so the browser itself keeps it correctly sized at ANY future container width --
@@ -1368,7 +1379,8 @@
       const o1 = Math.min(1,(selected?0.8:0.66)*bb);
       const o2 = Math.min(1,(selected?0.4:0.3)*bb);
       const sizeStyle = responsive ? `width:${R*2/rect.width*100}%;aspect-ratio:1;height:auto;` : `width:${R*2}px;height:${R*2}px;`;
-      html = `<div class="pool" style="${sizeStyle}background:radial-gradient(circle, rgba(${col},${o1}) 0%, rgba(${col},${o2}) 45%, rgba(${col},0) 100%);"></div>`;
+      const stops = falloffStops(o1,o2).map(([pct,op])=>`rgba(${col},${op}) ${pct}%`).join(', ');
+      html = `<div class="pool" style="${sizeStyle}background:radial-gradient(circle, ${stops});"></div>`;
       hx = R*Math.sin(135*Math.PI/180); hy = -R*Math.cos(135*Math.PI/180);
       wx = hx; wy = hy;
     } else {
@@ -1391,11 +1403,10 @@
         : `M200,200 L${p1.x.toFixed(1)},${p1.y.toFixed(1)} A190,190 0 ${largeArc} 1 ${p2.x.toFixed(1)},${p2.y.toFixed(1)} Z`;
       const sizeAttrs = responsive ? '' : `width="${R*2}" height="${R*2}"`;
       const sizeStyle = responsive ? `width:${R*2/rect.width*100}%;aspect-ratio:1;height:auto;` : '';
+      const gradStops = falloffStops(o1,o2).map(([pct,op])=>`<stop offset="${pct}%" stop-color="rgb(${col})" stop-opacity="${op}"/>`).join('\n          ');
       html = `<svg viewBox="0 0 400 400" ${sizeAttrs} class="beam-svg" style="${sizeStyle}transform:translate(-50%,-50%) rotate(${p.rotation}deg)">
         <defs><radialGradient id="${gid}" cx="200" cy="200" r="190" gradientUnits="userSpaceOnUse">
-          <stop offset="0%" stop-color="rgb(${col})" stop-opacity="${o1}"/>
-          <stop offset="45%" stop-color="rgb(${col})" stop-opacity="${o2}"/>
-          <stop offset="100%" stop-color="rgb(${col})" stop-opacity="0"/>
+          ${gradStops}
         </radialGradient></defs>
         <path d="${d}" fill="url(#${gid})"/>
       </svg>`;
@@ -3050,9 +3061,7 @@
       const Rp = clampR((60+f.lumens/5)*p.reach*(cw/380), rectRef) * 0.7;
       const o1 = Math.min(1,0.66*bb), o2 = Math.min(1,0.3*bb);
       const grad = ctx.createRadialGradient(mx,my,0,mx,my,Rp);
-      grad.addColorStop(0, `rgba(${col},${o1})`);
-      grad.addColorStop(0.45, `rgba(${col},${o2})`);
-      grad.addColorStop(1, `rgba(${col},0)`);
+      falloffStops(o1,o2).forEach(([pct,op])=> grad.addColorStop(pct/100, `rgba(${col},${op})`));
       ctx.fillStyle = grad;
       ctx.beginPath(); ctx.arc(mx,my,Rp,0,Math.PI*2); ctx.fill();
     } else {
@@ -3063,9 +3072,7 @@
       const endRad = (p.rotation+half-90)*Math.PI/180;
       const o1 = Math.min(1,0.8*bb), o2 = Math.min(1,0.39*bb);
       const grad = ctx.createRadialGradient(mx,my,0,mx,my,R);
-      grad.addColorStop(0, `rgba(${col},${o1})`);
-      grad.addColorStop(0.45, `rgba(${col},${o2})`);
-      grad.addColorStop(1, `rgba(${col},0)`);
+      falloffStops(o1,o2).forEach(([pct,op])=> grad.addColorStop(pct/100, `rgba(${col},${op})`));
       ctx.fillStyle = grad;
       ctx.beginPath();
       if(f.type==='hardscape'){

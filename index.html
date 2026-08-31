@@ -1446,6 +1446,32 @@
       return `M${cx.toFixed(4)},${cy.toFixed(4)} L${p1.x.toFixed(4)},${p1.y.toFixed(4)} A${arx},${ary} 0 ${largeArc} 1 ${p2.x.toFixed(4)},${p2.y.toFixed(4)} Z`;
     }).join(' ') || 'M0,0Z';
   }
+  // buildLitAreaPath's clip-path gives the reveal its correct angular/directional boundary (a
+  // real fixture's lens does have a fairly defined beam *width*), but a hard clip has no fade at
+  // the *far* edge -- real light doesn't hit an invisible wall at its reach distance, it just
+  // gradually dims. This builds a companion `mask-image` value (one CSS radial-gradient per
+  // placement, comma-joined -- multiple mask layers composite via the default mask-composite:add,
+  // i.e. their union) that fades each placement's reveal from opaque at the fixture out to fully
+  // transparent at its reach, layered on top of the existing clip-path rather than replacing it.
+  // `ellipse Xpct% Ypct% at xPct% yPct%` is CSS's own percentage-of-element-box radial sizing --
+  // same aspect-compensation reasoning as buildLitAreaPath (x% is relative to width, y% to height,
+  // independently, so the y-radius percentage needs the same *aspect multiplier* to render as a
+  // circle rather than an ellipse) -- and, like that function, needs no real DOM measurement, so
+  // it's exactly as robust to print/resize as the clip-path it pairs with.
+  function buildLitFadeMaskImage(area, aspect){
+    aspect = aspect || 0.8;
+    const refRect = {width:380, height:380/aspect};
+    const layers = area.placements.map(p=>{
+      const f = findFixture(p.fixtureId); if(!f) return '';
+      const beamW = (p.beamWidth!=null ? p.beamWidth : f.beam);
+      const R = beamW>=360
+        ? clampR((60+f.lumens/5)*p.reach*(refRect.width/380), refRect) * 0.7
+        : clampR((60+f.lumens/5)*p.reach*(refRect.width/380), refRect);
+      const kx = (R/380*100).toFixed(2), ky = (R/380*aspect*100).toFixed(2);
+      return `radial-gradient(ellipse ${kx}% ${ky}% at ${p.xPct}% ${p.yPct}%, rgba(255,255,255,1) 0%, rgba(255,255,255,0.8) 45%, rgba(255,255,255,0.25) 75%, rgba(255,255,255,0) 100%)`;
+    }).filter(Boolean);
+    return layers.length ? layers.join(', ') : 'none';
+  }
   // responsive=true (only used by buildStaticOverlaysHtml, never the live editor) outputs the
   // beam's size as CSS percentage-of-width + aspect-ratio:1 instead of fixed pixel width/height
   // attributes, so the browser itself keeps it correctly sized at ANY future container width --
@@ -1529,10 +1555,16 @@
   function renderOverlays(){
     const area = currentArea();
     const wrap = $('overlays');
-    if(!area || !area.photo){ wrap.innerHTML=''; $('litclipPath-editor').setAttribute('d','M0,0Z'); $('editorLegend').hidden = true; renderWireLayer(); return; }
+    if(!area || !area.photo){
+      wrap.innerHTML=''; $('litclipPath-editor').setAttribute('d','M0,0Z');
+      $('photoImgLit').style.maskImage = $('photoImgLit').style.webkitMaskImage = 'none';
+      $('editorLegend').hidden = true; renderWireLayer(); return;
+    }
     const rect = $('canvasPhoto').getBoundingClientRect();
     if(!rect.width) return;
     $('litclipPath-editor').setAttribute('d', buildLitAreaPath(area, area.photoAspect||0.8));
+    const fadeMask = buildLitFadeMaskImage(area, area.photoAspect||0.8);
+    $('photoImgLit').style.maskImage = $('photoImgLit').style.webkitMaskImage = fadeMask;
     const legendTypes = usedFixtureTypes(area.placements);
     $('editorLegend').innerHTML = buildTypeLegendHtml(legendTypes);
     $('editorLegend').hidden = legendTypes.length===0;
@@ -2362,7 +2394,7 @@
           <svg width="0" height="0" style="position:absolute;"><defs><clipPath id="litclip-${a.id}" clipPathUnits="objectBoundingBox">
             <path d="${buildLitAreaPath(a, a.photoAspect||0.8)}"/>
           </clipPath></defs></svg>
-          <img src="${a.photo}" class="photo-lit" style="filter:${litPhotoFilterFor()};clip-path:url(#litclip-${a.id});-webkit-clip-path:url(#litclip-${a.id});">` : ''}
+          <img src="${a.photo}" class="photo-lit" style="filter:${litPhotoFilterFor()};clip-path:url(#litclip-${a.id});-webkit-clip-path:url(#litclip-${a.id});mask-image:${buildLitFadeMaskImage(a, a.photoAspect||0.8)};-webkit-mask-image:${buildLitFadeMaskImage(a, a.photoAspect||0.8)};">` : ''}
           <div class="wire-layer static-wires"><svg viewBox="0 0 100 100" preserveAspectRatio="none"></svg><div></div></div>
           <div class="wire-layer static-strips"><svg viewBox="0 0 100 100" preserveAspectRatio="none"></svg><div></div></div>
           <div class="overlays"></div>
@@ -3268,22 +3300,45 @@
           ctx.drawImage(img, 0, 0, cw, ch);
           ctx.restore();
 
-          // Reveal a brighter copy of the same photo, clipped to the union of every beam's
-          // shape -- matches .photo-lit in the DOM-rendered paths (see buildLitAreaPath's
-          // comment for why). ctx.clip() bakes the path using whatever transform is active at
-          // the moment it's called, then stays in effect regardless of later transform changes
-          // until the matching restore() -- so the scale-then-reset-transform sequence below
-          // lets the fraction-space path (0-1 per axis, same one used for the DOM clip-path)
-          // clip a normal full-pixel drawImage() call.
-          if(area.placements.length){
+          // Reveal a brighter copy of the same photo, clipped to each beam's own shape and faded
+          // toward its far edge -- matches .photo-lit + buildLitFadeMaskImage in the DOM-rendered
+          // paths (see their comments for why the fade exists: a hard clip has no "wall" at the
+          // beam's reach the way a real light doesn't either). Done per-placement, each in its
+          // own save/restore, rather than one pass over the combined union: the fade is applied
+          // via globalCompositeOperation='destination-in', which multiplies the *entire* existing
+          // canvas alpha by the new gradient -- doing that once per placement over a shared
+          // drawImage would have each fixture's falloff erase every other fixture's already-faded
+          // area instead of just its own.
+          area.placements.forEach(p=>{
+            const f = findFixture(p.fixtureId); if(!f) return;
+            const mx = (p.xPct/100)*cw, my = (p.yPct/100)*ch;
+            const beamW = (p.beamWidth!=null ? p.beamWidth : f.beam);
+            const refRect = {width:380, height:380/aspect};
+            const R = (beamW>=360
+              ? clampR((60+f.lumens/5)*p.reach*(refRect.width/380), refRect) * 0.7
+              : clampR((60+f.lumens/5)*p.reach*(refRect.width/380), refRect)) / 380 * cw;
             ctx.save();
+            // ctx.clip() bakes the path using whatever transform is active at the moment it's
+            // called, then stays in effect regardless of later transform changes until the
+            // matching restore() -- so the scale-then-reset-transform sequence lets the
+            // fraction-space path (0-1 per axis, same one used for the DOM clip-path) clip a
+            // normal full-pixel drawImage() call.
             ctx.transform(cw,0,0,ch,0,0);
-            ctx.clip(new Path2D(buildLitAreaPath(area, aspect)));
+            ctx.clip(new Path2D(buildLitAreaPath({placements:[p]}, aspect)));
             ctx.setTransform(1,0,0,1,0,0);
             ctx.filter = litPhotoFilterFor();
             ctx.drawImage(img, 0, 0, cw, ch);
+            ctx.filter = 'none';
+            ctx.globalCompositeOperation = 'destination-in';
+            const grad = ctx.createRadialGradient(mx,my,0,mx,my,R);
+            grad.addColorStop(0,'rgba(255,255,255,1)');
+            grad.addColorStop(0.45,'rgba(255,255,255,0.8)');
+            grad.addColorStop(0.75,'rgba(255,255,255,0.25)');
+            grad.addColorStop(1,'rgba(255,255,255,0)');
+            ctx.fillStyle = grad;
+            ctx.fillRect(0,0,cw,ch);
             ctx.restore();
-          }
+          });
 
           area.placements.forEach(p=>{
             const f = findFixture(p.fixtureId); if(!f) return;

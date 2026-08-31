@@ -317,6 +317,17 @@
 
   .zoom-layer{position:absolute;inset:0;transform-origin:0 0;will-change:transform;}
   .zoom-layer img{width:100%;height:100%;object-fit:cover;display:block;}
+  /* A second, much-brighter copy of the same photo, stacked directly on the dark one and clipped
+     (via buildLitAreaPath) to exactly the union of every placed beam's cone/circle shape -- "like
+     shining a flashlight": the areas a fixture actually lights up show the real photo (leaves,
+     bark, texture) at near-full brightness, not just a translucent color wash, while everywhere
+     outside a beam stays whatever the Darkness slider set. Needed once Darkness could reach
+     near-black (see photoFilterFor) -- at that point there's almost no backdrop luminance left
+     for the beam's additive blend mode to "catch", so beams read as a flat pale shape instead of
+     revealing anything. clip-path starts empty (an empty path draws nothing) so it's invisible
+     until JS sets a real one; pointer-events:none since it's purely visual, on top of the
+     interactive dark photo underneath it. */
+  .photo-lit{position:absolute;inset:0;pointer-events:none;clip-path:path('M0,0Z');}
 
   .zoom-badge{position:absolute;top:10px;right:10px;z-index:6;background:rgba(30,35,43,.92);
     border:1px solid var(--line);border-radius:8px;padding:6px 8px;display:flex;align-items:center;gap:8px;}
@@ -800,6 +811,10 @@
       <div class="canvas-photo" id="canvasPhoto" hidden>
         <div class="zoom-layer" id="zoomLayer">
           <img id="photoImg" alt="Design photo">
+          <svg width="0" height="0" style="position:absolute;"><defs><clipPath id="litclip-editor" clipPathUnits="objectBoundingBox">
+            <path id="litclipPath-editor" d="M0,0Z"/>
+          </clipPath></defs></svg>
+          <img id="photoImgLit" class="photo-lit" style="clip-path:url(#litclip-editor);-webkit-clip-path:url(#litclip-editor);" alt="">
           <div class="wire-layer" id="wireLayer">
             <svg id="wireSvg" viewBox="0 0 100 100" preserveAspectRatio="none"></svg>
             <div id="wireLabels"></div>
@@ -1252,6 +1267,10 @@
   // against -- previously capped at 0.25 (darkness*0.75), which never got dark enough to look
   // like true night even at the slider's max.
   function photoFilterFor(area){ return `brightness(${1-(area.darkness!=null?area.darkness:0.6)*0.95}) contrast(1.12) saturate(.9)`; }
+  // Deliberately NOT tied to area.darkness -- this is what a fixture's light reveals, which (like
+  // a real flashlight) looks about the same regardless of how dark the surrounding scene is set.
+  // Only the shape it's clipped to (buildLitAreaPath) changes with the design.
+  function litPhotoFilterFor(){ return `brightness(0.95) contrast(1.12) saturate(.9)`; }
   const DAY_DARKNESS = 0.1, NIGHT_DARKNESS = 0.9;
   function updateDarknessSwitch(area){
     const isNight = (area.darkness!=null?area.darkness:0.6) >= 0.5;
@@ -1373,6 +1392,60 @@
   function falloffStops(o1,o2){
     return [[0,o1],[20,o1*0.65],[45,o2],[75,o2*0.35],[100,0]];
   }
+  // Builds one SVG path string, in objectBoundingBox fractions (0-1 per axis, independent of the
+  // container's actual rendered pixel size), that's the union of every placement's beam
+  // cone/circle -- the exact same geometry buildBeamHtml draws (reach, beam width, rotation,
+  // hardscape's flat base), just transformed into real photo-relative coordinates instead of each
+  // beam's own local, pre-rotation 400-unit space. Meant for a `<clipPath clipPathUnits=
+  // "objectBoundingBox">` referenced via `clip-path:url(#id)` on the .photo-lit layer (see the CSS
+  // comment on .photo-lit) so a brighter copy of the photo only shows through where a fixture is
+  // actually lighting it up -- "like shining a flashlight" onto the real scene, not just tinting a
+  // shape over it. Deliberately NOT the CSS clip-path:path(...) function -- that always interprets
+  // its coordinates as raw pixels of the target's own box (no objectBoundingBox equivalent),
+  // which would go stale exactly the way the beam's own sizing did before it became percentage-
+  // based (see the CLAUDE.md note on that fix) -- print reflowing the container to a different
+  // width than it was on screen. objectBoundingBox fractions have no such problem: the browser
+  // reapplies them against whatever the real box turns out to be, at any time, automatically.
+  //
+  // objectBoundingBox scales x by the box's real width and y by its real height *independently*,
+  // which distorts a naively-uniform circle/cone into an ellipse unless compensated for -- hence
+  // every y-going radius/offset below gets multiplied by `aspect` (width/height) and every
+  // x-going one doesn't. `aspect` has to be passed in (from area.photoAspect) since fractional
+  // coordinates alone can't reveal what the real box's aspect ratio is the way pixel coordinates
+  // would. R itself still comes from clampR (needs realistic pixel-scale inputs to mean anything,
+  // e.g. its 40px floor) via a fixed 380-wide reference rect, exactly like the beam's own
+  // responsive sizing -- then divided back down to a fraction of that same 380, the same
+  // "compute normally, then divide the width back out" trick used there.
+  function buildLitAreaPath(area, aspect){
+    aspect = aspect || 0.8;
+    const refRect = {width:380, height:380/aspect};
+    return area.placements.map(p=>{
+      const f = findFixture(p.fixtureId); if(!f) return '';
+      const beamW = (p.beamWidth!=null ? p.beamWidth : f.beam);
+      const cx = p.xPct/100, cy = p.yPct/100;
+      if(beamW>=360){
+        const R = clampR((60+f.lumens/5)*p.reach*(refRect.width/380), refRect) * 0.7;
+        const rx = R/380, ry = rx*aspect;
+        return `M${(cx+rx).toFixed(4)},${cy.toFixed(4)} A${rx.toFixed(4)},${ry.toFixed(4)} 0 1 1 ${(cx-rx).toFixed(4)},${cy.toFixed(4)} A${rx.toFixed(4)},${ry.toFixed(4)} 0 1 1 ${(cx+rx).toFixed(4)},${cy.toFixed(4)} Z`;
+      }
+      const R = clampR((60+f.lumens/5)*p.reach*(refRect.width/380), refRect);
+      const k = R/380;
+      const half = beamW/2;
+      const largeArc = beamW>180?1:0;
+      const ptAt = (localAngle,localR)=>{
+        const a=(localAngle+p.rotation)*Math.PI/180;
+        const fr = localR/190*k;
+        return {x: cx+fr*Math.sin(a), y: cy-fr*Math.cos(a)*aspect};
+      };
+      const p1 = ptAt(-half,190), p2 = ptAt(half,190);
+      const arx = k.toFixed(4), ary = (k*aspect).toFixed(4);
+      if(f.type==='hardscape'){
+        const b1 = ptAt(-90,HARDSCAPE_BASE), b2 = ptAt(90,HARDSCAPE_BASE);
+        return `M${b1.x.toFixed(4)},${b1.y.toFixed(4)} L${p1.x.toFixed(4)},${p1.y.toFixed(4)} A${arx},${ary} 0 ${largeArc} 1 ${p2.x.toFixed(4)},${p2.y.toFixed(4)} L${b2.x.toFixed(4)},${b2.y.toFixed(4)} Z`;
+      }
+      return `M${cx.toFixed(4)},${cy.toFixed(4)} L${p1.x.toFixed(4)},${p1.y.toFixed(4)} A${arx},${ary} 0 ${largeArc} 1 ${p2.x.toFixed(4)},${p2.y.toFixed(4)} Z`;
+    }).join(' ') || 'M0,0Z';
+  }
   // responsive=true (only used by buildStaticOverlaysHtml, never the live editor) outputs the
   // beam's size as CSS percentage-of-width + aspect-ratio:1 instead of fixed pixel width/height
   // attributes, so the browser itself keeps it correctly sized at ANY future container width --
@@ -1456,9 +1529,10 @@
   function renderOverlays(){
     const area = currentArea();
     const wrap = $('overlays');
-    if(!area || !area.photo){ wrap.innerHTML=''; $('editorLegend').hidden = true; renderWireLayer(); return; }
+    if(!area || !area.photo){ wrap.innerHTML=''; $('litclipPath-editor').setAttribute('d','M0,0Z'); $('editorLegend').hidden = true; renderWireLayer(); return; }
     const rect = $('canvasPhoto').getBoundingClientRect();
     if(!rect.width) return;
+    $('litclipPath-editor').setAttribute('d', buildLitAreaPath(area, area.photoAspect||0.8));
     const legendTypes = usedFixtureTypes(area.placements);
     $('editorLegend').innerHTML = buildTypeLegendHtml(legendTypes);
     $('editorLegend').hidden = legendTypes.length===0;
@@ -2284,7 +2358,11 @@
       return `<div class="area-card" data-id="${a.id}">
         <button class="area-card-del" data-del="${a.id}">✕</button>
         <div class="area-card-photo">
-          ${a.photo? `<img src="${a.photo}" style="filter:${photoFilterFor(a)}">` : ''}
+          ${a.photo? `<img src="${a.photo}" style="filter:${photoFilterFor(a)}">
+          <svg width="0" height="0" style="position:absolute;"><defs><clipPath id="litclip-${a.id}" clipPathUnits="objectBoundingBox">
+            <path d="${buildLitAreaPath(a, a.photoAspect||0.8)}"/>
+          </clipPath></defs></svg>
+          <img src="${a.photo}" class="photo-lit" style="filter:${litPhotoFilterFor()};clip-path:url(#litclip-${a.id});-webkit-clip-path:url(#litclip-${a.id});">` : ''}
           <div class="wire-layer static-wires"><svg viewBox="0 0 100 100" preserveAspectRatio="none"></svg><div></div></div>
           <div class="wire-layer static-strips"><svg viewBox="0 0 100 100" preserveAspectRatio="none"></svg><div></div></div>
           <div class="overlays"></div>
@@ -2377,6 +2455,7 @@
   function applyPhotoFilter(){
     const area = currentArea(); if(!area) return;
     $('photoImg').style.filter = photoFilterFor(area);
+    $('photoImgLit').style.filter = litPhotoFilterFor();
   }
   // Sizes the photo canvas to exactly match the photo's own (cropped) aspect ratio, letterboxed
   // within whatever space is available. Without this, the browser's own window shape (very wide
@@ -2405,6 +2484,7 @@
     $('canvasToolbar').hidden = !hasPhoto;
     if(hasPhoto){
       $('photoImg').src = area.photo;
+      $('photoImgLit').src = area.photo;
       applyPhotoFilter();
       resetView();
       sizeCanvasToAspect();
@@ -3187,6 +3267,23 @@
           ctx.filter = photoFilterFor(area); // same dusk-dim CSS filter used on screen
           ctx.drawImage(img, 0, 0, cw, ch);
           ctx.restore();
+
+          // Reveal a brighter copy of the same photo, clipped to the union of every beam's
+          // shape -- matches .photo-lit in the DOM-rendered paths (see buildLitAreaPath's
+          // comment for why). ctx.clip() bakes the path using whatever transform is active at
+          // the moment it's called, then stays in effect regardless of later transform changes
+          // until the matching restore() -- so the scale-then-reset-transform sequence below
+          // lets the fraction-space path (0-1 per axis, same one used for the DOM clip-path)
+          // clip a normal full-pixel drawImage() call.
+          if(area.placements.length){
+            ctx.save();
+            ctx.transform(cw,0,0,ch,0,0);
+            ctx.clip(new Path2D(buildLitAreaPath(area, aspect)));
+            ctx.setTransform(1,0,0,1,0,0);
+            ctx.filter = litPhotoFilterFor();
+            ctx.drawImage(img, 0, 0, cw, ch);
+            ctx.restore();
+          }
 
           area.placements.forEach(p=>{
             const f = findFixture(p.fixtureId); if(!f) return;

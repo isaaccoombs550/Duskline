@@ -1329,8 +1329,8 @@
     let html, hx, hy, wx, wy;
     if(beamW>=360){
       const R = clampR((60+f.lumens/5)*p.reach*(rect.width/380), rect) * 0.7;
-      const o1 = Math.min(1,(selected?0.56:0.46)*bb);
-      const o2 = Math.min(1,(selected?0.28:0.21)*bb);
+      const o1 = Math.min(1,(selected?0.8:0.66)*bb);
+      const o2 = Math.min(1,(selected?0.4:0.3)*bb);
       html = `<div class="pool" style="width:${R*2}px;height:${R*2}px;background:radial-gradient(circle, rgba(${col},${o1}) 0%, rgba(${col},${o2}) 45%, rgba(${col},0) 100%);"></div>`;
       hx = R*Math.sin(135*Math.PI/180); hy = -R*Math.cos(135*Math.PI/180);
       wx = hx; wy = hy;
@@ -1340,8 +1340,8 @@
       const p1 = polar(-half,190), p2 = polar(half,190);
       const largeArc = beamW>180?1:0;
       const gid = 'g'+p.uid;
-      const o1 = Math.min(1,(selected?0.66:0.56)*bb);
-      const o2 = Math.min(1,(selected?0.35:0.27)*bb);
+      const o1 = Math.min(1,(selected?0.95:0.8)*bb);
+      const o2 = Math.min(1,(selected?0.5:0.39)*bb);
       // A 6"+ linear hardscape bar doesn't converge to a single point the way a spot fixture's
       // lens does -- give its beam a flat base matching the fixture's own width instead of a
       // sharp apex, then let it spread out to the same far arc as any other beam. HARDSCAPE_BASE
@@ -2979,7 +2979,7 @@
     ctx.save();
     if(beamW>=360){
       const Rp = clampR((60+f.lumens/5)*p.reach*(cw/380), rectRef) * 0.7;
-      const o1 = Math.min(1,0.46*bb), o2 = Math.min(1,0.21*bb);
+      const o1 = Math.min(1,0.66*bb), o2 = Math.min(1,0.3*bb);
       const grad = ctx.createRadialGradient(mx,my,0,mx,my,Rp);
       grad.addColorStop(0, `rgba(${col},${o1})`);
       grad.addColorStop(0.45, `rgba(${col},${o2})`);
@@ -2992,7 +2992,7 @@
       // our convention: 0deg = up, clockwise. canvas arc(): 0rad = +X (right), clockwise. Offset by -90deg.
       const startRad = (p.rotation-half-90)*Math.PI/180;
       const endRad = (p.rotation+half-90)*Math.PI/180;
-      const o1 = Math.min(1,0.56*bb), o2 = Math.min(1,0.27*bb);
+      const o1 = Math.min(1,0.8*bb), o2 = Math.min(1,0.39*bb);
       const grad = ctx.createRadialGradient(mx,my,0,mx,my,R);
       grad.addColorStop(0, `rgba(${col},${o1})`);
       grad.addColorStop(0.45, `rgba(${col},${o2})`);

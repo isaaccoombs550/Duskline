@@ -172,10 +172,24 @@ create table public.fixture_overrides (
   primary key (company_id, base_fixture_id)
 );
 
+-- Distributors a company orders fixtures from. A fixture references one by id (stored as
+-- vendorId inside its own data/override blob, or directly on a BASE_FIXTURES entry) rather
+-- than duplicating name/email/phone onto every fixture that uses the same distributor.
+create table public.distributors (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references public.companies(id) on delete cascade,
+  name text not null,
+  email text not null default '',
+  phone text not null default '',
+  account_number text not null default '',
+  created_at timestamptz not null default now()
+);
+
 alter table public.projects enable row level security;
 alter table public.areas enable row level security;
 alter table public.custom_fixtures enable row level security;
 alter table public.fixture_overrides enable row level security;
+alter table public.distributors enable row level security;
 
 create policy "Company members manage their own projects"
   on public.projects for all
@@ -194,6 +208,11 @@ create policy "Company members manage their own custom fixtures"
 
 create policy "Company members manage their own fixture overrides"
   on public.fixture_overrides for all
+  using (company_id = public.current_company_id())
+  with check (company_id = public.current_company_id());
+
+create policy "Company members manage their own distributors"
+  on public.distributors for all
   using (company_id = public.current_company_id())
   with check (company_id = public.current_company_id());
 

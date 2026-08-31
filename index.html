@@ -654,6 +654,13 @@
       <div class="field"><label>Website</label><input id="companyWebsite" placeholder="www.yourcompany.com"></div>
     </div>
 
+    <div class="section-head">
+      <h3>Distributors</h3>
+      <button class="btn btn-primary btn-sm" id="btnAddDistributor">+ Add distributor</button>
+    </div>
+    <div class="sheet-list" id="distributorList"></div>
+    <div class="empty-note" id="distributorEmpty" style="padding:0 14px 18px;text-align:left;" hidden>No distributors yet — add one to start assigning fixtures to a supplier for POs.</div>
+
     <div class="section-head"><h3>Quote appearance</h3></div>
     <div class="company-form">
       <div class="form-row-2">
@@ -989,11 +996,33 @@
         <div class="field"><label>Your cost ($)</label><input id="fxCost" type="number" step="0.01" placeholder="68"></div>
         <div class="field"><label>Sell price ($)</label><input id="fxPrice" type="number" step="0.01" placeholder="145"></div>
       </div>
+      <div class="field"><label>Distributor</label>
+        <select id="fxVendor"><option value="">None</option></select>
+      </div>
     </div>
     <div class="edit-actions">
       <button class="btn btn-danger" id="fxDelete" hidden>Delete</button>
       <button class="btn btn-ghost" id="fixtureCancel">Cancel</button>
       <button class="btn btn-primary" id="fixtureSave">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== DISTRIBUTOR MODAL ===================== -->
+<div class="edit-sheet" id="distributorModal" hidden>
+  <div class="edit-backdrop" id="distributorBackdrop"></div>
+  <div class="edit-panel">
+    <div class="edit-title" id="distributorModalTitle">Add distributor</div>
+    <div class="modal-form-body">
+      <div class="field"><label>Name</label><input id="distName" placeholder="e.g. Coastal Lighting Supply"></div>
+      <div class="field"><label>Email</label><input id="distEmail" type="email" placeholder="orders@distributor.com"></div>
+      <div class="field"><label>Phone</label><input id="distPhone" placeholder="(250) 555-0123"></div>
+      <div class="field"><label>Account number (optional)</label><input id="distAccountNumber" placeholder="Your account # with them"></div>
+    </div>
+    <div class="edit-actions">
+      <button class="btn btn-danger" id="distDelete" hidden>Delete</button>
+      <button class="btn btn-ghost" id="distributorCancel">Cancel</button>
+      <button class="btn btn-primary" id="distributorSave">Save</button>
     </div>
   </div>
 </div>
@@ -1036,6 +1065,7 @@
       currentAreaId: null,
       customFixtures: [],
       fixtureOverrides: {},
+      distributors: [],
       fixtureMgmtCat: 'fixture',
       company: {logo:null, name:'', phone:'', email:'', address:'', website:'', taxRate:0, taxLabel:'Tax',
         quoteAccent:'#F0A84E', pdfLogoSize:30, pdfFontSize:10, pdfBgColor:'#FFFFFF', headingAlign:'left',
@@ -1992,7 +2022,7 @@
       t.classList.toggle('active', tabName===name || (tabName==='projects' && name==='project-detail'));
     });
     if(name==='fixtures') renderFixtureMgmtList();
-    if(name==='company') renderCompanyPreview();
+    if(name==='company'){ renderCompanyPreview(); renderDistributorList(); }
     if(name==='projects') renderProjectList();
   }
 
@@ -2298,11 +2328,12 @@
         : f.cat==='strip' ? f.kelvin+'K · '+f.watt+'W/ft'
         : (f.watt?f.watt+'W · ':'')+'';
       const install = f.installTime ? (specLine?' · ':'')+f.installTime+'m install' : '';
+      const vendor = f.vendorId && state.distributors.find(d=>d.id===f.vendorId);
       return `<div class="fx-card">
         <div class="fx-main">
           <div class="fx-name">${quoteItemNameCell(f)}${f.custom?' <span class="muted" style="font-size:10px;">· custom</span>':''}</div>
           <div class="fx-desc">${escapeHtml(f.desc)}</div>
-          <div class="fx-spec">${specLine}${install}</div>
+          <div class="fx-spec">${specLine}${install}${vendor?' · '+escapeHtml(vendor.name):''}</div>
         </div>
         <div class="fx-side">
           <div class="fx-price">${money(f.price)}</div>
@@ -2331,6 +2362,12 @@
   function setAimSeg(rot){
     document.querySelectorAll('#fxAimSeg button').forEach(b=> b.classList.toggle('active', b.dataset.aim===(rot>=90&&rot<=270?'down':'up')));
   }
+  function populateVendorSelect(selectedId){
+    const sel = $('fxVendor');
+    sel.innerHTML = '<option value="">None</option>' +
+      state.distributors.map(d=>`<option value="${d.id}">${escapeHtml(d.name)}</option>`).join('');
+    sel.value = selectedId || '';
+  }
   function openFixtureForm(fixtureId){
     fixtureFormState.editingId = fixtureId || null;
     const f = fixtureId ? findFixture(fixtureId) : null;
@@ -2348,6 +2385,7 @@
     setAimSeg(f ? (f.rot||0) : 0);
     $('fxCost').value = f ? f.cost : '';
     $('fxPrice').value = f ? f.price : '';
+    populateVendorSelect(f ? f.vendorId : '');
     $('fxDelete').hidden = !f;
     $('fxDelete').textContent = (f && f.custom) ? 'Delete' : 'Remove from library';
     $('fixtureModal').hidden = false;
@@ -2368,7 +2406,8 @@
     const type = cat==='fixture' ? ($('fxType').value||'accent') : undefined;
     const aimBtn = document.querySelector('#fxAimSeg button.active');
     const rot = (cat==='fixture' && aimBtn && aimBtn.dataset.aim==='down') ? 180 : 0;
-    const data = {name,desc,cat,watt,installTime,cost,price,beam,kelvin,lumens,rot,type};
+    const vendorId = $('fxVendor').value || null;
+    const data = {name,desc,cat,watt,installTime,cost,price,beam,kelvin,lumens,rot,type,vendorId};
 
     if(fixtureFormState.editingId){
       const id = fixtureFormState.editingId;
@@ -2437,6 +2476,72 @@
     if(!$('editorScreen').hidden) renderSheetList();
   }
 
+  // ---------------- distributor management ----------------
+  function renderDistributorList(){
+    const list = state.distributors;
+    $('distributorEmpty').hidden = list.length>0;
+    $('distributorList').innerHTML = list.map(d=>{
+      const sub = [d.email, d.phone].filter(Boolean).join(' · ');
+      return `<div class="fx-card">
+        <div class="fx-main">
+          <div class="fx-name">${escapeHtml(d.name)}</div>
+          <div class="fx-desc">${escapeHtml(sub)}</div>
+        </div>
+        <div class="fx-side">
+          <div class="fx-actions"><button data-edit="${d.id}">Edit</button></div>
+        </div>
+      </div>`;
+    }).join('');
+    $('distributorList').querySelectorAll('[data-edit]').forEach(b=>b.addEventListener('click', e=> openDistributorForm(e.currentTarget.dataset.edit)));
+  }
+
+  let distributorFormState = {editingId:null};
+  function openDistributorForm(distributorId){
+    distributorFormState.editingId = distributorId || null;
+    const d = distributorId ? state.distributors.find(x=>x.id===distributorId) : null;
+    $('distributorModalTitle').textContent = d ? 'Edit distributor' : 'Add distributor';
+    $('distName').value = d ? d.name : '';
+    $('distEmail').value = d ? d.email : '';
+    $('distPhone').value = d ? d.phone : '';
+    $('distAccountNumber').value = d ? d.accountNumber : '';
+    $('distDelete').hidden = !d;
+    $('distributorModal').hidden = false;
+  }
+  function closeDistributorForm(){ $('distributorModal').hidden = true; }
+  async function saveDistributorForm(){
+    const name = $('distName').value.trim() || 'Untitled distributor';
+    const email = $('distEmail').value.trim();
+    const phone = $('distPhone').value.trim();
+    const accountNumber = $('distAccountNumber').value.trim();
+    const data = {name, email, phone, accountNumber};
+
+    if(distributorFormState.editingId){
+      const id = distributorFormState.editingId;
+      const existing = state.distributors.find(d=>d.id===id);
+      if(existing) Object.assign(existing, data);
+      const { error } = await sb.from('distributors').update(distributorToRow(data)).eq('id', id);
+      if(error) console.warn('Duskline: distributor save failed.', error);
+    } else {
+      const { data: row, error } = await sb.from('distributors')
+        .insert({ ...distributorToRow(data), company_id: authProfile.companyId }).select().single();
+      if(error){ console.warn('Duskline: distributor create failed.', error); }
+      else state.distributors.push(rowToDistributor(row));
+    }
+    closeDistributorForm();
+    renderDistributorList();
+    renderFixtureMgmtList();
+  }
+  async function deleteDistributorForm(){
+    const id = distributorFormState.editingId;
+    if(!id) return;
+    if(!confirm('Delete this distributor? Fixtures assigned to them will show no distributor.')) return;
+    state.distributors = state.distributors.filter(d=>d.id!==id);
+    const { error } = await sb.from('distributors').delete().eq('id', id);
+    if(error) console.warn('Duskline: distributor delete failed.', error);
+    closeDistributorForm();
+    renderDistributorList();
+    renderFixtureMgmtList();
+  }
 
   // ---------------- fixture import template download ----------------
   // The Duskline fixture-import Excel template, embedded as base64 so the app stays a single
@@ -3060,13 +3165,20 @@
       wireRuns: row.wire_runs||[], lightStrips: row.light_strips||[],
     };
   }
+  function rowToDistributor(row){
+    return { id: row.id, name: row.name||'', email: row.email||'', phone: row.phone||'', accountNumber: row.account_number||'' };
+  }
+  function distributorToRow(d){
+    return { name: d.name||'', email: d.email||'', phone: d.phone||'', account_number: d.accountNumber||'' };
+  }
   async function loadCompanyDataFromDb(companyId){
-    const [companyRes, projectsRes, areasRes, customRes, overridesRes] = await Promise.all([
+    const [companyRes, projectsRes, areasRes, customRes, overridesRes, distributorsRes] = await Promise.all([
       sb.from('companies').select('*').eq('id', companyId).single(),
       sb.from('projects').select('*').eq('company_id', companyId).order('created_at', {ascending:false}),
       sb.from('areas').select('*'), // RLS alone scopes this to the caller's own company
       sb.from('custom_fixtures').select('*').eq('company_id', companyId),
       sb.from('fixture_overrides').select('*').eq('company_id', companyId),
+      sb.from('distributors').select('*').eq('company_id', companyId).order('name'),
     ]);
     if(companyRes.data) state.company = rowToCompany(companyRes.data);
     const projectsById = {};
@@ -3075,6 +3187,7 @@
       const pr = projectsById[row.project_id];
       if(pr) pr.areas.push(rowToArea(row));
     });
+    state.distributors = (distributorsRes.data||[]).map(rowToDistributor);
     state.customFixtures = (customRes.data||[]).map(row=> ({id: row.id, custom:true, ...row.data}));
     state.fixtureOverrides = {};
     (overridesRes.data||[]).forEach(row=>{ state.fixtureOverrides[row.base_fixture_id] = row.data; });
@@ -3665,6 +3778,13 @@
     $('fixtureBackdrop').addEventListener('click', closeFixtureForm);
     $('fixtureSave').addEventListener('click', saveFixtureForm);
     $('fxDelete').addEventListener('click', deleteFixtureForm);
+
+    // distributors (company tab)
+    $('btnAddDistributor').addEventListener('click', ()=> openDistributorForm(null));
+    $('distributorCancel').addEventListener('click', closeDistributorForm);
+    $('distributorBackdrop').addEventListener('click', closeDistributorForm);
+    $('distributorSave').addEventListener('click', saveDistributorForm);
+    $('distDelete').addEventListener('click', deleteDistributorForm);
 
     // company tab
     $('btnUploadLogo').addEventListener('click', ()=> $('logoInput').click());

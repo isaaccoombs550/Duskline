@@ -111,6 +111,20 @@
   .area-card-photo{position:relative;height:150px;background:#000;}
   .area-card-photo img{width:100%;height:100%;object-fit:cover;display:block;}
   .area-card-photo .overlays{position:absolute;inset:0;pointer-events:none;}
+  /* .placement itself is normally an unsized (width:auto/height:auto) absolutely-positioned
+     anchor point -- fine for the live editor, where its children (.beam-svg etc.) are sized in
+     plain pixels. The static/print overlay's beam sizes itself as a CSS percentage instead (see
+     buildBeamHtml's responsive=true path), and a percentage width on an absolutely-positioned
+     descendant only resolves against a containing block that itself has a *definite* size --
+     .placement's default auto/shrink-to-fit width doesn't qualify (CSS treats an unresolvable
+     percentage as if the property were unset). Giving it 100%/100% here makes it exactly match
+     .overlays (itself pinned to .area-card-photo via inset:0) as a definite reference the beam's
+     percentage width can resolve against, without moving .placement's own top-left corner (which
+     stays exactly at left/top %, i.e. the fixture's point) -- width/height only change how far a
+     positioned box extends *from* that corner, never where the corner itself sits. Scoped to
+     .area-card-photo specifically so it can't affect the live editor's own #overlays .placement,
+     which lives in a completely different part of the DOM and must keep its pixel-based sizing. */
+  .area-card-photo .overlays .placement{width:100%;height:100%;}
   .place-dot{position:absolute;left:0;top:0;width:10px;height:10px;border-radius:50%;
     background:var(--surface-2);border:2px solid var(--amber);transform:translate(-50%,-50%);pointer-events:none;}
   /* Hardscape fixtures are a real 6"+ linear bar, not a point source, so their marker is a
@@ -1321,7 +1335,12 @@
   // the mark) found the original too opaque, masking photo detail instead of sitting over it
   // translucently. Values below are ~30% lower than the original per-stop opacities.
   const HARDSCAPE_BASE = 22; // flat-base half-width, in the same 400-unit space as the 190-unit far radius below
-  function buildBeamHtml(p,f,rect,selected,masterBB){
+  // responsive=true (only used by buildStaticOverlaysHtml, never the live editor) outputs the
+  // beam's size as CSS percentage-of-width + aspect-ratio:1 instead of fixed pixel width/height
+  // attributes, so the browser itself keeps it correctly sized at ANY future container width --
+  // screen, print, resize, anything -- with no re-measurement or regeneration ever needed. See
+  // the big comment on buildStaticOverlaysHtml for why pixel sizing doesn't survive printing.
+  function buildBeamHtml(p,f,rect,selected,masterBB,responsive){
     const bb = (p.brightness!=null ? p.brightness : (masterBB==null?1:masterBB));
     const kelvin = (p.kelvin!=null ? p.kelvin : f.kelvin);
     const col = kelvinColor(kelvin);
@@ -1331,7 +1350,8 @@
       const R = clampR((60+f.lumens/5)*p.reach*(rect.width/380), rect) * 0.7;
       const o1 = Math.min(1,(selected?0.8:0.66)*bb);
       const o2 = Math.min(1,(selected?0.4:0.3)*bb);
-      html = `<div class="pool" style="width:${R*2}px;height:${R*2}px;background:radial-gradient(circle, rgba(${col},${o1}) 0%, rgba(${col},${o2}) 45%, rgba(${col},0) 100%);"></div>`;
+      const sizeStyle = responsive ? `width:${R*2/rect.width*100}%;aspect-ratio:1;height:auto;` : `width:${R*2}px;height:${R*2}px;`;
+      html = `<div class="pool" style="${sizeStyle}background:radial-gradient(circle, rgba(${col},${o1}) 0%, rgba(${col},${o2}) 45%, rgba(${col},0) 100%);"></div>`;
       hx = R*Math.sin(135*Math.PI/180); hy = -R*Math.cos(135*Math.PI/180);
       wx = hx; wy = hy;
     } else {
@@ -1352,7 +1372,9 @@
         ? (()=>{ const b1=polar(-90,HARDSCAPE_BASE), b2=polar(90,HARDSCAPE_BASE);
             return `M${b1.x.toFixed(1)},${b1.y.toFixed(1)} L${p1.x.toFixed(1)},${p1.y.toFixed(1)} A190,190 0 ${largeArc} 1 ${p2.x.toFixed(1)},${p2.y.toFixed(1)} L${b2.x.toFixed(1)},${b2.y.toFixed(1)} Z`; })()
         : `M200,200 L${p1.x.toFixed(1)},${p1.y.toFixed(1)} A190,190 0 ${largeArc} 1 ${p2.x.toFixed(1)},${p2.y.toFixed(1)} Z`;
-      html = `<svg viewBox="0 0 400 400" width="${R*2}" height="${R*2}" class="beam-svg" style="transform:translate(-50%,-50%) rotate(${p.rotation}deg)">
+      const sizeAttrs = responsive ? '' : `width="${R*2}" height="${R*2}"`;
+      const sizeStyle = responsive ? `width:${R*2/rect.width*100}%;aspect-ratio:1;height:auto;` : '';
+      html = `<svg viewBox="0 0 400 400" ${sizeAttrs} class="beam-svg" style="${sizeStyle}transform:translate(-50%,-50%) rotate(${p.rotation}deg)">
         <defs><radialGradient id="${gid}" cx="200" cy="200" r="190" gradientUnits="userSpaceOnUse">
           <stop offset="0%" stop-color="rgb(${col})" stop-opacity="${o1}"/>
           <stop offset="45%" stop-color="rgb(${col})" stop-opacity="${o2}"/>
@@ -1369,10 +1391,18 @@
   function baseReachRadius(f, rect){ return clampR((60+f.lumens/5)*(rect.width/380), rect); }
 
   function escapeHtml(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
-  function buildStaticOverlaysHtml(area, rect){
+  // No DOM rect needed (unlike the live editor's renderOverlays) -- buildBeamHtml's responsive=true
+  // path sizes the beam as a CSS percentage of whatever width it actually ends up rendered at, so
+  // it stays correct at any container width (on-screen thumbnail, print, anything) without ever
+  // needing to be regenerated. The reference rect here only supplies a *ratio* (380 wide, height
+  // derived from the photo's own real aspect ratio) for the underlying reach-scaling formula and
+  // its min/max clamp -- its absolute size is otherwise irrelevant since responsive output divides
+  // it back out (see buildBeamHtml).
+  function buildStaticOverlaysHtml(area){
+    const rect = {width:380, height:380/(area.photoAspect||0.8)};
     return area.placements.map(p=>{
       const f = findFixture(p.fixtureId); if(!f) return '';
-      const {html} = buildBeamHtml(p,f,rect,false,area.beamBrightness);
+      const {html} = buildBeamHtml(p,f,rect,false,area.beamBrightness,true);
       const tcol = fixtureTypeMeta(f).col;
       const isBar = f.type==='hardscape';
       const barStyle = isBar ? `transform:translate(-50%,-50%) rotate(${p.rotation}deg);` : '';
@@ -2254,30 +2284,24 @@
     }));
     requestAnimationFrame(()=> refreshAreaCardOverlays(pr));
   }
-  // buildBeamHtml bakes the beam's reach into an absolute pixel size (R, hx, hy) computed from
-  // the container's rect.width at the moment this runs -- unlike the wire/strip SVGs above it
-  // (viewBox="0 0 100 100" + percentage points), which stay correctly sized at any container
-  // width automatically. That's fine as long as .area-card-photo's rendered width doesn't change
-  // between when this last ran and whenever the card is actually viewed -- but it does: printing
-  // removes .app's on-screen max-width constraint (see the @media print rule, `.app{max-width:
-  // 100%}`), which can render this same card significantly wider on the printed page than it was
-  // on screen when renderAreaList() last called this. Since the beam's pixel size doesn't grow to
-  // match, it visually shrinks relative to the now-wider photo -- a real user-reported bug (the
-  // beam reached well up into a tree's canopy in the editor, but only a short way up it in the
-  // printed quote). The fix is to re-run this right before printing too (see the 'beforeprint'
-  // listener in init()), once print's width change has actually taken effect on the page --
-  // regenerating the beam geometry against the width it's actually about to be viewed at, the
-  // same way the live editor's renderOverlays() re-measures on every call rather than freezing a
-  // stale size.
+  // Pulled out of renderAreaList so it's reusable; only needs to run once per render since
+  // everything it generates (beam, wires, strips) sizes itself via CSS percentages/aspect-ratio
+  // and stays correct at any future container width -- on-screen, print, resized, anything --
+  // with no re-measurement ever needed. (An earlier version of this fix tried re-running this
+  // specifically on the 'beforeprint' event instead, on the theory that a fixed-pixel beam just
+  // needed fresher DOM measurements right before printing -- that didn't actually work, because
+  // print's internal pagination/rendering pass isn't reliably reflected back to JS's
+  // getBoundingClientRect() the way on-screen resizes are. Sizing the beam so it never needs
+  // measuring at all sidesteps that problem entirely instead of chasing the right moment to
+  // remeasure it.)
   function refreshAreaCardOverlays(pr){
     if(!pr) return;
     pr.areas.forEach(a=>{
       if(!a.photo) return;
       const box = document.querySelector(`.area-card[data-id="${a.id}"] .area-card-photo`);
       if(!box) return;
-      const rect = box.getBoundingClientRect();
       const ov = box.querySelector('.overlays');
-      if(ov) ov.innerHTML = buildStaticOverlaysHtml(a, rect);
+      if(ov) ov.innerHTML = buildStaticOverlaysHtml(a);
       const svg = box.querySelector('.static-wires svg');
       const labelsBox = box.querySelector('.static-wires div');
       if(svg && labelsBox){
@@ -4070,12 +4094,6 @@
     // lose that last edit. Worth revisiting (e.g. sendBeacon) if it turns out to matter.
     window.addEventListener('beforeunload', ()=>{ flushCurrentEdits(); });
     window.addEventListener('pagehide', ()=>{ flushCurrentEdits(); });
-    // Re-measure and rebuild the area-card beam overlays once print's width change (see the
-    // refreshAreaCardOverlays comment) has actually taken effect. 'beforeprint' is the right hook
-    // for this specifically because the browser guarantees print media styles are already applied
-    // by the time it fires — measuring synchronously right before window.print() itself would not
-    // see them yet.
-    window.addEventListener('beforeprint', ()=> refreshAreaCardOverlays(currentProject()));
   }
 
   document.addEventListener('DOMContentLoaded', init);

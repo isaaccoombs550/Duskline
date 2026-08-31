@@ -1247,7 +1247,11 @@
   // ---------------- project / area helpers ----------------
   function currentProject(){ return state.projects.find(p=>p.id===state.currentProjectId); }
   function currentArea(){ const pr=currentProject(); return pr ? pr.areas.find(a=>a.id===state.currentAreaId) : null; }
-  function photoFilterFor(area){ return `brightness(${1-(area.darkness!=null?area.darkness:0.6)*0.75}) contrast(1.12) saturate(.9)`; }
+  // brightness at darkness=1 is 0.05 (not 0) so 100% still reads as "almost black" rather than a
+  // flat, fully-crushed black frame with literally zero photo detail left to place fixtures
+  // against -- previously capped at 0.25 (darkness*0.75), which never got dark enough to look
+  // like true night even at the slider's max.
+  function photoFilterFor(area){ return `brightness(${1-(area.darkness!=null?area.darkness:0.6)*0.95}) contrast(1.12) saturate(.9)`; }
   const DAY_DARKNESS = 0.1, NIGHT_DARKNESS = 0.9;
   function updateDarknessSwitch(area){
     const isNight = (area.darkness!=null?area.darkness:0.6) >= 0.5;

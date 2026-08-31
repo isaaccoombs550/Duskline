@@ -1306,11 +1306,17 @@
     return { xPct: lx/containerRect.width*100, yPct: ly/containerRect.height*100 };
   }
 
+  // Each stop is the old (more saturated) color blended ~55% toward white -- a real 2700K bulb
+  // reads to the eye as a soft warm white, not the fairly saturated orange rgb(255,183,107) was.
+  // That saturated version got noticeably more obvious once the beam switched to additive
+  // blending (plus-lighter/'lighter'), which pushes a layer's own color harder into the photo
+  // than plain alpha compositing did -- softening the source color here keeps that same additive
+  // "catches the texture" effect while reading as a gentle warm glow instead of an orange wash.
   function kelvinColor(k){
-    if(k<=2700) return '255,183,107';
-    if(k<=3000) return '255,205,148';
-    if(k<=3500) return '255,219,181';
-    return '214,231,255';
+    if(k<=2700) return '255,223,188';
+    if(k<=3000) return '255,233,207';
+    if(k<=3500) return '255,239,222';
+    return '237,244,255';
   }
   // Per-fixture-type identity color, independent of kelvinColor() above (that's the beam's
   // light-temperature color; this is a fixed identity color per fixture *type* so a placement
@@ -1504,7 +1510,7 @@
   function buildStripSvgHtml(runs, draftPath){
     const runsHtml = runs.map(s=>{
       const f = findFixture(s.fixtureId);
-      const col = f ? kelvinColor(f.kelvin) : '255,205,148';
+      const col = f ? kelvinColor(f.kelvin) : '255,233,207';
       const pts = s.points.map(p=>`${p.xPct},${p.yPct}`).join(' ');
       return `<polyline points="${pts}" class="strip-hit" data-id="${s.id}"/>
         <polyline points="${pts}" class="strip-glow" style="stroke:rgb(${col});"/>
@@ -1513,7 +1519,7 @@
     let draftHtml = '';
     if(draftPath && draftPath.length>1){
       const f = findFixture(state.drawingStripFixtureId);
-      const col = f ? kelvinColor(f.kelvin) : '255,205,148';
+      const col = f ? kelvinColor(f.kelvin) : '255,233,207';
       const pts = draftPath.map(p=>`${p.xPct},${p.yPct}`).join(' ');
       draftHtml = `<polyline points="${pts}" class="strip-glow strip-draft" style="stroke:rgb(${col});"/>
         <polyline points="${pts}" class="strip-core strip-draft" style="stroke:rgb(${col});"/>`;
@@ -1529,7 +1535,7 @@
     svg.innerHTML = buildStripSvgHtml(runs, state.currentStripPath);
     labelsBox.innerHTML = runs.map(s=>{
       const f = findFixture(s.fixtureId);
-      const col = f ? kelvinColor(f.kelvin) : '255,205,148';
+      const col = f ? kelvinColor(f.kelvin) : '255,233,207';
       const mid = s.points[Math.floor(s.points.length/2)];
       return `<div class="strip-label" style="left:${mid.xPct}%;top:${mid.yPct}%;color:rgb(${col});border:1px solid rgba(${col},.5);">${Math.round(s.lengthFt||0)} ft${f?' · '+f.name:''}</div>`;
     }).join('');
@@ -2349,13 +2355,13 @@
         const strips = a.lightStrips||[];
         stripSvg.innerHTML = strips.map(s=>{
           const f = findFixture(s.fixtureId);
-          const col = f ? kelvinColor(f.kelvin) : '255,205,148';
+          const col = f ? kelvinColor(f.kelvin) : '255,233,207';
           const pts = s.points.map(p=>`${p.xPct},${p.yPct}`).join(' ');
           return `<polyline points="${pts}" class="strip-glow" style="stroke:rgb(${col});"/><polyline points="${pts}" class="strip-core" style="stroke:rgb(${col});"/>`;
         }).join('');
         stripLabelsBox.innerHTML = strips.map(s=>{
           const f = findFixture(s.fixtureId);
-          const col = f ? kelvinColor(f.kelvin) : '255,205,148';
+          const col = f ? kelvinColor(f.kelvin) : '255,233,207';
           const mid = s.points[Math.floor(s.points.length/2)];
           return `<div class="strip-label" style="left:${mid.xPct}%;top:${mid.yPct}%;color:rgb(${col});">${Math.round(s.lengthFt||0)} ft</div>`;
         }).join('');
@@ -3135,7 +3141,7 @@
   }
   function drawStripOnCanvas(ctx, s, cw, ch, showLabels){
     const f = findFixture(s.fixtureId);
-    const col = f ? kelvinColor(f.kelvin) : '255,205,148';
+    const col = f ? kelvinColor(f.kelvin) : '255,233,207';
     ctx.save();
     ctx.shadowColor = `rgba(${col},0.9)`;
     ctx.shadowBlur = cw*0.012;

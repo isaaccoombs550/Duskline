@@ -440,7 +440,7 @@
     html,body{background:var(--pdf-bg-color, #fff);}
     header.topbar,.editor-screen,.crop-screen,.edit-sheet,
     #btnBackToProjects,#btnEditCustomer,#btnAddArea,.area-card-del,.quote-actions,#projQuoteModeTabs,.discount-row,
-    .export-label-toggle,.area-card-body .btn{display:none !important;}
+    .export-label-toggle,.area-card-body .btn,#poWrap{display:none !important;}
     #screen-projects,#screen-fixtures,#screen-company{display:none !important;}
     #screen-project-detail{display:flex !important;overflow:visible;}
     .print-only{display:block !important;}
@@ -605,6 +605,11 @@
         </table>
       </div>
       <div class="quote-empty" id="projQuoteEmpty" hidden>No fixtures added in any area yet.</div>
+    </div>
+
+    <div id="poWrap" style="order:20;">
+      <div class="section-head"><h3>Purchase orders</h3></div>
+      <div id="poSection"></div>
     </div>
 
     <div style="order:99;">
@@ -1984,6 +1989,87 @@
     }
   }
 
+  // ---------------- purchase orders ----------------
+  // Groups this project's line items by the distributor assigned to each fixture (fixture.vendorId,
+  // see the fixture edit modal) so a contractor can send one PO per supplier instead of manually
+  // sorting a mixed materials list. Items whose fixture has no distributor (or one that's since been
+  // deleted, leaving a dangling vendorId) fall into a single "Unassigned" group with no send button.
+  function computeProjectPoGroups(pr){
+    const items = computeProjectLineItems(pr);
+    const groups = {};
+    items.forEach(i=>{
+      const distributor = i.vendorId ? state.distributors.find(d=>d.id===i.vendorId) : null;
+      const key = distributor ? distributor.id : '';
+      if(!groups[key]) groups[key] = {distributor, items:[]};
+      groups[key].items.push(i);
+    });
+    return Object.values(groups).map(g=> ({...g, totalCost: g.items.reduce((s,i)=>s+i.lineCost,0)}))
+      .sort((a,b)=>{
+        if(!a.distributor) return 1;
+        if(!b.distributor) return -1;
+        return a.distributor.name.localeCompare(b.distributor.name);
+      });
+  }
+  function renderPoSection(pr){
+    const el = $('poSection'); if(!el) return;
+    if(!pr){ el.innerHTML=''; return; }
+    const groups = computeProjectPoGroups(pr);
+    if(!groups.length){
+      el.innerHTML = `<div class="empty-note" style="padding:0 14px 18px;text-align:left;">No fixtures added yet.</div>`;
+      return;
+    }
+    el.innerHTML = groups.map(g=>{
+      const count = g.items.reduce((s,i)=>s+i.qty,0);
+      const name = g.distributor ? escapeHtml(g.distributor.name) : 'Unassigned';
+      const sub = `${count} item${count!==1?'s':''} · ${money(g.totalCost)}` + (g.distributor ? '' : ' · assign a distributor from the Fixtures tab to send a PO');
+      let action;
+      if(!g.distributor){
+        action = '';
+      } else if(!g.distributor.email){
+        action = `<button disabled title="Add an email for this distributor in Company &gt; Distributors">Email PO</button>`;
+      } else {
+        action = `<button data-po-email="${g.distributor.id}">Email PO</button>`;
+      }
+      return `<div class="fx-card">
+        <div class="fx-main">
+          <div class="fx-name">${name}</div>
+          <div class="fx-desc">${sub}</div>
+        </div>
+        <div class="fx-side"><div class="fx-actions">${action}</div></div>
+      </div>`;
+    }).join('');
+    el.querySelectorAll('[data-po-email]').forEach(b=> b.addEventListener('click', e=>{
+      const group = groups.find(g=> g.distributor && g.distributor.id===e.currentTarget.dataset.poEmail);
+      if(group) sendPoEmail(pr, group);
+    }));
+  }
+  function sendPoEmail(pr, group){
+    const d = group.distributor;
+    const c = state.company;
+    const lines = [
+      'PURCHASE ORDER', '',
+      'From: '+(c.name||'—'),
+    ];
+    if(c.phone) lines.push('Phone: '+c.phone);
+    if(c.email) lines.push('Email: '+c.email);
+    lines.push('Date: '+new Date().toLocaleDateString());
+    lines.push('Job: '+(pr.customer.name||'Untitled project'));
+    lines.push('', 'To: '+d.name);
+    if(d.accountNumber) lines.push('Account #: '+d.accountNumber);
+    lines.push('', 'ITEMS');
+    group.items.forEach(i=>{
+      lines.push(`${i.name}  x${i.qty}  @ ${money(i.cost)}  = ${money(i.lineCost)}`);
+    });
+    lines.push('', 'Total: '+money(group.totalCost), '', 'Please confirm availability and lead time. Thank you.');
+    const subject = `Purchase Order — ${pr.customer.name||'Project'}${c.name?' — '+c.name:''}`;
+    const url = `mailto:${d.email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(lines.join('\n'))}`;
+    // An <a> click (rather than assigning window.location.href) avoids touching the page's
+    // own navigation/history for an unhandled/unregistered mailto: scheme.
+    const a = document.createElement('a');
+    a.href = url;
+    a.click();
+  }
+
   function renderLoadSummary(pr){
     const el = $('loadSummary');
     if(!pr || !pr.areas.length || state.quoteMode!=='cost'){ el.innerHTML=''; return; }
@@ -2085,6 +2171,7 @@
     renderAreaList(pr);
     renderLoadSummary(pr);
     renderProjectQuote(pr);
+    renderPoSection(pr);
     applySectionOrder();
   }
   function renderAreaList(pr){
@@ -3915,8 +4002,14 @@
     setAppVisible(false);
     showLandingScreen();
     sb.auth.onAuthStateChange((event, session)=>{
-      if(session && session.user){ enterAppForUser(session.user); }
-      else{ leaveApp(); }
+      if(!session || !session.user){ leaveApp(); return; }
+      // supabase-js re-fires this (e.g. TOKEN_REFRESHED) whenever the tab regains focus/visibility —
+      // including after a mailto: link hands off to a mail client and the user switches back — with
+      // the same already-signed-in user. enterAppForUser() wipes and reloads all in-memory state, so
+      // running it again here would silently reset the screen the user was on. Only run the full
+      // load for an actual new session (first load, or signing in as a different user).
+      if(authUser && authUser.id===session.user.id) return;
+      enterAppForUser(session.user);
     });
     setInterval(()=>{ flushCurrentEdits(); }, 5000);
     // Best-effort: async network saves aren't guaranteed to complete before the page

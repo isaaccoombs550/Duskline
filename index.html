@@ -595,6 +595,7 @@
         </div>
       </div>
       <div class="discount-row" id="discountRow">
+        <div class="field"><label>Labor cost</label><input id="laborCost" type="number" step="0.01" min="0" placeholder="0.00"></div>
         <div class="field"><label>Discount (%)</label><input id="discountPercent" type="number" step="0.1" min="0" max="100" placeholder="0"></div>
         <div class="field" style="flex:1;"><label>Reason</label><input id="discountReason" placeholder="e.g. Returning customer discount"></div>
       </div>
@@ -1898,7 +1899,9 @@
           <td>${quoteItemNameCell(i)}<div class="cell-sub">${escapeHtml(i.desc)}</div></td>
           <td class="mono">${i.qty}</td><td class="mono">${money(i.price)}</td><td class="mono">${money(i.linePrice)}</td>
         </tr>`).join('');
-      const subtotal = items.reduce((s,i)=>s+i.linePrice,0);
+      const materialsSubtotal = items.reduce((s,i)=>s+i.linePrice,0);
+      const laborCost = pr.laborCost||0;
+      const subtotal = materialsSubtotal + laborCost;
       const discountPct = (pr.discountPercent||0)/100;
       const discountReason = pr.discountReason || '';
       const discountAmt = subtotal*discountPct;
@@ -1907,6 +1910,9 @@
       const taxLabel = state.company.taxLabel || 'Tax';
       const taxAmt = afterDiscount*taxRate;
       let foot = '';
+      if(laborCost>0){
+        foot += `<tr><td colspan="3" style="border-top:none;">Labor</td><td class="mono" style="border-top:none;">${money(laborCost)}</td></tr>`;
+      }
       const showSubtotalRow = discountPct>0 || taxRate>0;
       if(showSubtotalRow){
         foot += `<tr><td colspan="3" style="border-top:none;">Subtotal</td><td class="mono" style="border-top:none;">${money(subtotal)}</td></tr>`;
@@ -1922,7 +1928,7 @@
       $('projQuoteTfoot').innerHTML = foot;
     } else {
       $('projQuoteThead').innerHTML = `<tr><th>Item</th><th>Qty</th><th>Cost</th><th>Price</th><th>Margin</th></tr>`;
-      $('projQuoteTbody').innerHTML = items.map(i=>{
+      let bodyHtml = items.map(i=>{
         const md = i.linePrice-i.lineCost;
         const mp = i.linePrice ? (md/i.linePrice*100) : 0;
         const belowCost = i.price < i.cost;
@@ -1930,8 +1936,14 @@
           <td class="mono ${belowCost?'below-cost':''}">${money(i.linePrice)}</td>
           <td class="mono ${belowCost?'below-cost':'margin'}">${money(md)} <span class="muted">(${mp.toFixed(0)}%)</span></td></tr>`;
       }).join('');
-      const totalCost = items.reduce((s,i)=>s+i.lineCost,0);
-      const totalPrice = items.reduce((s,i)=>s+i.linePrice,0);
+      const laborCost = pr.laborCost||0;
+      if(laborCost>0){
+        bodyHtml += `<tr><td>Labor</td><td class="mono">—</td><td class="mono">${money(laborCost)}</td>
+          <td class="mono">${money(laborCost)}</td><td class="mono margin">${money(0)} <span class="muted">(0%)</span></td></tr>`;
+      }
+      $('projQuoteTbody').innerHTML = bodyHtml;
+      const totalCost = items.reduce((s,i)=>s+i.lineCost,0) + laborCost;
+      const totalPrice = items.reduce((s,i)=>s+i.linePrice,0) + laborCost;
       const md = totalPrice-totalCost;
       const mp = totalPrice ? (md/totalPrice*100) : 0;
       const totalMinutes = items.reduce((s,i)=>s+((i.installTime||0)*i.qty),0);
@@ -2036,6 +2048,7 @@
     const pr = currentProject(); if(!pr) return;
     $('detailCustomerName').textContent = pr.customer.name || 'Untitled project';
     $('detailCustomerSub').textContent = [pr.customer.phone, pr.customer.email, pr.customer.address].filter(Boolean).join(' · ') || 'No contact info yet';
+    $('laborCost').value = pr.laborCost || '';
     $('discountPercent').value = pr.discountPercent || '';
     $('discountReason').value = pr.discountReason || '';
     renderCompanyHeaderForPrint();
@@ -3021,12 +3034,13 @@
     };
   }
   function projectToRow(pr){
-    return { customer: pr.customer||{}, discount_percent: pr.discountPercent||0, discount_reason: pr.discountReason||'' };
+    return { customer: pr.customer||{}, discount_percent: pr.discountPercent||0, discount_reason: pr.discountReason||'', labor_cost: pr.laborCost||0 };
   }
   function rowToProject(row){
     return {
       id: row.id, customer: row.customer||{name:'',phone:'',email:'',address:''},
       discountPercent: row.discount_percent||0, discountReason: row.discount_reason||'',
+      laborCost: row.labor_cost||0,
       createdAt: new Date(row.created_at).getTime(), areas: [],
     };
   }
@@ -3606,6 +3620,11 @@
         renderLoadSummary(pr);
         renderProjectQuote(pr);
       });
+    });
+    $('laborCost').addEventListener('input', ()=>{
+      const pr = currentProject(); if(!pr) return;
+      pr.laborCost = parseFloat($('laborCost').value)||0;
+      renderProjectQuote(pr);
     });
     $('discountPercent').addEventListener('input', ()=>{
       const pr = currentProject(); if(!pr) return;

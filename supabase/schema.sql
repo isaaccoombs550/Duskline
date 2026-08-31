@@ -131,6 +131,7 @@ create table public.projects (
   customer jsonb not null default '{}',        -- {name, phone, email, address}
   discount_percent numeric not null default 0,
   discount_reason text not null default '',
+  labor_cost numeric not null default 0,
   created_at timestamptz not null default now()
 );
 

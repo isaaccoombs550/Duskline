@@ -2252,45 +2252,62 @@
       const { error } = await sb.from('areas').delete().eq('id', areaId);
       if(error) console.warn('Duskline: area delete failed.', error);
     }));
-    requestAnimationFrame(()=>{
-      pr.areas.forEach(a=>{
-        if(!a.photo) return;
-        const box = document.querySelector(`.area-card[data-id="${a.id}"] .area-card-photo`);
-        if(!box) return;
-        const rect = box.getBoundingClientRect();
-        const ov = box.querySelector('.overlays');
-        if(ov) ov.innerHTML = buildStaticOverlaysHtml(a, rect);
-        const svg = box.querySelector('.static-wires svg');
-        const labelsBox = box.querySelector('.static-wires div');
-        if(svg && labelsBox){
-          const runs = a.wireRuns||[];
-          svg.innerHTML = runs.map(w=>{
-            const pts = w.points.map(p=>`${p.xPct},${p.yPct}`).join(' ');
-            return `<polyline points="${pts}" class="wire-line"/>`;
-          }).join('');
-          labelsBox.innerHTML = runs.map(w=>{
-            const mid = w.points[Math.floor(w.points.length/2)];
-            return `<div class="wire-label" style="left:${mid.xPct}%;top:${mid.yPct}%;">${Math.round(w.distanceFt||0)} ft</div>`;
-          }).join('');
-        }
-        const stripSvg = box.querySelector('.static-strips svg');
-        const stripLabelsBox = box.querySelector('.static-strips div');
-        if(stripSvg && stripLabelsBox){
-          const strips = a.lightStrips||[];
-          stripSvg.innerHTML = strips.map(s=>{
-            const f = findFixture(s.fixtureId);
-            const col = f ? kelvinColor(f.kelvin) : '255,205,148';
-            const pts = s.points.map(p=>`${p.xPct},${p.yPct}`).join(' ');
-            return `<polyline points="${pts}" class="strip-glow" style="stroke:rgb(${col});"/><polyline points="${pts}" class="strip-core" style="stroke:rgb(${col});"/>`;
-          }).join('');
-          stripLabelsBox.innerHTML = strips.map(s=>{
-            const f = findFixture(s.fixtureId);
-            const col = f ? kelvinColor(f.kelvin) : '255,205,148';
-            const mid = s.points[Math.floor(s.points.length/2)];
-            return `<div class="strip-label" style="left:${mid.xPct}%;top:${mid.yPct}%;color:rgb(${col});">${Math.round(s.lengthFt||0)} ft</div>`;
-          }).join('');
-        }
-      });
+    requestAnimationFrame(()=> refreshAreaCardOverlays(pr));
+  }
+  // buildBeamHtml bakes the beam's reach into an absolute pixel size (R, hx, hy) computed from
+  // the container's rect.width at the moment this runs -- unlike the wire/strip SVGs above it
+  // (viewBox="0 0 100 100" + percentage points), which stay correctly sized at any container
+  // width automatically. That's fine as long as .area-card-photo's rendered width doesn't change
+  // between when this last ran and whenever the card is actually viewed -- but it does: printing
+  // removes .app's on-screen max-width constraint (see the @media print rule, `.app{max-width:
+  // 100%}`), which can render this same card significantly wider on the printed page than it was
+  // on screen when renderAreaList() last called this. Since the beam's pixel size doesn't grow to
+  // match, it visually shrinks relative to the now-wider photo -- a real user-reported bug (the
+  // beam reached well up into a tree's canopy in the editor, but only a short way up it in the
+  // printed quote). The fix is to re-run this right before printing too (see the 'beforeprint'
+  // listener in init()), once print's width change has actually taken effect on the page --
+  // regenerating the beam geometry against the width it's actually about to be viewed at, the
+  // same way the live editor's renderOverlays() re-measures on every call rather than freezing a
+  // stale size.
+  function refreshAreaCardOverlays(pr){
+    if(!pr) return;
+    pr.areas.forEach(a=>{
+      if(!a.photo) return;
+      const box = document.querySelector(`.area-card[data-id="${a.id}"] .area-card-photo`);
+      if(!box) return;
+      const rect = box.getBoundingClientRect();
+      const ov = box.querySelector('.overlays');
+      if(ov) ov.innerHTML = buildStaticOverlaysHtml(a, rect);
+      const svg = box.querySelector('.static-wires svg');
+      const labelsBox = box.querySelector('.static-wires div');
+      if(svg && labelsBox){
+        const runs = a.wireRuns||[];
+        svg.innerHTML = runs.map(w=>{
+          const pts = w.points.map(p=>`${p.xPct},${p.yPct}`).join(' ');
+          return `<polyline points="${pts}" class="wire-line"/>`;
+        }).join('');
+        labelsBox.innerHTML = runs.map(w=>{
+          const mid = w.points[Math.floor(w.points.length/2)];
+          return `<div class="wire-label" style="left:${mid.xPct}%;top:${mid.yPct}%;">${Math.round(w.distanceFt||0)} ft</div>`;
+        }).join('');
+      }
+      const stripSvg = box.querySelector('.static-strips svg');
+      const stripLabelsBox = box.querySelector('.static-strips div');
+      if(stripSvg && stripLabelsBox){
+        const strips = a.lightStrips||[];
+        stripSvg.innerHTML = strips.map(s=>{
+          const f = findFixture(s.fixtureId);
+          const col = f ? kelvinColor(f.kelvin) : '255,205,148';
+          const pts = s.points.map(p=>`${p.xPct},${p.yPct}`).join(' ');
+          return `<polyline points="${pts}" class="strip-glow" style="stroke:rgb(${col});"/><polyline points="${pts}" class="strip-core" style="stroke:rgb(${col});"/>`;
+        }).join('');
+        stripLabelsBox.innerHTML = strips.map(s=>{
+          const f = findFixture(s.fixtureId);
+          const col = f ? kelvinColor(f.kelvin) : '255,205,148';
+          const mid = s.points[Math.floor(s.points.length/2)];
+          return `<div class="strip-label" style="left:${mid.xPct}%;top:${mid.yPct}%;color:rgb(${col});">${Math.round(s.lengthFt||0)} ft</div>`;
+        }).join('');
+      }
     });
   }
 
@@ -4053,6 +4070,12 @@
     // lose that last edit. Worth revisiting (e.g. sendBeacon) if it turns out to matter.
     window.addEventListener('beforeunload', ()=>{ flushCurrentEdits(); });
     window.addEventListener('pagehide', ()=>{ flushCurrentEdits(); });
+    // Re-measure and rebuild the area-card beam overlays once print's width change (see the
+    // refreshAreaCardOverlays comment) has actually taken effect. 'beforeprint' is the right hook
+    // for this specifically because the browser guarantees print media styles are already applied
+    // by the time it fires — measuring synchronously right before window.print() itself would not
+    // see them yet.
+    window.addEventListener('beforeprint', ()=> refreshAreaCardOverlays(currentProject()));
   }
 
   document.addEventListener('DOMContentLoaded', init);

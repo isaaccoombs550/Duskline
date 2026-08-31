@@ -245,17 +245,6 @@
     border-bottom:1px solid var(--line);background:var(--surface);flex-shrink:0;}
   .editor-title{font-family:var(--font-display);font-weight:600;font-size:13px;color:var(--fog);
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;text-align:center;}
-  /* A real sliding switch (not the plain icon button used in the topbar) so it reads clearly
-     as on/off at a glance while heads-down in the fullscreen editor, which has no other way to
-     reach the app's light/dark theme -- .editor-screen sits above header.topbar (z-index 50 vs
-     20), covering the topbar's own toggle entirely. Both controls call the same toggleTheme()
-     and applyTheme() keeps them in sync, so flipping one flips the other too. */
-  .theme-switch{position:relative;flex:0 0 auto;width:44px;height:24px;border-radius:999px;
-    background:var(--surface-2);border:1px solid var(--line);padding:0;cursor:pointer;}
-  .theme-switch-knob{position:absolute;top:1px;left:1px;width:18px;height:18px;border-radius:50%;
-    background:var(--amber);display:flex;align-items:center;justify-content:center;font-size:10px;
-    line-height:1;transition:transform .18s ease;}
-  html[data-theme="light"] .theme-switch-knob{transform:translateX(20px);}
   /* Quick day/night preview toggle next to the Darkness slider -- jumps between a bright-day
      and a dark-night preset so a contractor can eyeball both looks without dragging the slider
      back and forth. The slider itself still gives fine control; this is just a shortcut. */
@@ -739,9 +728,6 @@
     <button class="icon-btn" id="btnUndo" aria-label="Undo" title="Undo (Ctrl+Z)" disabled>↶</button>
     <button class="icon-btn" id="btnRedo" aria-label="Redo" title="Redo (Ctrl+Shift+Z)" disabled>↷</button>
     <div class="editor-title" id="editorAreaTitle">Area</div>
-    <button class="theme-switch" id="btnEditorThemeToggle" aria-label="Toggle light/dark mode" title="Toggle light/dark mode">
-      <span class="theme-switch-knob">🌙</span>
-    </button>
     <button class="btn btn-primary btn-sm" id="btnEditorSave">Save design</button>
   </div>
 
@@ -3185,7 +3171,6 @@
   function applyTheme(theme){
     document.documentElement.setAttribute('data-theme', theme);
     $('btnThemeToggle').textContent = theme==='light' ? '☀️' : '🌙';
-    $('btnEditorThemeToggle').querySelector('.theme-switch-knob').textContent = theme==='light' ? '☀️' : '🌙';
     try{ localStorage.setItem('duskline_theme', theme); }catch(err){}
   }
   function toggleTheme(){
@@ -4032,7 +4017,6 @@
     try{ savedTheme = localStorage.getItem('duskline_theme') || 'dark'; }catch(err){}
     applyTheme(savedTheme);
     $('btnThemeToggle').addEventListener('click', toggleTheme);
-    $('btnEditorThemeToggle').addEventListener('click', toggleTheme);
 
     // account / auth
     $('btnAccount').addEventListener('click', openAccountModal);

@@ -256,6 +256,15 @@
     background:var(--amber);display:flex;align-items:center;justify-content:center;font-size:10px;
     line-height:1;transition:transform .18s ease;}
   html[data-theme="light"] .theme-switch-knob{transform:translateX(20px);}
+  /* Quick day/night preview toggle next to the Darkness slider -- jumps between a bright-day
+     and a dark-night preset so a contractor can eyeball both looks without dragging the slider
+     back and forth. The slider itself still gives fine control; this is just a shortcut. */
+  .mini-switch{position:relative;display:inline-flex;vertical-align:middle;margin-left:5px;
+    width:22px;height:12px;border-radius:999px;background:var(--surface-2);border:1px solid var(--line);
+    padding:0;cursor:pointer;flex:0 0 auto;}
+  .mini-switch-knob{position:absolute;top:1px;left:1px;width:8px;height:8px;border-radius:50%;
+    background:var(--amber-soft);transition:transform .18s ease;}
+  .mini-switch.is-night .mini-switch-knob{transform:translateX(10px);background:var(--amber);}
 
   .editor-sliders{display:flex;gap:14px;padding:10px 14px;background:var(--surface);
     border-bottom:1px solid var(--line);flex-shrink:0;}
@@ -738,7 +747,12 @@
 
   <div class="editor-sliders">
     <div class="mini-slider">
-      <div class="mini-slider-label"><span>Darkness</span><span class="mono" id="darknessVal">60%</span></div>
+      <div class="mini-slider-label">
+        <span>Darkness
+          <button class="mini-switch" id="btnDarknessToggle" aria-label="Jump between day and night preview" title="Jump between day and night preview"><span class="mini-switch-knob"></span></button>
+        </span>
+        <span class="mono" id="darknessVal">60%</span>
+      </div>
       <input type="range" id="ctrlDarkness" min="0" max="100" step="5" value="60">
     </div>
     <div class="mini-slider">
@@ -1165,6 +1179,7 @@
     const brightnessPct = Math.round((area.beamBrightness!=null?area.beamBrightness:1)*100);
     $('ctrlDarkness').value = darknessPct; $('darknessVal').textContent = darknessPct+'%';
     $('ctrlBeamBrightness').value = brightnessPct; $('beamBrightnessVal').textContent = brightnessPct+'%';
+    updateDarknessSwitch(area);
     applyPhotoFilter();
     renderOverlays(); renderSheetList(); updateQuoteBar(); updatePlacementBanner(); updateEditorStats();
     updateUndoRedoButtons();
@@ -1216,6 +1231,22 @@
   function currentProject(){ return state.projects.find(p=>p.id===state.currentProjectId); }
   function currentArea(){ const pr=currentProject(); return pr ? pr.areas.find(a=>a.id===state.currentAreaId) : null; }
   function photoFilterFor(area){ return `brightness(${1-(area.darkness!=null?area.darkness:0.6)*0.75}) contrast(1.12) saturate(.9)`; }
+  const DAY_DARKNESS = 0.1, NIGHT_DARKNESS = 0.9;
+  function updateDarknessSwitch(area){
+    const isNight = (area.darkness!=null?area.darkness:0.6) >= 0.5;
+    $('btnDarknessToggle').classList.toggle('is-night', isNight);
+  }
+  function toggleDarknessPreview(){
+    const area = currentArea(); if(!area) return;
+    pushUndoSnapshot();
+    const isNight = (area.darkness!=null?area.darkness:0.6) >= 0.5;
+    area.darkness = isNight ? DAY_DARKNESS : NIGHT_DARKNESS;
+    const pct = Math.round(area.darkness*100);
+    $('ctrlDarkness').value = pct;
+    $('darknessVal').textContent = pct+'%';
+    updateDarknessSwitch(area);
+    applyPhotoFilter();
+  }
   function areaWatts(area){
     const fixtureWatts = area.placements.reduce((s,p)=>{ const f=findFixture(p.fixtureId); return s+((f&&f.watt)?f.watt:0); },0);
     const stripWatts = (area.lightStrips||[]).reduce((s,r)=>{ const f=findFixture(r.fixtureId); return s+((f&&f.watt)?f.watt*(r.lengthFt||0):0); },0);
@@ -2328,6 +2359,7 @@
     $('editorAreaTitle').textContent = area.name;
     $('ctrlDarkness').value = Math.round(area.darkness*100);
     $('darknessVal').textContent = Math.round(area.darkness*100)+'%';
+    updateDarknessSwitch(area);
     $('ctrlBeamBrightness').value = Math.round(area.beamBrightness*100);
     $('beamBrightnessVal').textContent = Math.round(area.beamBrightness*100)+'%';
     resetView();
@@ -3690,8 +3722,10 @@
       const area = currentArea(); if(!area) return;
       area.darkness = +e.target.value/100;
       $('darknessVal').textContent = e.target.value+'%';
+      updateDarknessSwitch(area);
       applyPhotoFilter();
     });
+    $('btnDarknessToggle').addEventListener('click', toggleDarknessPreview);
     $('ctrlBeamBrightness').addEventListener('pointerdown', pushUndoSnapshot);
     $('ctrlBeamBrightness').addEventListener('input', e=>{
       const area = currentArea(); if(!area) return;

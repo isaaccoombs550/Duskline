@@ -343,8 +343,16 @@
     font-family:var(--font-mono);font-size:10px;padding:2px 6px;border-radius:4px;white-space:nowrap;pointer-events:none;}
   .placement{position:absolute;}
   .beam-layer{pointer-events:none;}
-  .beam-svg{position:absolute;left:0;top:0;pointer-events:none;}
-  .pool{position:absolute;left:0;top:0;border-radius:50%;pointer-events:none;transform:translate(-50%,-50%);}
+  /* mix-blend-mode:screen (matches globalCompositeOperation='screen' in drawBeamOnCanvas, the
+     Canvas 2D equivalent used for JPG export) makes the beam's color add onto whatever's already
+     in the photo underneath instead of sitting as a flat translucent tint on top -- an
+     already-bright leaf catching real light gets pushed brighter, a dark gap between branches
+     stays comparatively dark, so the light reads as interacting with the photo's own texture
+     rather than just painting a shape over it. No ancestor here sets `isolation`, so this blends
+     against everything painted before it in the shared stacking context -- in particular the
+     photo <img> itself -- not just its immediate siblings. */
+  .beam-svg{position:absolute;left:0;top:0;pointer-events:none;mix-blend-mode:screen;}
+  .pool{position:absolute;left:0;top:0;border-radius:50%;pointer-events:none;transform:translate(-50%,-50%);mix-blend-mode:screen;}
 
   /* border-color and box-shadow are set inline per-placement (renderOverlays()) from the
      fixture's type color (FIXTURE_TYPES) rather than fixed here — every fixture type gets its
@@ -3018,6 +3026,17 @@
     const mx = (p.xPct/100)*cw, my = (p.yPct/100)*ch;
     const rectRef = {width:cw, height:ch};
     ctx.save();
+    // 'screen' (matches mix-blend-mode:screen on .beam-svg/.pool for the DOM-rendered paths)
+    // instead of plain source-over compositing, so the beam's color adds onto whatever's
+    // already in the photo at each pixel rather than sitting as a flat tint on top -- an
+    // already-bright leaf highlight or pale wall gets pushed brighter, while a dark gap between
+    // branches stays comparatively dark, giving the impression the light is actually catching
+    // the photo's own texture instead of just painting a translucent shape over it. Chosen over
+    // 'overlay' specifically because these scenes are usually quite dark (night simulation via
+    // photoFilterFor's brightness reduction) -- overlay's multiply-dominant behavior on dark
+    // backdrops would make the beam look weaker exactly where it needs to read as adding light;
+    // screen never darkens, only adds, matching how a real light only adds photons.
+    ctx.globalCompositeOperation = 'screen';
     if(beamW>=360){
       const Rp = clampR((60+f.lumens/5)*p.reach*(cw/380), rectRef) * 0.7;
       const o1 = Math.min(1,0.66*bb), o2 = Math.min(1,0.3*bb);

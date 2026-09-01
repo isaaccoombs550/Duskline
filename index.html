@@ -1458,6 +1458,12 @@
   // independently, so the y-radius percentage needs the same *aspect multiplier* to render as a
   // circle rather than an ellipse) -- and, like that function, needs no real DOM measurement, so
   // it's exactly as robust to print/resize as the clip-path it pairs with.
+  // Peaks at a modest 0.65 partway out rather than starting fully opaque right at the fixture --
+  // a real user-reported bug: starting at 1.0 (see the git history) combined with the beam's own
+  // additive color (also strongest near the fixture) blew the base out too bright. Shared between
+  // the CSS mask-image (buildLitFadeMaskImage) and the Canvas 2D destination-in gradient
+  // (captureAreaDesignImage) so they can't drift out of sync, the same reasoning as falloffStops.
+  const LIT_FADE_STOPS = [[0,0.4],[20,0.65],[45,0.55],[75,0.15],[100,0]];
   function buildLitFadeMaskImage(area, aspect){
     aspect = aspect || 0.8;
     const refRect = {width:380, height:380/aspect};
@@ -1468,7 +1474,8 @@
         ? clampR((60+f.lumens/5)*p.reach*(refRect.width/380), refRect) * 0.7
         : clampR((60+f.lumens/5)*p.reach*(refRect.width/380), refRect);
       const kx = (R/380*100).toFixed(2), ky = (R/380*aspect*100).toFixed(2);
-      return `radial-gradient(ellipse ${kx}% ${ky}% at ${p.xPct}% ${p.yPct}%, rgba(255,255,255,1) 0%, rgba(255,255,255,0.8) 45%, rgba(255,255,255,0.25) 75%, rgba(255,255,255,0) 100%)`;
+      const stops = LIT_FADE_STOPS.map(([pct,op])=>`rgba(255,255,255,${op}) ${pct}%`).join(', ');
+      return `radial-gradient(ellipse ${kx}% ${ky}% at ${p.xPct}% ${p.yPct}%, ${stops})`;
     }).filter(Boolean);
     return layers.length ? layers.join(', ') : 'none';
   }
@@ -3331,10 +3338,7 @@
             ctx.filter = 'none';
             ctx.globalCompositeOperation = 'destination-in';
             const grad = ctx.createRadialGradient(mx,my,0,mx,my,R);
-            grad.addColorStop(0,'rgba(255,255,255,1)');
-            grad.addColorStop(0.45,'rgba(255,255,255,0.8)');
-            grad.addColorStop(0.75,'rgba(255,255,255,0.25)');
-            grad.addColorStop(1,'rgba(255,255,255,0)');
+            LIT_FADE_STOPS.forEach(([pct,op])=> grad.addColorStop(pct/100, `rgba(255,255,255,${op})`));
             ctx.fillStyle = grad;
             ctx.fillRect(0,0,cw,ch);
             ctx.restore();

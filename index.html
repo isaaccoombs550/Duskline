@@ -1401,6 +1401,14 @@
   // the mark) found the original too opaque, masking photo detail instead of sitting over it
   // translucently. Values below are ~30% lower than the original per-stop opacities.
   const HARDSCAPE_BASE = 22; // flat-base half-width, in the same 400-unit space as the 190-unit far radius below
+  // feGaussianBlur stdDeviation for the beam's soft edge, in that same 190-far-radius space (see
+  // the .beam-svg CSS comment for why it's an SVG filter, not CSS filter:blur()). Started at 14 --
+  // a real user-reported "looks foggy now" complaint: at that radius the blur was strong enough
+  // to dissolve the cone's own directional shape into an ambiguous soft blob instead of just
+  // softening its edge. Pulled down to a fraction of that. If it still reads as foggy, keep
+  // pulling this down rather than assuming this settled either -- same "confirmed too strong,
+  // not yet confirmed correct" status as the opacity/LIT_FADE_STOPS tuning elsewhere in this file.
+  const BEAM_BLUR_STD = 5;
   // Real light falls off much faster near the source than a straight line suggests (roughly
   // inverse-square for a point source) and then tails gradually rather than stopping abruptly.
   // The original 3-stop gradient (o1 at 0%, o2 at 45%, transparent at 100%) reads as more evenly
@@ -1525,7 +1533,7 @@
           <radialGradient id="${gid}" cx="200" cy="200" r="190" gradientUnits="userSpaceOnUse">
           ${stops}
           </radialGradient>
-          <filter id="${fid}" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="14"/></filter>
+          <filter id="${fid}" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="${BEAM_BLUR_STD}"/></filter>
         </defs>
         <circle cx="200" cy="200" r="190" fill="url(#${gid})" filter="url(#${fid})"/>
       </svg>`;
@@ -1557,7 +1565,7 @@
           <radialGradient id="${gid}" cx="200" cy="200" r="190" gradientUnits="userSpaceOnUse">
           ${gradStops}
           </radialGradient>
-          <filter id="${fid}" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="14"/></filter>
+          <filter id="${fid}" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="${BEAM_BLUR_STD}"/></filter>
         </defs>
         <path d="${d}" fill="url(#${gid})" filter="url(#${fid})"/>
       </svg>`;
@@ -3221,18 +3229,18 @@
     // the source is already near-opaque, leaving little headroom for backdrop luminance to show
     // through. True addition has no such ceiling.
     ctx.globalCompositeOperation = 'lighter';
-    // Matches the SVG <feGaussianBlur stdDeviation="14"> in buildBeamHtml -- same 14/190 ratio
-    // against the local 400-unit viewBox's far radius, reapplied here as real canvas pixels since
-    // there's no viewBox to scale it for free (same reasoning as the hardscape base-width ratio
-    // just below). ctx.filter applies to every fill() call until reset, so it's set once per
-    // branch against that branch's own real-pixel radius.
+    // Matches the SVG <feGaussianBlur> (BEAM_BLUR_STD) in buildBeamHtml -- same ratio against the
+    // local 400-unit viewBox's far radius, reapplied here as real canvas pixels since there's no
+    // viewBox to scale it for free (same reasoning as the hardscape base-width ratio just below).
+    // ctx.filter applies to every fill() call until reset, so it's set once per branch against
+    // that branch's own real-pixel radius.
     if(beamW>=360){
       const Rp = clampR((60+f.lumens/5)*p.reach*(cw/380), rectRef) * 0.7;
       const o1 = Math.min(1,0.66*bb), o2 = Math.min(1,0.3*bb);
       const grad = ctx.createRadialGradient(mx,my,0,mx,my,Rp);
       falloffStops(o1,o2).forEach(([pct,op])=> grad.addColorStop(pct/100, `rgba(${col},${op})`));
       ctx.fillStyle = grad;
-      ctx.filter = `blur(${(Rp*14/190).toFixed(1)}px)`;
+      ctx.filter = `blur(${(Rp*BEAM_BLUR_STD/190).toFixed(1)}px)`;
       ctx.beginPath(); ctx.arc(mx,my,Rp,0,Math.PI*2); ctx.fill();
     } else {
       const R = clampR((60+f.lumens/5)*p.reach*(cw/380), rectRef);
@@ -3241,7 +3249,7 @@
       const startRad = (p.rotation-half-90)*Math.PI/180;
       const endRad = (p.rotation+half-90)*Math.PI/180;
       const o1 = Math.min(1,0.8*bb), o2 = Math.min(1,0.39*bb);
-      ctx.filter = `blur(${(R*14/190).toFixed(1)}px)`;
+      ctx.filter = `blur(${(R*BEAM_BLUR_STD/190).toFixed(1)}px)`;
       const grad = ctx.createRadialGradient(mx,my,0,mx,my,R);
       falloffStops(o1,o2).forEach(([pct,op])=> grad.addColorStop(pct/100, `rgba(${col},${op})`));
       ctx.fillStyle = grad;

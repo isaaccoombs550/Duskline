@@ -382,8 +382,17 @@
      adds photons; it doesn't "screen"). No ancestor here sets `isolation`, so this blends against
      everything painted before it in the shared stacking context -- in particular the photo <img>
      itself -- not just its immediate siblings. */
-  .beam-svg{position:absolute;left:0;top:0;pointer-events:none;mix-blend-mode:plus-lighter;}
-  .pool{position:absolute;left:0;top:0;border-radius:50%;pointer-events:none;transform:translate(-50%,-50%);mix-blend-mode:plus-lighter;}
+  /* overflow:visible because the soft edge (buildBeamHtml's <feGaussianBlur>, on both the cone
+     path and the 360° pool circle -- the pool used to be a plain CSS radial-gradient div, now an
+     SVG circle specifically so it can share this filter) blurs pixels outward past the shape's
+     own path, and SVG elements clip to their viewBox by default unlike ordinary HTML elements.
+     The blur is an SVG filter with its stdDeviation in the same fixed 400-unit viewBox space the
+     path/circle geometry already uses, not a CSS filter:blur() -- that space scales automatically
+     with however large the SVG actually renders (pixel-sized in the live editor, percentage-sized
+     under responsive=true), the same reasoning as the shape's own sizing; a CSS-pixel blur radius
+     would look right at only one specific rendered width, wrong at any other, the same trap the
+     beam's own sizing and the lit-area reveal were both already fixed for. */
+  .beam-svg{position:absolute;left:0;top:0;pointer-events:none;mix-blend-mode:plus-lighter;overflow:visible;}
 
   /* border-color and box-shadow are set inline per-placement (renderOverlays()) from the
      fixture's type color (FIXTURE_TYPES) rather than fixed here — every fixture type gets its
@@ -1506,8 +1515,20 @@
       const o1 = Math.min(1,(selected?0.8:0.66)*bb);
       const o2 = Math.min(1,(selected?0.4:0.3)*bb);
       const sizeStyle = responsive ? `width:${R*2/rect.width*100}%;aspect-ratio:1;height:auto;` : `width:${R*2}px;height:${R*2}px;`;
-      const stops = falloffStops(o1,o2).map(([pct,op])=>`rgba(${col},${op}) ${pct}%`).join(', ');
-      html = `<div class="pool" style="${sizeStyle}background:radial-gradient(circle, ${stops});"></div>`;
+      const gid = 'g'+p.uid, fid = 'blur'+p.uid;
+      const stops = falloffStops(o1,o2).map(([pct,op])=>`<stop offset="${pct}%" stop-color="rgb(${col})" stop-opacity="${op}"/>`).join('\n          ');
+      // An SVG circle (not the CSS radial-gradient div this used to be) specifically so the soft
+      // edge below can use an SVG filter -- see the comment on the cone branch's filter for why
+      // that, not CSS filter:blur(), is what stays correctly sized under responsive=true.
+      html = `<svg viewBox="0 0 400 400" class="beam-svg" style="${sizeStyle}transform:translate(-50%,-50%)">
+        <defs>
+          <radialGradient id="${gid}" cx="200" cy="200" r="190" gradientUnits="userSpaceOnUse">
+          ${stops}
+          </radialGradient>
+          <filter id="${fid}" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="14"/></filter>
+        </defs>
+        <circle cx="200" cy="200" r="190" fill="url(#${gid})" filter="url(#${fid})"/>
+      </svg>`;
       hx = R*Math.sin(135*Math.PI/180); hy = -R*Math.cos(135*Math.PI/180);
       wx = hx; wy = hy;
     } else {
@@ -1515,7 +1536,7 @@
       const half = beamW/2;
       const p1 = polar(-half,190), p2 = polar(half,190);
       const largeArc = beamW>180?1:0;
-      const gid = 'g'+p.uid;
+      const gid = 'g'+p.uid, fid = 'blur'+p.uid;
       const o1 = Math.min(1,(selected?0.95:0.8)*bb);
       const o2 = Math.min(1,(selected?0.5:0.39)*bb);
       // A 6"+ linear hardscape bar doesn't converge to a single point the way a spot fixture's
@@ -1532,10 +1553,13 @@
       const sizeStyle = responsive ? `width:${R*2/rect.width*100}%;aspect-ratio:1;height:auto;` : '';
       const gradStops = falloffStops(o1,o2).map(([pct,op])=>`<stop offset="${pct}%" stop-color="rgb(${col})" stop-opacity="${op}"/>`).join('\n          ');
       html = `<svg viewBox="0 0 400 400" ${sizeAttrs} class="beam-svg" style="${sizeStyle}transform:translate(-50%,-50%) rotate(${p.rotation}deg)">
-        <defs><radialGradient id="${gid}" cx="200" cy="200" r="190" gradientUnits="userSpaceOnUse">
+        <defs>
+          <radialGradient id="${gid}" cx="200" cy="200" r="190" gradientUnits="userSpaceOnUse">
           ${gradStops}
-        </radialGradient></defs>
-        <path d="${d}" fill="url(#${gid})"/>
+          </radialGradient>
+          <filter id="${fid}" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="14"/></filter>
+        </defs>
+        <path d="${d}" fill="url(#${gid})" filter="url(#${fid})"/>
       </svg>`;
       hx = R*Math.sin(p.rotation*Math.PI/180); hy = -R*Math.cos(p.rotation*Math.PI/180);
       const wAng = p.rotation+half;
@@ -3197,12 +3221,18 @@
     // the source is already near-opaque, leaving little headroom for backdrop luminance to show
     // through. True addition has no such ceiling.
     ctx.globalCompositeOperation = 'lighter';
+    // Matches the SVG <feGaussianBlur stdDeviation="14"> in buildBeamHtml -- same 14/190 ratio
+    // against the local 400-unit viewBox's far radius, reapplied here as real canvas pixels since
+    // there's no viewBox to scale it for free (same reasoning as the hardscape base-width ratio
+    // just below). ctx.filter applies to every fill() call until reset, so it's set once per
+    // branch against that branch's own real-pixel radius.
     if(beamW>=360){
       const Rp = clampR((60+f.lumens/5)*p.reach*(cw/380), rectRef) * 0.7;
       const o1 = Math.min(1,0.66*bb), o2 = Math.min(1,0.3*bb);
       const grad = ctx.createRadialGradient(mx,my,0,mx,my,Rp);
       falloffStops(o1,o2).forEach(([pct,op])=> grad.addColorStop(pct/100, `rgba(${col},${op})`));
       ctx.fillStyle = grad;
+      ctx.filter = `blur(${(Rp*14/190).toFixed(1)}px)`;
       ctx.beginPath(); ctx.arc(mx,my,Rp,0,Math.PI*2); ctx.fill();
     } else {
       const R = clampR((60+f.lumens/5)*p.reach*(cw/380), rectRef);
@@ -3211,6 +3241,7 @@
       const startRad = (p.rotation-half-90)*Math.PI/180;
       const endRad = (p.rotation+half-90)*Math.PI/180;
       const o1 = Math.min(1,0.8*bb), o2 = Math.min(1,0.39*bb);
+      ctx.filter = `blur(${(R*14/190).toFixed(1)}px)`;
       const grad = ctx.createRadialGradient(mx,my,0,mx,my,R);
       falloffStops(o1,o2).forEach(([pct,op])=> grad.addColorStop(pct/100, `rgba(${col},${op})`));
       ctx.fillStyle = grad;

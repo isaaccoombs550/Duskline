@@ -532,7 +532,13 @@
        overlays still line up correctly on the now-taller frame. */
     .area-card-photo{height:auto !important;}
     .area-card-photo img{height:auto !important;object-fit:contain;}
-    .area-card{break-inside:avoid;border-color:#ccc;}
+    /* Area cards, the load summary, and the quote table wrapper all carry the on-screen UI's
+       heavy 12px border-radius by default (from their base, non-print rules) — fine as an app
+       widget, but next to the flatter PO-doc-style panels this print pass introduced, it read as
+       an odd "rounded bubble" inconsistency (real user feedback after seeing this live). Pulled
+       down to the same 6px doc-facts uses everywhere except the quote table wrapper, which goes
+       fully flat/borderless below so its dark header sits flush like the PO's table does. */
+    .area-card{break-inside:avoid;border-color:#ccc;border-radius:6px;}
     .place-label{display:block;background:rgba(255,255,255,.92);color:#000;border:1px solid #999;}
     /* background stays forced white for contrast against any printed photo regardless of
        theme; border-color here is just a fallback and normally loses to the inline per-type
@@ -544,7 +550,7 @@
     body.export-wires .wire-layer{display:block;}
     .wire-line{stroke:#0b6ea0;}
     .wire-label{background:rgba(255,255,255,.92);color:#0b6ea0;border:1px solid #9cc;}
-    .quote-table-wrap{border-color:#ccc;}
+    .quote-table-wrap{border:none;border-radius:0;overflow:visible;}
     .quote-table td,.quote-table th{color:#000;border-color:#ddd;}
     /* Same dark-header/alternating-row table treatment as the standalone PO doc's .doc-table —
        "table.quote-table th" (not just ".quote-table th") purely to out-specificity the
@@ -559,15 +565,19 @@
        figure, whose green/red coloring is meaningful signal that must win over any decorative
        accent treatment here. */
     .tfoot-grand td:last-child{color:var(--quote-accent, var(--amber));font-size:calc(15px*var(--quote-font-scale, 1));}
-    /* #projQuoteThead used to be a real <thead> and #projQuoteTfoot a real <tfoot> — correct
-       semantically, but browsers automatically repeat both on every printed page a table spans,
-       which for the totals block meant the subtotal/discount/tax/total rows appeared once per
-       page instead of once at the true end (a real user-reported bug: looked like two separate
-       partial quotes). Both are plain <tbody> elements now (see the markup) specifically to avoid
-       that auto-repeat behavior, which only applies to <thead>/<tfoot>. Keep it that way — don't
-       "fix" them back to semantic thead/tfoot without re-solving this. */
+    /* #projQuoteThead and #projQuoteTfoot used to be a real <thead>/<tfoot> — correct
+       semantically, but browsers automatically repeat both on every printed page a table spans.
+       #projQuoteTfoot was converted to a plain <tbody> for this early on (a real user-reported
+       bug: the subtotal/discount/tax/total block repeating per page looked like two separate
+       partial quotes). #projQuoteThead's comment always claimed the same had been done to it,
+       but the markup still had a real <thead> — never actually fixed, just documented as if it
+       were. Caught during this print pass because a long quote spanning two pages showed the
+       column-header row duplicated on page two (real user-reported screenshot). Now a <tbody>
+       too, matching what this comment always said. Keep it that way — don't "fix" either back to
+       semantic thead/tfoot without re-solving this. */
     .quote-table tr{break-inside:avoid;}
     #projQuoteTfoot{break-inside:avoid;}
+    #projQuoteThead{break-after:avoid;}
     .margin{color:#2a7a45;}
     .below-cost{color:#b3261e;}
     /* Section headings ("Areas", "Project quote") inherit var(--fog) on screen, which in dark
@@ -581,7 +591,7 @@
        For" via the doc-block h4, see the markup) and the internal-only load summary. */
     .detail-header{border-bottom:none;background:#f4f5f7;border-radius:6px;}
     .detail-name,.detail-sub{color:#000;}
-    .load-summary{border:none;background:#f4f5f7;}
+    .load-summary{border:none;background:#f4f5f7;border-radius:6px;}
     .load-row,.load-summary-title{color:#000;}
     .print-footer-text{border-top:none;background:#fff6e9;border-left:4px solid var(--quote-accent, var(--amber));border-radius:0 6px 6px 0;padding:12px 16px;margin-top:0;font-style:italic;color:#222;}
 
@@ -733,7 +743,7 @@
       </div>
       <div class="quote-table-wrap">
         <table class="quote-table" id="projQuoteTable">
-          <thead id="projQuoteThead"></thead><tbody id="projQuoteTbody"></tbody><tbody id="projQuoteTfoot"></tbody>
+          <tbody id="projQuoteThead"></tbody><tbody id="projQuoteTbody"></tbody><tbody id="projQuoteTfoot"></tbody>
         </table>
       </div>
       <div class="quote-empty" id="projQuoteEmpty" hidden>No fixtures added in any area yet.</div>

@@ -545,9 +545,20 @@
     .wire-line{stroke:#0b6ea0;}
     .wire-label{background:rgba(255,255,255,.92);color:#0b6ea0;border:1px solid #9cc;}
     .quote-table-wrap{border-color:#ccc;}
-    .quote-table th{background:#f3f3f3;color:#333;}
     .quote-table td,.quote-table th{color:#000;border-color:#ddd;}
-    .tfoot-row td{background:#fafafa;border-top:2px solid #000;}
+    /* Same dark-header/alternating-row table treatment as the standalone PO doc's .doc-table —
+       "table.quote-table th" (not just ".quote-table th") purely to out-specificity the
+       ".quote-table td,.quote-table th{color:#000}" rule above so the white header text sticks;
+       reordering the two instead was the other option but this keeps the color:#000 rule reading
+       as the one broad default it's meant to be. */
+    table.quote-table th{background:#14171C;color:#fff;text-transform:uppercase;letter-spacing:.06em;font-size:10px;}
+    .quote-table tbody tr:nth-child(even) td{background:#fafafb;}
+    .tfoot-row td{background:#f4f5f7;border-top:2px solid var(--quote-accent, var(--amber));}
+    /* Only the customer-mode grand total gets the accent color (tfoot-grand, set in
+       renderProjectQuote()) — the Internal-mode tfoot's last cell is the margin/below-cost
+       figure, whose green/red coloring is meaningful signal that must win over any decorative
+       accent treatment here. */
+    .tfoot-grand td:last-child{color:var(--quote-accent, var(--amber));font-size:calc(15px*var(--quote-font-scale, 1));}
     /* #projQuoteThead used to be a real <thead> and #projQuoteTfoot a real <tfoot> — correct
        semantically, but browsers automatically repeat both on every printed page a table spans,
        which for the totals block meant the subtotal/discount/tax/total rows appeared once per
@@ -559,10 +570,20 @@
     #projQuoteTfoot{break-inside:avoid;}
     .margin{color:#2a7a45;}
     .below-cost{color:#b3261e;}
-    .detail-header{border-color:#ccc;}
+    /* Section headings ("Areas", "Project quote") inherit var(--fog) on screen, which in dark
+       theme (the app's default) is a near-white cream — invisible against the print background
+       this stylesheet forces to white a few rules up. Pre-existing bug, caught while testing
+       this print pass; same root cause as the .btn-ghost-on-dark-canvas contrast bug elsewhere
+       in this file, just on a different element. */
+    .section-head h3{color:#000;}
+    /* Same "doc-facts" light panel treatment as the PO doc, reused for the two facts-style
+       blocks this print output already has — the customer info block (now labeled "Prepared
+       For" via the doc-block h4, see the markup) and the internal-only load summary. */
+    .detail-header{border-bottom:none;background:#f4f5f7;border-radius:6px;}
     .detail-name,.detail-sub{color:#000;}
-    .load-summary{border-color:#ccc;background:#fafafa;}
+    .load-summary{border:none;background:#f4f5f7;}
     .load-row,.load-summary-title{color:#000;}
+    .print-footer-text{border-top:none;background:#fff6e9;border-left:4px solid var(--quote-accent, var(--amber));border-radius:0 6px 6px 0;padding:12px 16px;margin-top:0;font-style:italic;color:#222;}
 
     /* ----- PO print (printPoDocument()) -----
        A separate print mode from the quote print above: when printing a single distributor's
@@ -575,29 +596,34 @@
     body.printing-po .app{display:none !important;}
     body.printing-po #poPrintDoc{display:block !important;}
   }
+  /* Shared "letterhead document" design system — originally built for the standalone PO
+     (.po-doc is that page's own wrapper: max-width + base type), but every doc-* piece below
+     is intentionally generic so the project quote print (see further down) could reuse the same
+     look rather than inventing a second visual language for what's conceptually the same kind of
+     document (a branded, itemized page going out to someone outside the company). */
   .po-doc{max-width:720px;margin:0 auto;font-family:var(--font-body);color:#14171C;}
-  .po-doc-top{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #14171C;padding-bottom:18px;gap:20px;}
-  .po-doc-tag{text-align:right;white-space:nowrap;}
-  .po-doc-tag-label{font-size:11px;letter-spacing:2px;font-weight:700;color:var(--quote-accent, var(--amber));text-transform:uppercase;}
-  .po-doc-tag-date{font-family:var(--font-display);font-size:22px;font-weight:700;color:#14171C;margin-top:2px;}
-  .po-doc-meta{display:flex;justify-content:space-between;gap:32px;margin-top:24px;}
-  .po-doc-block{flex:1;}
-  .po-doc-block h4{font-size:10px;letter-spacing:1.5px;color:var(--quote-accent, var(--amber));text-transform:uppercase;margin:0 0 6px;font-weight:700;}
-  .po-doc-company{font-size:14px;font-weight:700;color:#14171C;margin-bottom:3px;}
-  .po-doc-line{font-size:12px;color:#333;line-height:1.6;}
-  .po-doc-facts{display:flex;gap:28px;margin-top:20px;padding:12px 14px;background:#f4f5f7;border-radius:6px;}
-  .po-doc-facts>div{flex:1;}
-  .po-doc-facts .k{font-size:9.5px;letter-spacing:1px;color:#666;text-transform:uppercase;}
-  .po-doc-facts .v{font-size:12.5px;font-weight:700;color:#14171C;margin-top:2px;}
-  .po-doc-table{width:100%;border-collapse:collapse;margin-top:26px;}
-  .po-doc-table th{text-align:left;font-size:10px;letter-spacing:1px;text-transform:uppercase;color:#fff;background:#14171C;padding:8px 10px;}
-  .po-doc-table th.num,.po-doc-table td.num{text-align:right;}
-  .po-doc-table td{padding:9px 10px;font-size:12px;color:#222;border-bottom:1px solid #e3e5e9;}
-  .po-doc-table tr:nth-child(even) td{background:#fafafb;}
-  .po-doc-total-row{display:flex;justify-content:flex-end;gap:24px;margin-top:4px;padding:10px;border-top:2px solid #14171C;font-weight:700;font-size:15px;color:#14171C;}
-  .po-doc-total-row span:last-child{color:var(--quote-accent, var(--amber));}
-  .po-doc-note{margin-top:28px;padding:12px 16px;background:#fff6e9;border-left:4px solid var(--quote-accent, var(--amber));font-size:12px;color:#222;font-style:italic;}
-  .po-doc-footer{margin-top:36px;padding-top:12px;border-top:1px solid #e3e5e9;display:flex;justify-content:space-between;font-size:10px;color:#999;}
+  .doc-top{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #14171C;padding-bottom:18px;gap:20px;}
+  .doc-tag{text-align:right;white-space:nowrap;}
+  .doc-tag-label{font-size:11px;letter-spacing:2px;font-weight:700;color:var(--quote-accent, var(--amber));text-transform:uppercase;}
+  .doc-tag-date{font-family:var(--font-display);font-size:22px;font-weight:700;color:#14171C;margin-top:2px;}
+  .doc-meta{display:flex;justify-content:space-between;gap:32px;margin-top:24px;}
+  .doc-block{flex:1;}
+  .doc-block h4{font-size:10px;letter-spacing:1.5px;color:var(--quote-accent, var(--amber));text-transform:uppercase;margin:0 0 6px;font-weight:700;}
+  .doc-company{font-size:14px;font-weight:700;color:#14171C;margin-bottom:3px;}
+  .doc-line{font-size:12px;color:#333;line-height:1.6;}
+  .doc-facts{display:flex;gap:28px;margin-top:20px;padding:12px 14px;background:#f4f5f7;border-radius:6px;}
+  .doc-facts>div{flex:1;}
+  .doc-facts .k{font-size:9.5px;letter-spacing:1px;color:#666;text-transform:uppercase;}
+  .doc-facts .v{font-size:12.5px;font-weight:700;color:#14171C;margin-top:2px;}
+  .doc-table{width:100%;border-collapse:collapse;margin-top:26px;}
+  .doc-table th{text-align:left;font-size:10px;letter-spacing:1px;text-transform:uppercase;color:#fff;background:#14171C;padding:8px 10px;}
+  .doc-table th.num,.doc-table td.num{text-align:right;}
+  .doc-table td{padding:9px 10px;font-size:12px;color:#222;border-bottom:1px solid #e3e5e9;}
+  .doc-table tr:nth-child(even) td{background:#fafafb;}
+  .doc-total-row{display:flex;justify-content:flex-end;gap:24px;margin-top:4px;padding:10px;border-top:2px solid #14171C;font-weight:700;font-size:15px;color:#14171C;}
+  .doc-total-row span:last-child{color:var(--quote-accent, var(--amber));}
+  .doc-note{margin-top:28px;padding:12px 16px;background:#fff6e9;border-left:4px solid var(--quote-accent, var(--amber));font-size:12px;color:#222;font-style:italic;}
+  .doc-footer{margin-top:36px;padding-top:12px;border-top:1px solid #e3e5e9;display:flex;justify-content:space-between;font-size:10px;color:#999;}
 </style>
 </head>
 <body>
@@ -673,7 +699,8 @@
 
     <div class="detail-header" data-section="customer">
       <button class="icon-btn" id="btnBackToProjects" aria-label="Back">←</button>
-      <div class="detail-customer">
+      <div class="detail-customer doc-block">
+        <h4 class="print-only">Prepared For</h4>
         <div class="detail-name" id="detailCustomerName"></div>
         <div class="detail-sub" id="detailCustomerSub"></div>
       </div>
@@ -2252,7 +2279,7 @@
       if(taxRate>0){
         foot += `<tr><td colspan="3" style="border-top:none;">${escapeHtml(taxLabel)} (${(taxRate*100).toFixed(2).replace(/\.?0+$/,'')}%)</td><td class="mono" style="border-top:none;">${money(taxAmt)}</td></tr>`;
       }
-      foot += `<tr class="tfoot-row"><td colspan="3">Total</td><td class="mono">${money(afterDiscount+taxAmt)}</td></tr>`;
+      foot += `<tr class="tfoot-row tfoot-grand"><td colspan="3">Total</td><td class="mono">${money(afterDiscount+taxAmt)}</td></tr>`;
       $('projQuoteTfoot').innerHTML = foot;
     } else {
       $('projQuoteThead').innerHTML = `<tr><th>Item</th><th>Qty</th><th>Cost</th><th>Price</th><th>Margin</th></tr>`;
@@ -2380,40 +2407,40 @@
         <td class="num">${money(i.lineCost)}</td>
       </tr>`).join('');
     return `<div class="po-doc">
-      <div class="po-doc-top">
+      <div class="doc-top">
         ${companyHeaderHtml(c, false)}
-        <div class="po-doc-tag">
-          <div class="po-doc-tag-label">Purchase Order</div>
-          <div class="po-doc-tag-date">${dateStr}</div>
+        <div class="doc-tag">
+          <div class="doc-tag-label">Purchase Order</div>
+          <div class="doc-tag-date">${dateStr}</div>
         </div>
       </div>
-      <div class="po-doc-meta">
-        <div class="po-doc-block">
+      <div class="doc-meta">
+        <div class="doc-block">
           <h4>From</h4>
-          <div class="po-doc-company">${escapeHtml(c.name||'—')}</div>
-          ${c.phone?`<div class="po-doc-line">Phone: ${escapeHtml(c.phone)}</div>`:''}
-          ${c.email?`<div class="po-doc-line">Email: ${escapeHtml(c.email)}</div>`:''}
+          <div class="doc-company">${escapeHtml(c.name||'—')}</div>
+          ${c.phone?`<div class="doc-line">Phone: ${escapeHtml(c.phone)}</div>`:''}
+          ${c.email?`<div class="doc-line">Email: ${escapeHtml(c.email)}</div>`:''}
         </div>
-        <div class="po-doc-block">
+        <div class="doc-block">
           <h4>To</h4>
-          <div class="po-doc-company">${escapeHtml(d.name)}</div>
-          ${d.phone?`<div class="po-doc-line">Phone: ${escapeHtml(d.phone)}</div>`:''}
-          ${d.email?`<div class="po-doc-line">Email: ${escapeHtml(d.email)}</div>`:''}
-          ${d.accountNumber?`<div class="po-doc-line">Account #: ${escapeHtml(d.accountNumber)}</div>`:''}
+          <div class="doc-company">${escapeHtml(d.name)}</div>
+          ${d.phone?`<div class="doc-line">Phone: ${escapeHtml(d.phone)}</div>`:''}
+          ${d.email?`<div class="doc-line">Email: ${escapeHtml(d.email)}</div>`:''}
+          ${d.accountNumber?`<div class="doc-line">Account #: ${escapeHtml(d.accountNumber)}</div>`:''}
         </div>
       </div>
-      <div class="po-doc-facts">
+      <div class="doc-facts">
         <div><div class="k">Job</div><div class="v">${escapeHtml(pr.customer.name||'Untitled project')}</div></div>
         <div><div class="k">Order Date</div><div class="v">${dateStr}</div></div>
         ${d.accountNumber?`<div><div class="k">Account #</div><div class="v">${escapeHtml(d.accountNumber)}</div></div>`:''}
       </div>
-      <table class="po-doc-table">
+      <table class="doc-table">
         <thead><tr><th>Item</th><th class="num">Qty</th><th class="num">Unit Price</th><th class="num">Line Total</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
-      <div class="po-doc-total-row"><span>Total</span><span>${money(group.totalCost)}</span></div>
-      <div class="po-doc-note">Please confirm availability and lead time. Thank you.</div>
-      <div class="po-doc-footer">
+      <div class="doc-total-row"><span>Total</span><span>${money(group.totalCost)}</span></div>
+      <div class="doc-note">Please confirm availability and lead time. Thank you.</div>
+      <div class="doc-footer">
         <span>${escapeHtml(c.name||'')} — Purchase Order</span>
         <span>Generated via Duskline</span>
       </div>
@@ -3188,14 +3215,29 @@
     renderCompanyHeaderForPrint();
     renderCompanyFooterForPrint();
   }
+  // Same "doc-top"/"doc-tag" treatment as the standalone PO document (see buildPoDocumentHtml) —
+  // the quote print reuses that shared letterhead design system rather than a second one. The
+  // mode label/date are read fresh at call time (see printProject()'s explicit re-call right
+  // before window.print()) so a Customer/Internal toggle after the last edit still prints right.
   function renderCompanyHeaderForPrint(){
     const c = state.company;
     const hasInfo = c.logo||c.name||c.phone||c.email||c.address||c.website;
-    $('printCompanyHeader').innerHTML = hasInfo ? companyHeaderHtml(c, false) : '';
+    if(!hasInfo){ $('printCompanyHeader').innerHTML = ''; return; }
+    const modeLabel = state.quoteMode==='cost' ? 'Internal Quote' : 'Quote';
+    $('printCompanyHeader').innerHTML = `<div class="doc-top">
+      ${companyHeaderHtml(c, false)}
+      <div class="doc-tag">
+        <div class="doc-tag-label">${modeLabel}</div>
+        <div class="doc-tag-date">${new Date().toLocaleDateString()}</div>
+      </div>
+    </div>`;
   }
   function renderCompanyFooterForPrint(){
+    const c = state.company;
     const text = (state.company.footerText||'').trim();
-    $('printFooter').innerHTML = text ? `<div class="print-footer-text">${escapeHtml(text).replace(/\n/g,'<br>')}</div>` : '';
+    const noteHtml = text ? `<div class="print-footer-text">${escapeHtml(text).replace(/\n/g,'<br>')}</div>` : '';
+    const modeLabel = state.quoteMode==='cost' ? 'Internal Quote' : 'Quote';
+    $('printFooter').innerHTML = `${noteHtml}<div class="doc-footer"><span>${escapeHtml(c.name||'')} — ${modeLabel}</span><span>Generated via Duskline</span></div>`;
   }
 
   // ---------------- PDF export ----------------
@@ -3280,6 +3322,8 @@
     }
     applyQuoteAppearance();
     applySectionOrder();
+    renderCompanyHeaderForPrint();
+    renderCompanyFooterForPrint();
     window.print();
   }
 

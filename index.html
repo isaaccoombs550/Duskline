@@ -1583,6 +1583,21 @@
     }).filter(Boolean);
     return layers.length ? layers.join(', ') : 'none';
   }
+  // Applies buildLitAreaPath/buildLitFadeMaskImage to the live editor's #litclipPath-editor/
+  // #photoImgLit -- factored out of renderOverlays() so the same two lines can also run from
+  // inside a drag's onMove (see attachPlacementHandlers), not just once the drag ends. Without
+  // this, moving/re-aiming/re-widening a placement moved its beam SVG live (that's just a CSS
+  // left/top or a fresh buildBeamHtml() call) but left the "flashlight" reveal frozen at the
+  // pre-drag shape until the next full renderOverlays() -- a real, screenshot-confirmed bug: for
+  // the whole duration of a drag, the tinted beam visibly moved away from the brightened photo
+  // patch it's supposed to sit over, showing both the new (dim, unrevealed) and old (still lit)
+  // positions at once. Now called on every pointermove of every placement drag, exactly like
+  // updatePlacementBeam already was, so the two stay in lockstep the entire gesture.
+  function updateLitReveal(area){
+    $('litclipPath-editor').setAttribute('d', buildLitAreaPath(area, area.photoAspect||0.8));
+    const fadeMask = buildLitFadeMaskImage(area, area.photoAspect||0.8);
+    $('photoImgLit').style.maskImage = $('photoImgLit').style.webkitMaskImage = fadeMask;
+  }
   // responsive=true (only used by buildStaticOverlaysHtml, never the live editor) outputs the
   // beam's size as CSS percentage-of-width + aspect-ratio:1 instead of fixed pixel width/height
   // attributes, so the browser itself keeps it correctly sized at ANY future container width --
@@ -1688,9 +1703,7 @@
     }
     const rect = $('canvasPhoto').getBoundingClientRect();
     if(!rect.width) return;
-    $('litclipPath-editor').setAttribute('d', buildLitAreaPath(area, area.photoAspect||0.8));
-    const fadeMask = buildLitFadeMaskImage(area, area.photoAspect||0.8);
-    $('photoImgLit').style.maskImage = $('photoImgLit').style.webkitMaskImage = fadeMask;
+    updateLitReveal(area);
     const legendTypes = usedFixtureTypes(area.placements);
     $('editorLegend').innerHTML = buildTypeLegendHtml(legendTypes);
     $('editorLegend').hidden = legendTypes.length===0;
@@ -1945,6 +1958,7 @@
             p.xPct = xPct; p.yPct = yPct;
             const wrapper = document.querySelector(`.placement[data-uid="${p.uid}"]`);
             if(wrapper){ wrapper.style.left=xPct+'%'; wrapper.style.top=yPct+'%'; }
+            updateLitReveal(area);
           },
           onEnd:(ev,wasDragging)=>{ wasDragging ? renderOverlays() : openInfoSheet(p.uid); }
         });
@@ -1970,6 +1984,7 @@
               p.rotation = Math.round(ang/5)*5;
             }
             updatePlacementBeam(p,f,rect);
+            updateLitReveal(area);
             if(beamW>=360){
               const handleEl = document.querySelector(`.beam-handle[data-uid="${p.uid}"]`);
               if(handleEl){
@@ -1999,6 +2014,7 @@
             width = Math.min(170, Math.max(6, Math.round(width/5)*5));
             p.beamWidth = width;
             updatePlacementBeam(p,f,rect);
+            updateLitReveal(area);
           },
           onEnd:(ev,wasDragging)=>{ wasDragging ? renderOverlays() : openInfoSheet(p.uid); }
         });

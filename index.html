@@ -563,7 +563,41 @@
     .detail-name,.detail-sub{color:#000;}
     .load-summary{border-color:#ccc;background:#fafafa;}
     .load-row,.load-summary-title{color:#000;}
+
+    /* ----- PO print (printPoDocument()) -----
+       A separate print mode from the quote print above: when printing a single distributor's
+       PO, the whole .app is hidden and #poPrintDoc is shown fullscreen instead, rather than
+       trying to scope inside .app like the quote print does — the PO is a different document
+       (one distributor's items only), not a view of the project detail screen, so it doesn't
+       belong inside that scoping. Colors are hardcoded (not theme tokens) for the same reason
+       as the rest of this print stylesheet: this must look right regardless of the light/dark
+       theme active on screen when the button was pressed. */
+    body.printing-po .app{display:none !important;}
+    body.printing-po #poPrintDoc{display:block !important;}
   }
+  .po-doc{max-width:720px;margin:0 auto;font-family:var(--font-body);color:#14171C;}
+  .po-doc-top{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #14171C;padding-bottom:18px;gap:20px;}
+  .po-doc-tag{text-align:right;white-space:nowrap;}
+  .po-doc-tag-label{font-size:11px;letter-spacing:2px;font-weight:700;color:var(--quote-accent, var(--amber));text-transform:uppercase;}
+  .po-doc-tag-date{font-family:var(--font-display);font-size:22px;font-weight:700;color:#14171C;margin-top:2px;}
+  .po-doc-meta{display:flex;justify-content:space-between;gap:32px;margin-top:24px;}
+  .po-doc-block{flex:1;}
+  .po-doc-block h4{font-size:10px;letter-spacing:1.5px;color:var(--quote-accent, var(--amber));text-transform:uppercase;margin:0 0 6px;font-weight:700;}
+  .po-doc-company{font-size:14px;font-weight:700;color:#14171C;margin-bottom:3px;}
+  .po-doc-line{font-size:12px;color:#333;line-height:1.6;}
+  .po-doc-facts{display:flex;gap:28px;margin-top:20px;padding:12px 14px;background:#f4f5f7;border-radius:6px;}
+  .po-doc-facts>div{flex:1;}
+  .po-doc-facts .k{font-size:9.5px;letter-spacing:1px;color:#666;text-transform:uppercase;}
+  .po-doc-facts .v{font-size:12.5px;font-weight:700;color:#14171C;margin-top:2px;}
+  .po-doc-table{width:100%;border-collapse:collapse;margin-top:26px;}
+  .po-doc-table th{text-align:left;font-size:10px;letter-spacing:1px;text-transform:uppercase;color:#fff;background:#14171C;padding:8px 10px;}
+  .po-doc-table th.num,.po-doc-table td.num{text-align:right;}
+  .po-doc-table td{padding:9px 10px;font-size:12px;color:#222;border-bottom:1px solid #e3e5e9;}
+  .po-doc-table tr:nth-child(even) td{background:#fafafb;}
+  .po-doc-total-row{display:flex;justify-content:flex-end;gap:24px;margin-top:4px;padding:10px;border-top:2px solid #14171C;font-weight:700;font-size:15px;color:#14171C;}
+  .po-doc-total-row span:last-child{color:var(--quote-accent, var(--amber));}
+  .po-doc-note{margin-top:28px;padding:12px 16px;background:#fff6e9;border-left:4px solid var(--quote-accent, var(--amber));font-size:12px;color:#222;font-style:italic;}
+  .po-doc-footer{margin-top:36px;padding-top:12px;border-top:1px solid #e3e5e9;display:flex;justify-content:space-between;font-size:10px;color:#999;}
 </style>
 </head>
 <body>
@@ -1116,6 +1150,10 @@
 <input type="file" id="fileInputCamera" accept="image/*" capture="environment" hidden>
 <input type="file" id="logoInput" accept="image/*" hidden>
 <input type="file" id="fixtureImportInput" accept=".xlsx,.xls,.csv" hidden>
+
+<!-- Populated by buildPoDocumentHtml()/printPoDocument() right before window.print() — see
+     "PO print" in the print stylesheet for how this gets shown in place of everything else. -->
+<div class="po-print-doc" id="poPrintDoc" hidden></div>
 
 <script>
 (function(){
@@ -2277,13 +2315,12 @@
       const count = g.items.reduce((s,i)=>s+i.qty,0);
       const name = g.distributor ? escapeHtml(g.distributor.name) : 'Unassigned';
       const sub = `${count} item${count!==1?'s':''} · ${money(g.totalCost)}` + (g.distributor ? '' : ' · assign a distributor from the Fixtures tab to send a PO');
-      let action;
-      if(!g.distributor){
-        action = '';
-      } else if(!g.distributor.email){
-        action = `<button disabled title="Add an email for this distributor in Company &gt; Distributors">Email PO</button>`;
-      } else {
-        action = `<button data-po-email="${g.distributor.id}">Email PO</button>`;
+      let action = '';
+      if(g.distributor){
+        action += `<button data-po-print="${g.distributor.id}">Print PO</button>`;
+        action += g.distributor.email
+          ? `<button data-po-email="${g.distributor.id}">Email PO</button>`
+          : `<button disabled title="Add an email for this distributor in Company &gt; Distributors">Email PO</button>`;
       }
       return `<div class="fx-card">
         <div class="fx-main">
@@ -2296,6 +2333,10 @@
     el.querySelectorAll('[data-po-email]').forEach(b=> b.addEventListener('click', e=>{
       const group = groups.find(g=> g.distributor && g.distributor.id===e.currentTarget.dataset.poEmail);
       if(group) sendPoEmail(pr, group);
+    }));
+    el.querySelectorAll('[data-po-print]').forEach(b=> b.addEventListener('click', e=>{
+      const group = groups.find(g=> g.distributor && g.distributor.id===e.currentTarget.dataset.poPrint);
+      if(group) printPoDocument(pr, group);
     }));
   }
   function sendPoEmail(pr, group){
@@ -2323,6 +2364,71 @@
     const a = document.createElement('a');
     a.href = url;
     a.click();
+  }
+
+  // Builds the same branded letterhead (logo, name, accent color) already used on the quote
+  // PDF — reusing companyHeaderHtml() instead of duplicating that markup keeps the two
+  // documents' branding in sync automatically if that function ever changes.
+  function buildPoDocumentHtml(pr, group){
+    const c = state.company, d = group.distributor;
+    const dateStr = new Date().toLocaleDateString();
+    const rows = group.items.map(i=>`
+      <tr>
+        <td>${escapeHtml(i.name)}</td>
+        <td class="num">${i.qty}</td>
+        <td class="num">${money(i.cost)}</td>
+        <td class="num">${money(i.lineCost)}</td>
+      </tr>`).join('');
+    return `<div class="po-doc">
+      <div class="po-doc-top">
+        ${companyHeaderHtml(c, false)}
+        <div class="po-doc-tag">
+          <div class="po-doc-tag-label">Purchase Order</div>
+          <div class="po-doc-tag-date">${dateStr}</div>
+        </div>
+      </div>
+      <div class="po-doc-meta">
+        <div class="po-doc-block">
+          <h4>From</h4>
+          <div class="po-doc-company">${escapeHtml(c.name||'—')}</div>
+          ${c.phone?`<div class="po-doc-line">Phone: ${escapeHtml(c.phone)}</div>`:''}
+          ${c.email?`<div class="po-doc-line">Email: ${escapeHtml(c.email)}</div>`:''}
+        </div>
+        <div class="po-doc-block">
+          <h4>To</h4>
+          <div class="po-doc-company">${escapeHtml(d.name)}</div>
+          ${d.phone?`<div class="po-doc-line">Phone: ${escapeHtml(d.phone)}</div>`:''}
+          ${d.email?`<div class="po-doc-line">Email: ${escapeHtml(d.email)}</div>`:''}
+          ${d.accountNumber?`<div class="po-doc-line">Account #: ${escapeHtml(d.accountNumber)}</div>`:''}
+        </div>
+      </div>
+      <div class="po-doc-facts">
+        <div><div class="k">Job</div><div class="v">${escapeHtml(pr.customer.name||'Untitled project')}</div></div>
+        <div><div class="k">Order Date</div><div class="v">${dateStr}</div></div>
+        ${d.accountNumber?`<div><div class="k">Account #</div><div class="v">${escapeHtml(d.accountNumber)}</div></div>`:''}
+      </div>
+      <table class="po-doc-table">
+        <thead><tr><th>Item</th><th class="num">Qty</th><th class="num">Unit Price</th><th class="num">Line Total</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <div class="po-doc-total-row"><span>Total</span><span>${money(group.totalCost)}</span></div>
+      <div class="po-doc-note">Please confirm availability and lead time. Thank you.</div>
+      <div class="po-doc-footer">
+        <span>${escapeHtml(c.name||'')} — Purchase Order</span>
+        <span>Generated via Duskline</span>
+      </div>
+    </div>`;
+  }
+  // Same window.print()-based approach as printProject() (see that function's comment for why:
+  // exact visual match since it's the live page, no reconstruction), just scoped to a single
+  // fullscreen document instead of the project detail screen — see the "PO print" block in the
+  // print stylesheet for how body.printing-po hides .app and shows #poPrintDoc in its place.
+  function printPoDocument(pr, group){
+    applyQuoteAppearance();
+    $('poPrintDoc').innerHTML = buildPoDocumentHtml(pr, group);
+    document.body.classList.add('printing-po');
+    window.print();
+    document.body.classList.remove('printing-po');
   }
 
   function renderLoadSummary(pr){

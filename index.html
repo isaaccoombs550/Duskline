@@ -530,7 +530,7 @@
        ratio instead. The beam/placement overlay HTML already scales off the container's
        *width*, which is unchanged here (only height goes from fixed to auto), so the
        overlays still line up correctly on the now-taller frame. */
-    .area-card-photo{height:auto !important;}
+    .area-card-photo{height:auto !important;max-width:var(--print-photo-cap-w, none);margin:0 auto;}
     .area-card-photo img{height:auto !important;object-fit:contain;}
     /* Area cards, the load summary, and the quote table wrapper all carry the on-screen UI's
        heavy 12px border-radius by default (from their base, non-print rules) — fine as an app
@@ -576,7 +576,16 @@
        too, matching what this comment always said. Keep it that way — don't "fix" either back to
        semantic thead/tfoot without re-solving this. */
     .quote-table tr{break-inside:avoid;}
-    #projQuoteTfoot{break-inside:avoid;}
+    /* break-inside alone (the original fix, see the paragraph above) only stops the footer's
+       OWN rows (subtotal/discount/tax/total) from splitting apart from each other -- it does
+       nothing to stop the whole footer block from being pushed onto its own near-empty page,
+       separated from the item rows it's summing (real user report: "price breakdown split
+       between two pages", confirmed via a real exported PDF -- the last item row landed at the
+       bottom of one page and all three subtotal/tax/total rows landed alone at the top of the
+       next). break-before:avoid tells the renderer not to place a page break immediately before
+       this block, so it either stays attached to the preceding item rows or (if truly out of
+       room) pulls enough of those rows down with it -- either way, no more stranding it alone. */
+    #projQuoteTfoot{break-inside:avoid;break-before:avoid;}
     #projQuoteThead{break-after:avoid;}
     .margin{color:#2a7a45;}
     .below-cost{color:#b3261e;}
@@ -2589,6 +2598,11 @@
     renderPoSection(pr);
     applySectionOrder();
   }
+  // Max printed height (inches) for one area's photo -- see the comment at its one use site in
+  // renderAreaList for why this exists (a real "lots of blank space between pages" bug). Tunable:
+  // pull it down further if portrait photos still leave a big gap, or up if capped photos read
+  // too small on the page.
+  const PRINT_PHOTO_CAP_H = 5.5;
   function renderAreaList(pr){
     const showTech = state.quoteMode==='cost';
     const allPlacements = pr.areas.flatMap(a=>a.placements);
@@ -2597,14 +2611,27 @@
       const items = computeAreaLineItems(a);
       const total = items.reduce((s,i)=>s+i.linePrice,0);
       const w = Math.round(areaWatts(a));
-      return `<div class="area-card" data-id="${a.id}">
+      const aspect = a.photoAspect||0.8;
+      // Print-only cap: without this, a portrait-oriented photo (height:auto, uncropped by
+      // deliberate design -- see the print CSS comment on .area-card-photo) can render tall
+      // enough to nearly fill an entire printed page by itself, leaving a large blank gap below
+      // it wherever the next area doesn't fit in whatever's left (real user-reported "lots of
+      // blank space between pages"). --print-photo-cap-w is a max-width computed from this
+      // area's own aspect ratio so that, combined with height:auto, the rendered photo can never
+      // exceed PRINT_PHOTO_CAP_H tall -- narrower/letterboxed instead of full-bleed-tall. Only
+      // consumed inside @media print (see that rule) so on-screen sizing is untouched, and since
+      // it just shrinks width+height together in proportion, the container's aspect ratio still
+      // exactly matches the photo's, so every existing objectBoundingBox-fraction overlay
+      // (buildLitAreaPath/buildLitFadeMaskImage) stays correctly aligned with no changes needed.
+      const printPhotoCapW = (PRINT_PHOTO_CAP_H*aspect).toFixed(3)+'in';
+      return `<div class="area-card" data-id="${a.id}" style="--print-photo-cap-w:${printPhotoCapW};">
         <button class="area-card-del" data-del="${a.id}">✕</button>
         <div class="area-card-photo">
           ${a.photo? `<img src="${a.photo}" style="filter:${photoFilterFor(a)}">
           <svg width="0" height="0" style="position:absolute;"><defs><clipPath id="litclip-${a.id}" clipPathUnits="objectBoundingBox">
-            <path d="${buildLitAreaPath(a, a.photoAspect||0.8)}"/>
+            <path d="${buildLitAreaPath(a, aspect)}"/>
           </clipPath></defs></svg>
-          <img src="${a.photo}" class="photo-lit" style="filter:${litPhotoFilterFor()};clip-path:url(#litclip-${a.id});-webkit-clip-path:url(#litclip-${a.id});mask-image:${buildLitFadeMaskImage(a, a.photoAspect||0.8)};-webkit-mask-image:${buildLitFadeMaskImage(a, a.photoAspect||0.8)};">` : ''}
+          <img src="${a.photo}" class="photo-lit" style="filter:${litPhotoFilterFor()};clip-path:url(#litclip-${a.id});-webkit-clip-path:url(#litclip-${a.id});mask-image:${buildLitFadeMaskImage(a, aspect)};-webkit-mask-image:${buildLitFadeMaskImage(a, aspect)};">` : ''}
           <div class="wire-layer static-wires"><svg viewBox="0 0 100 100" preserveAspectRatio="none"></svg><div></div></div>
           <div class="wire-layer static-strips"><svg viewBox="0 0 100 100" preserveAspectRatio="none"></svg><div></div></div>
           <div class="overlays"></div>

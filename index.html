@@ -587,6 +587,18 @@
        room) pulls enough of those rows down with it -- either way, no more stranding it alone. */
     #projQuoteTfoot{break-inside:avoid;break-before:avoid;}
     #projQuoteThead{break-after:avoid;}
+    /* The fix above (glue the footer to whatever row it lands near) still let the table itself
+       visibly split mid-list -- e.g. 4 of 5 items on one page, the 5th item + footer alone on
+       the next (real user follow-up: "still split", with a screenshot showing exactly that).
+       For a table that's short enough to plausibly fit on one page on its own (true for a normal
+       quote), the better fix is to not let it split at all: push the *entire* "Project quote"
+       section -- heading, every row, footer -- onto a fresh page as one unit instead of
+       fragmenting it across two. break-inside:avoid on a container taller than a full page is a
+       no-op in Chromium (it just falls back to normal fragmentation, using the per-row/footer
+       avoid rules above as the fallback), so this is safe for a quote long enough that it could
+       never fit on one page regardless -- it only changes behavior for the common case that
+       actually fits. */
+    [data-section="quote"]{break-inside:avoid;}
     .margin{color:#2a7a45;}
     .below-cost{color:#b3261e;}
     /* Section headings ("Areas", "Project quote") inherit var(--fog) on screen, which in dark

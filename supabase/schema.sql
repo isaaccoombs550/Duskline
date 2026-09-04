@@ -405,6 +405,21 @@ begin
   insert into public.profiles (id, company_id, full_name, role)
   values (new.id, new_company_id, new.raw_user_meta_data->>'full_name', 'owner');
 
+  -- Hide every BASE_FIXTURES starter/example fixture for a brand-new company (both
+  -- account types) via the same fixture_overrides{hidden:true} mechanism a user would
+  -- get by manually clicking "Remove from library" on each one -- restorable the same
+  -- way too, from "Removed from your library" at the bottom of the Fixtures tab. Once
+  -- distributor accounts exist, a fresh signup should only ever see fixtures it actually
+  -- added itself or (for a contractor) a connected distributor's real catalog, not this
+  -- app's generic example catalog. This ONLY runs at signup -- it does not touch any
+  -- already-existing company's fixture library.
+  -- NOTE: this id list must be kept in sync BY HAND with BASE_FIXTURES in index.html --
+  -- there is no shared source of truth between the client array and this SQL trigger.
+  insert into public.fixture_overrides (company_id, base_fixture_id, data)
+  select new_company_id, id, jsonb_build_object('hidden', true)
+  from unnest(array['f1','f2','f3','f4','f5','f6','f7','f8','f9','f10',
+    'a1','a2','a3','a4','a5','a6','st1']) as id;
+
   if v_invite_found then
     insert into public.distributor_links (distributor_company_id, contractor_company_id, multiplier, label)
     values (v_invite.distributor_company_id, new_company_id, v_invite.multiplier, v_invite.label);

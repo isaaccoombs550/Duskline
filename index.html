@@ -779,6 +779,7 @@
       <label class="export-label-toggle"><input type="checkbox" id="toggleExportLabels" checked> Show fixture names on exported photos</label>
       <label class="export-label-toggle"><input type="checkbox" id="toggleExportWires"> Show wire run diagram on exported photos</label>
       <label class="export-label-toggle"><input type="checkbox" id="toggleJpgOnly"> Export design photos as JPG only (no quote)</label>
+      <label class="export-label-toggle"><input type="checkbox" id="toggleQuoteFixtureType"> Show fixture type instead of name/description on customer quote</label>
       <div class="quote-actions">
         <button class="btn btn-primary" id="btnPrintProject">Print / Export project</button>
       </div>
@@ -2282,8 +2283,13 @@
   // Same identity color as the placement dots/legend, so a fixture line in the materials list
   // can be matched back to its dot on the area photos above it. Only fixtures get placed as
   // dots on the canvas, so accessories/strips don't get a swatch here.
-  function quoteItemNameCell(i){
-    const name = escapeHtml(i.name);
+  // preferType (customer-quote-only, see toggleQuoteFixtureType) swaps the specific item
+  // name/part-number for its generic FIXTURE_TYPES label -- e.g. a homeowner sees "Accent /
+  // Uplight" instead of "KIC-16150AZT27 — 200 Lumen 10 Degree Spot". Only meaningful for
+  // cat==='fixture' rows (accessories/strips have no type), so it's a no-op for those.
+  function quoteItemNameCell(i, preferType){
+    const useType = preferType && i.cat==='fixture';
+    const name = escapeHtml(useType ? fixtureTypeMeta(i).label : i.name);
     if(i.cat!=='fixture') return name;
     const col = fixtureTypeMeta(i).col;
     return `<span class="type-legend-dot" style="display:inline-block;margin-right:6px;vertical-align:middle;background:rgb(${col});"></span>${name}`;
@@ -2297,9 +2303,10 @@
     if(!items.length){ $('projQuoteThead').innerHTML=''; $('projQuoteTbody').innerHTML=''; $('projQuoteTfoot').innerHTML=''; return; }
 
     if(state.quoteMode==='customer'){
+      const showType = $('toggleQuoteFixtureType').checked;
       $('projQuoteThead').innerHTML = `<tr><th>Item</th><th>Qty</th><th>Price</th><th>Total</th></tr>`;
       $('projQuoteTbody').innerHTML = items.map(i=>`<tr>
-          <td>${quoteItemNameCell(i)}<div class="cell-sub">${escapeHtml(i.desc)}</div></td>
+          <td>${quoteItemNameCell(i, showType)}${showType ? '' : `<div class="cell-sub">${escapeHtml(i.desc)}</div>`}</td>
           <td class="mono">${i.qty}</td><td class="mono">${money(i.price)}</td><td class="mono">${money(i.linePrice)}</td>
         </tr>`).join('');
       const materialsSubtotal = items.reduce((s,i)=>s+i.linePrice,0);
@@ -4437,6 +4444,10 @@
     $('btnPrintProject').addEventListener('click', printProject);
     $('toggleExportLabels').addEventListener('change', e=>{
       document.body.classList.toggle('no-export-labels', !e.target.checked);
+    });
+    $('toggleQuoteFixtureType').addEventListener('change', ()=>{
+      const pr = currentProject(); if(!pr) return;
+      renderProjectQuote(pr);
     });
 
     // fixtures tab

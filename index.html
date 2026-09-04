@@ -3340,10 +3340,20 @@
     }).join('');
     $('inviteList').querySelectorAll('[data-copy-invite]').forEach(b=> b.addEventListener('click', e=>{
       const btn = e.currentTarget;
-      navigator.clipboard.writeText(btn.dataset.copyInvite).then(()=>{
-        btn.textContent = 'Copied!';
-        setTimeout(()=>{ btn.textContent = 'Copy'; }, 1500);
-      });
+      const code = btn.dataset.copyInvite;
+      const onCopied = ()=>{ btn.textContent = 'Copied!'; setTimeout(()=>{ btn.textContent = 'Copy'; }, 1500); };
+      const onFailed = ()=>{
+        // Clipboard access can silently fail (permissions, focus, non-secure context) --
+        // a real user hit this: the button looked like it worked but nothing was actually
+        // on the clipboard. Falling back to a manual-select prompt beats a copy that
+        // quietly does nothing, since the app has no way to detect that from here.
+        window.prompt('Could not copy automatically. Select and copy this code manually:', code);
+      };
+      if(navigator.clipboard && navigator.clipboard.writeText){
+        navigator.clipboard.writeText(code).then(onCopied, onFailed);
+      } else {
+        onFailed();
+      }
     }));
   }
   async function generateInviteCode(){

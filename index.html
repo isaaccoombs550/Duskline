@@ -3372,15 +3372,24 @@
   function renderContractorLinkList(){
     const list = state.myContractorLinks;
     $('contractorLinkEmpty').hidden = list.length>0;
-    $('contractorLinkList').innerHTML = list.map(link=>`
-      <div class="fx-card">
-        <div class="fx-main"><div class="fx-name">${escapeHtml(link.contractorName||'Unnamed contractor')}</div></div>
+    $('contractorLinkList').innerHTML = list.map(link=>{
+      const contact = [link.contractorPhone, link.contractorEmail, link.contractorAddress].filter(Boolean).join(' · ');
+      return `<div class="fx-card">
+        <div class="fx-main">
+          <div class="fx-name">${escapeHtml(link.contractorName||'Unnamed contractor')}</div>
+          ${contact ? `<div class="fx-desc">${escapeHtml(contact)}</div>` : ''}
+          <div class="fx-spec" style="margin-top:6px;">
+            <label style="display:block;margin-bottom:3px;">Your label for them</label>
+            <input type="text" data-label="${link.contractorCompanyId}" value="${escapeHtml(link.label||'')}" placeholder="Optional nickname" style="width:160px;">
+          </div>
+        </div>
         <div class="fx-side">
           <div class="field" style="margin:0;"><label style="margin:0 0 3px;">Multiplier</label>
             <input type="number" step="0.01" min="0" style="width:80px;" data-multiplier="${link.contractorCompanyId}" value="${link.multiplier}">
           </div>
         </div>
-      </div>`).join('');
+      </div>`;
+    }).join('');
     $('contractorLinkList').querySelectorAll('[data-multiplier]').forEach(inp=> inp.addEventListener('change', e=>{
       const contractorId = e.currentTarget.dataset.multiplier;
       const multiplier = parseFloat(e.currentTarget.value)||0;
@@ -3389,6 +3398,15 @@
       sb.from('distributor_links').update({multiplier})
         .eq('distributor_company_id', authProfile.companyId).eq('contractor_company_id', contractorId)
         .then(({error})=>{ if(error) console.warn('Duskline: multiplier update failed.', error); });
+    }));
+    $('contractorLinkList').querySelectorAll('[data-label]').forEach(inp=> inp.addEventListener('change', e=>{
+      const contractorId = e.currentTarget.dataset.label;
+      const label = e.currentTarget.value.trim();
+      const link = state.myContractorLinks.find(l=>l.contractorCompanyId===contractorId);
+      if(link) link.label = label;
+      sb.from('distributor_links').update({label})
+        .eq('distributor_company_id', authProfile.companyId).eq('contractor_company_id', contractorId)
+        .then(({error})=>{ if(error) console.warn('Duskline: contractor label update failed.', error); });
     }));
   }
 
@@ -4151,7 +4169,12 @@
     // contractor_catalog_view policies) -- running all four unconditionally rather than
     // branching on authProfile.accountType keeps this eager-load-everything function
     // uniform; the "wrong side" queries just come back empty, same as a company with no
-    // distributor relationship at all.
+    // distributor relationship at all. contractor_distributor_view/distributor_contractor_view
+    // (not distributor_links directly) because companies SELECT RLS only ever allows seeing
+    // your OWN company row -- a plain embedded join for "the other side's name" would always
+    // come back null regardless of the distributor_links relationship; these views exist
+    // specifically to expose just enough of the other side (name, and for a distributor,
+    // the contractor's phone/email/address too) without opening up companies more broadly.
     const [companyRes, projectsRes, areasRes, customRes, overridesRes, distributorsRes,
       catalogRes, myLinkRes, contractorLinksRes, invitesRes] = await Promise.all([
       sb.from('companies').select('*').eq('id', companyId).single(),
@@ -4161,8 +4184,8 @@
       sb.from('fixture_overrides').select('*').eq('company_id', companyId),
       sb.from('distributors').select('*').eq('company_id', companyId).order('name'),
       sb.from('contractor_catalog_view').select('*'), // RLS/view scopes this to our linked distributor(s)
-      sb.from('distributor_links').select('*, distributor_company:companies!distributor_company_id(name)').eq('contractor_company_id', companyId),
-      sb.from('distributor_links').select('*, contractor_company:companies!contractor_company_id(name)').eq('distributor_company_id', companyId).order('created_at'),
+      sb.from('contractor_distributor_view').select('*'),
+      sb.from('distributor_contractor_view').select('*').order('contractor_name'),
       sb.from('distributor_invites').select('*').eq('distributor_company_id', companyId).order('created_at', {ascending:false}),
     ]);
     if(companyRes.data) state.company = rowToCompany(companyRes.data);
@@ -4179,11 +4202,12 @@
     state.distributorCatalog = (catalogRes.data||[]).map(row=> ({id: row.id, distributorSourced:true, distributorName: row.distributor_name, ...row.data}));
     state.distributorLinks = (myLinkRes.data||[]).map(row=> ({
       distributorCompanyId: row.distributor_company_id, multiplier: row.multiplier,
-      distributorName: row.distributor_company ? row.distributor_company.name : '',
+      distributorName: row.distributor_name||'',
     }));
     state.myContractorLinks = (contractorLinksRes.data||[]).map(row=> ({
-      contractorCompanyId: row.contractor_company_id, multiplier: row.multiplier,
-      contractorName: row.contractor_company ? row.contractor_company.name : '',
+      contractorCompanyId: row.contractor_company_id, multiplier: row.multiplier, label: row.label||'',
+      contractorName: row.contractor_name||'', contractorPhone: row.contractor_phone||'',
+      contractorEmail: row.contractor_email||'', contractorAddress: row.contractor_address||'',
     }));
     state.myInvites = (invitesRes.data||[]).map(row=> ({
       code: row.code, multiplier: row.multiplier, label: row.label,

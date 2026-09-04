@@ -406,8 +406,8 @@ begin
   values (new.id, new_company_id, new.raw_user_meta_data->>'full_name', 'owner');
 
   if v_invite_found then
-    insert into public.distributor_links (distributor_company_id, contractor_company_id, multiplier)
-    values (v_invite.distributor_company_id, new_company_id, v_invite.multiplier);
+    insert into public.distributor_links (distributor_company_id, contractor_company_id, multiplier, label)
+    values (v_invite.distributor_company_id, new_company_id, v_invite.multiplier, v_invite.label);
     update public.distributor_invites set redeemed_at = now(), used_by_company_id = new_company_id
       where code = v_code;
   end if;
@@ -415,3 +415,51 @@ begin
   return new;
 end;
 $$;
+
+-- ============================================================================
+-- Distributor accounts follow-up: the Contractors screen's "Linked contractors"
+-- list showed every contractor as "Unnamed contractor" -- the app's query embeds
+-- the linked company's name via `companies!contractor_company_id(name)`, but
+-- `companies` SELECT RLS only ever allowed a user to see their OWN company row
+-- (`id = current_company_id()`), so that embedded join came back null for every
+-- OTHER company regardless of the distributor_links relationship. Same "expose a
+-- narrow, computed view instead of raw table access" pattern as
+-- contractor_catalog_view above -- a distributor should see a linked contractor's
+-- business name/phone/email/address (enough to know who they are and reach them),
+-- not their tax rate, branding, or other account settings, so this is a purpose-
+-- built view rather than a broader companies RLS policy.
+alter table public.distributor_links add column label text not null default '';
+-- label is the distributor's own chosen nickname for this contractor (separate from
+-- the contractor's real business name below) -- seeded from the invite's own label
+-- at redemption time (see handle_new_user() above), editable afterward from the
+-- Contractors screen the same way the multiplier is.
+
+create view public.distributor_contractor_view as
+select
+  dl.distributor_company_id,
+  dl.contractor_company_id,
+  dl.multiplier,
+  dl.label,
+  c.name as contractor_name,
+  c.phone as contractor_phone,
+  c.email as contractor_email,
+  c.address as contractor_address
+from public.distributor_links dl
+join public.companies c on c.id = dl.contractor_company_id
+where dl.distributor_company_id = public.current_company_id();
+
+grant select on public.distributor_contractor_view to authenticated;
+
+-- Same bug, other direction: a contractor's "Connected distributor catalogs" (Company
+-- tab) tried to embed the distributor's name the same broken way -- fixed the same way.
+create view public.contractor_distributor_view as
+select
+  dl.distributor_company_id,
+  dl.contractor_company_id,
+  dl.multiplier,
+  c.name as distributor_name
+from public.distributor_links dl
+join public.companies c on c.id = dl.distributor_company_id
+where dl.contractor_company_id = public.current_company_id();
+
+grant select on public.contractor_distributor_view to authenticated;

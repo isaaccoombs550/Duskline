@@ -376,25 +376,26 @@ declare
   -- ones below) are plain ASCII with no whitespace, so this normalization is safe.
   v_code text := regexp_replace(coalesce(new.raw_user_meta_data->>'access_code',''), '[^\x21-\x7E]', '', 'g');
   v_invite record;
+  -- Whether the select below actually found a row, captured via PL/pgSQL's FOUND right
+  -- after it runs -- NOT `v_invite is not null`. A ROW/record's IS NULL / IS NOT NULL
+  -- follows SQL's per-field semantics: true only if EVERY field is null (IS NULL) or
+  -- EVERY field is non-null (IS NOT NULL). An unredeemed invite always has some non-null
+  -- fields (code, multiplier, ...) and some null ones (redeemed_at, used_by_company_id),
+  -- so `v_invite is not null` is FALSE even when a row was genuinely found -- this was a
+  -- real bug here (confirmed live: a matching, unredeemed invite still fell through to
+  -- "invalid access code" every time). FOUND doesn't have this problem.
+  v_invite_found boolean;
   v_account_type text := 'contractor';
 begin
   select * into v_invite from public.distributor_invites where code = v_code and redeemed_at is null;
+  v_invite_found := found;
 
-  if v_invite is not null then
+  if v_invite_found then
     v_account_type := 'contractor';
   elsif v_code = 'DUSKLINEDISTRIBUTORV1' then
     v_account_type := 'distributor';
   elsif v_code is distinct from 'DUSKLINEBETAV12026' then
-    -- Temporary extra-verbose diagnostic -- matches_code_only vs matches_combined use the
-    -- EXACT same WHERE clause as the "select * into v_invite" statement above, run as a
-    -- plain count instead of a record assignment, to isolate whether the WHERE clause
-    -- itself is the problem or something about populating v_invite from it is.
-    raise exception 'invalid access code: code=[%] len=% matches_code_only=% matches_combined=% redeemed_at=% v_invite_is_null=%',
-      v_code, length(v_code),
-      (select count(*) from public.distributor_invites where code = v_code),
-      (select count(*) from public.distributor_invites where code = v_code and redeemed_at is null),
-      (select redeemed_at::text from public.distributor_invites where code = v_code limit 1),
-      (v_invite is null)::text;
+    raise exception 'invalid access code';
   end if;
 
   insert into public.companies (name, account_type)
@@ -404,7 +405,7 @@ begin
   insert into public.profiles (id, company_id, full_name, role)
   values (new.id, new_company_id, new.raw_user_meta_data->>'full_name', 'owner');
 
-  if v_invite is not null then
+  if v_invite_found then
     insert into public.distributor_links (distributor_company_id, contractor_company_id, multiplier)
     values (v_invite.distributor_company_id, new_company_id, v_invite.multiplier);
     update public.distributor_invites set redeemed_at = now(), used_by_company_id = new_company_id

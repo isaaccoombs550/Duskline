@@ -478,3 +478,84 @@ join public.companies c on c.id = dl.distributor_company_id
 where dl.contractor_company_id = public.current_company_id();
 
 grant select on public.contractor_distributor_view to authenticated;
+
+-- ============================================================================
+-- Platform admin dashboard (see ../CLAUDE.md): lets Isaac (not a distributor or
+-- contractor -- the app owner) see every company that's signed up, grouped by
+-- distributor, with signup date/last login/project & area counts, to gauge real
+-- usage of the distributor network. No UI exists to become an admin -- the flag
+-- is set by hand via the SQL Editor, deliberately, the same way the very first
+-- distributor account had to be provisioned manually before any of this existed.
+-- ============================================================================
+
+alter table public.profiles add column is_platform_admin boolean not null default false;
+
+-- profiles had no column-level UPDATE protection at all (unlike companies, fixed
+-- earlier this session) -- as-is, a user could PATCH their own profiles row and set
+-- role or (now) is_platform_admin directly via the REST API. The client never
+-- actually updates profiles from anywhere (confirmed: only ever reads it, in
+-- refreshAuthProfileRow), so this can just be revoked outright -- nothing legitimate
+-- breaks, and both role and is_platform_admin become admin-SQL-only from here on.
+revoke update on public.profiles from authenticated;
+
+-- Mirrors current_company_id() -- SECURITY DEFINER so it can read profiles.is_platform_admin
+-- for the caller without needing a (recursive, error-42P17-prone -- see the note on
+-- current_company_id() above) profiles RLS policy for it.
+create or replace function public.is_platform_admin()
+returns boolean
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select coalesce((select is_platform_admin from public.profiles where id = auth.uid()), false)
+$$;
+
+-- The whole dashboard's data source: one row per company. SECURITY DEFINER lets this
+-- read across every company's data (including auth.users.last_sign_in_at, which
+-- Supabase Auth already tracks natively and isn't otherwise exposed to the client at
+-- all) despite normal per-company RLS -- but it's internally gated by
+-- `where is_platform_admin()`, so a non-admin calling this just gets zero rows back,
+-- never an error and never another company's data. Deliberately scoped to identity +
+-- usage only (name/type/signup date/owner email/last login/project & area counts) --
+-- not phone/address/tax/branding, same "expose only what's needed" principle as the
+-- distributor/contractor name-visibility views above. distributor_company_id lets the
+-- client group contractors under their distributor client-side, and is null for a
+-- standalone (non-distributor-linked) contractor -- no separate "list contractors for
+-- distributor X" query is needed, this one result set covers the whole screen.
+create or replace function public.admin_company_summary()
+returns table(
+  company_id uuid,
+  company_name text,
+  account_type text,
+  created_at timestamptz,
+  owner_email text,
+  owner_last_sign_in_at timestamptz,
+  project_count bigint,
+  area_count bigint,
+  distributor_company_id uuid
+)
+language sql
+security definer
+set search_path = public, auth
+stable
+as $$
+  select
+    c.id,
+    c.name,
+    c.account_type,
+    c.created_at,
+    u.email,
+    u.last_sign_in_at,
+    (select count(*) from public.projects pr where pr.company_id = c.id),
+    (select count(*) from public.areas a join public.projects pr on pr.id = a.project_id where pr.company_id = c.id),
+    dl.distributor_company_id
+  from public.companies c
+  left join public.profiles p on p.company_id = c.id and p.role = 'owner'
+  left join auth.users u on u.id = p.id
+  left join public.distributor_links dl on dl.contractor_company_id = c.id
+  where public.is_platform_admin()
+  order by c.created_at desc;
+$$;
+
+grant execute on function public.admin_company_summary() to authenticated;

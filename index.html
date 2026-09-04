@@ -68,7 +68,7 @@
 
   main.screen{display:none;flex-direction:column;flex:1;min-height:0;}
   main.screen.active{display:flex;}
-  #screen-project-detail, #screen-fixtures, #screen-company{overflow-y:auto;}
+  #screen-project-detail, #screen-fixtures, #screen-company, #screen-distributor-contractors, #screen-admin{overflow-y:auto;}
 
   .section-head{display:flex;align-items:center;justify-content:space-between;padding:16px 14px 10px;gap:10px;}
   .section-head h2{font-family:var(--font-display);font-size:18px;margin:0;}
@@ -80,6 +80,8 @@
   .btn-ghost{background:transparent;border:1px solid var(--line);color:var(--fog);}
   .btn-danger{background:transparent;border:1px solid rgba(226,104,92,.5);color:var(--danger);}
   .btn-sm{padding:7px 12px;font-size:12px;}
+  .link-btn{background:none;border:none;color:var(--amber-soft);font-size:11.5px;text-decoration:underline;
+    cursor:pointer;padding:0;text-align:left;margin-top:8px;}
   .chip{background:var(--surface-2);border:1px solid var(--line);color:var(--fog);
     font-size:11.5px;padding:6px 12px;border-radius:999px;cursor:pointer;}
   .chip-danger{color:var(--danger);border-color:rgba(226,104,92,.4);}
@@ -522,7 +524,7 @@
     header.topbar,.editor-screen,.crop-screen,.edit-sheet,
     #btnBackToProjects,#btnEditCustomer,#btnAddArea,.area-card-del,.quote-actions,#projQuoteModeTabs,.discount-row,
     .export-label-toggle,.area-card-body .btn,#poWrap{display:none !important;}
-    #screen-projects,#screen-fixtures,#screen-company{display:none !important;}
+    #screen-projects,#screen-fixtures,#screen-company,#screen-distributor-contractors,#screen-admin{display:none !important;}
     #screen-project-detail{display:flex !important;overflow:visible;}
     .print-only{display:block !important;}
     /* .app normally carries the on-screen theme's background (--ink), which in light theme is
@@ -718,6 +720,7 @@
       <button class="tab" data-screen="fixtures">Fixtures</button>
       <button class="tab" data-screen="distributor-contractors" data-role="distributor" hidden>Contractors</button>
       <button class="tab" data-screen="company">Company</button>
+      <button class="tab" data-screen="admin" id="tabAdmin" hidden>Admin</button>
     </div>
     <div class="header-actions">
       <button class="icon-btn" id="btnThemeToggle" aria-label="Toggle light/dark mode">🌙</button>
@@ -925,6 +928,18 @@
     <div class="empty-note" style="padding:0 14px 24px;text-align:left;">These settings apply to the PDF you generate from any project's "Print / Export project" button, and the accent color also previews live on-screen.</div>
   </main>
 
+  <!-- ===================== ADMIN DASHBOARD ===================== -->
+  <!-- Only visible when authProfile.isPlatformAdmin is true (see applyAccountTypeUI()) --
+       orthogonal to account_type, since the app owner's own account is still a normal
+       contractor/distributor account underneath, just with this flag also set by hand
+       via the SQL Editor (no UI sets it -- see admin_company_summary() in schema.sql). -->
+  <main id="screen-admin" class="screen">
+    <div class="section-head"><h2>Admin</h2></div>
+    <div class="empty-note" style="padding:0 14px 18px;text-align:left;">Every company that's signed up, grouped by distributor, with last login and usage.</div>
+    <div id="adminDashboard"></div>
+    <div class="empty-note" id="adminEmpty" style="padding:24px 14px;text-align:center;" hidden>No companies yet.</div>
+  </main>
+
 </div>
 
 <!-- ===================== FULLSCREEN AREA EDITOR ===================== -->
@@ -1108,8 +1123,9 @@
         <div class="field" id="authCompanyField" hidden><label>Company name</label><input id="authCompanyName" placeholder="e.g. Summit Landscape Lighting"></div>
         <div class="field" id="authNameField" hidden><label>Your name</label><input id="authFullName" placeholder="e.g. Jordan"></div>
         <div class="field" id="authAccessCodeField" hidden><label>Access code</label><input id="authAccessCode" placeholder="Enter your invite code"></div>
-        <div class="field"><label>Email</label><input id="authEmail" type="email" placeholder="you@company.com"></div>
-        <div class="field"><label>Password</label><input id="authPassword" type="password" placeholder="At least 6 characters"></div>
+        <div class="field" id="authEmailField"><label>Email</label><input id="authEmail" type="email" placeholder="you@company.com"></div>
+        <div class="field"><label id="authPasswordLabel">Password</label><input id="authPassword" type="password" placeholder="At least 6 characters"></div>
+        <button type="button" class="link-btn" id="btnForgotPassword">Forgot password?</button>
       </div>
       <div class="edit-hint" id="authError"></div>
     </div>
@@ -1420,8 +1436,8 @@
   const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJvbHdjeHVzYmZzaXpzanR1bHZyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY5ODI4NzksImV4cCI6MjEwMjU1ODg3OX0.5P0-V9moSXtfus5h77kHZfiCIyZU8SV9PNz5PyNDRac';
   const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   let authUser = null;     // {id, email} for the signed-in Supabase user, or null
-  let authProfile = null;  // {companyId, companyName, fullName, role, accountType} from the profiles/companies tables
-  let authMode = 'signin'; // 'signin' | 'signup', which tab the account modal is showing
+  let authProfile = null;  // {companyId, companyName, fullName, role, accountType, isPlatformAdmin} from the profiles/companies tables
+  let authMode = 'signin'; // 'signin' | 'signup' | 'recovery', which state the account modal is showing
 
   const $ = id => document.getElementById(id);
   const money = n => (n||0).toLocaleString('en-US',{style:'currency',currency:'USD'});
@@ -2645,7 +2661,7 @@
 
   // ---------------- top-level screen switching ----------------
   function switchTopScreen(name){
-    ['projects','project-detail','fixtures','distributor-contractors','company'].forEach(n=>{
+    ['projects','project-detail','fixtures','distributor-contractors','company','admin'].forEach(n=>{
       $('screen-'+n).classList.toggle('active', n===name);
     });
     document.querySelectorAll('#screenTabs .tab').forEach(t=>{
@@ -2656,6 +2672,7 @@
     if(name==='distributor-contractors'){ renderInviteList(); renderContractorLinkList(); }
     if(name==='company'){ renderCompanyPreview(); renderDistributorList(); renderDistributorLinksSection(); }
     if(name==='projects') renderProjectList();
+    if(name==='admin') renderAdminDashboard();
   }
   // Distributor accounts get a different tab set (no Projects -- there's no lighting-design
   // concept for a distributor org -- and a Contractors tab instead) and land on Fixtures (their
@@ -2665,6 +2682,10 @@
     document.querySelectorAll('#screenTabs .tab[data-role]').forEach(t=>{
       t.hidden = t.dataset.role !== (isDistributor ? 'distributor' : 'contractor');
     });
+    // Orthogonal to account_type -- an admin's own account is still a normal
+    // contractor/distributor account underneath, just with this flag also set (by hand,
+    // via the SQL Editor -- see admin_company_summary() in schema.sql).
+    $('tabAdmin').hidden = !(authProfile && authProfile.isPlatformAdmin);
     // The fixture-form Cost/Price fields mean something different for a distributor: Price
     // there IS the list price contractors see (via contractor_catalog_view), and Cost is
     // the distributor's own private cost basis, never shown to a contractor -- relabel so
@@ -3387,6 +3408,7 @@
           <div class="field" style="margin:0;"><label style="margin:0 0 3px;">Multiplier</label>
             <input type="number" step="0.01" min="0" style="width:80px;" data-multiplier="${link.contractorCompanyId}" value="${link.multiplier}">
           </div>
+          <div class="fx-actions"><button data-remove-link="${link.contractorCompanyId}">Remove</button></div>
         </div>
       </div>`;
     }).join('');
@@ -3408,6 +3430,70 @@
         .eq('distributor_company_id', authProfile.companyId).eq('contractor_company_id', contractorId)
         .then(({error})=>{ if(error) console.warn('Duskline: contractor label update failed.', error); });
     }));
+    $('contractorLinkList').querySelectorAll('[data-remove-link]').forEach(b=> b.addEventListener('click', e=>{
+      const contractorId = e.currentTarget.dataset.removeLink;
+      const link = state.myContractorLinks.find(l=>l.contractorCompanyId===contractorId);
+      const name = link ? (link.label || link.contractorName || 'this contractor') : 'this contractor';
+      if(!confirm(`Remove ${name} from your catalog? They'll immediately lose access to your fixtures and pricing.`)) return;
+      state.myContractorLinks = state.myContractorLinks.filter(l=>l.contractorCompanyId!==contractorId);
+      renderContractorLinkList();
+      sb.from('distributor_links').delete()
+        .eq('distributor_company_id', authProfile.companyId).eq('contractor_company_id', contractorId)
+        .then(({error})=>{ if(error) console.warn('Duskline: contractor removal failed.', error); });
+    }));
+  }
+
+  // ---------------- admin dashboard (platform admin accounts only) ----------------
+  // Single data source: admin_company_summary() (schema.sql), a SECURITY DEFINER function
+  // gated internally on is_platform_admin() -- a non-admin calling this via sb.rpc just gets
+  // an empty result back, not an error, so no client-side guard is needed before calling it.
+  async function renderAdminDashboard(){
+    const { data, error } = await sb.rpc('admin_company_summary');
+    if(error){
+      console.warn('Duskline: admin dashboard load failed.', error);
+      $('adminDashboard').innerHTML = '';
+      $('adminEmpty').hidden = false;
+      $('adminEmpty').textContent = 'Could not load admin data.';
+      return;
+    }
+    const rows = data || [];
+    $('adminEmpty').hidden = rows.length>0;
+    $('adminEmpty').textContent = 'No companies yet.';
+    if(!rows.length){ $('adminDashboard').innerHTML = ''; return; }
+
+    // Group client-side rather than a second query: every contractor row already carries
+    // distributor_company_id (null for a standalone/beta signup with no distributor), so
+    // one flat result set is enough to build the whole nested view.
+    const distributors = rows.filter(r=> r.account_type==='distributor');
+    const byDistributor = {};
+    const standalone = [];
+    rows.filter(r=> r.account_type==='contractor').forEach(r=>{
+      if(r.distributor_company_id) (byDistributor[r.distributor_company_id] = byDistributor[r.distributor_company_id]||[]).push(r);
+      else standalone.push(r);
+    });
+
+    const fmtDate = iso => iso ? new Date(iso).toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'}) : '—';
+    const fmtLogin = iso => iso ? new Date(iso).toLocaleString('en-US', {month:'short', day:'numeric', hour:'numeric', minute:'2-digit'}) : 'Never logged in';
+    const rowHtml = (r, indent)=> `<div class="fx-card"${indent?' style="margin-left:20px;"':''}>
+      <div class="fx-main">
+        <div class="fx-name">${escapeHtml(r.company_name||'Untitled')}</div>
+        <div class="fx-desc">${escapeHtml(r.owner_email||'—')} · signed up ${fmtDate(r.created_at)} · ${fmtLogin(r.owner_last_sign_in_at)}</div>
+      </div>
+      <div class="fx-side"><div class="fx-price mono">${r.project_count} project${r.project_count!==1?'s':''} · ${r.area_count} area${r.area_count!==1?'s':''}</div></div>
+    </div>`;
+
+    let html = '';
+    distributors.forEach(d=>{
+      const contractors = byDistributor[d.company_id] || [];
+      html += `<div class="fx-removed-title" style="margin-top:14px;">${escapeHtml(d.company_name||'Untitled')} <span class="muted" style="font-weight:400;">· distributor · ${contractors.length} contractor${contractors.length!==1?'s':''}</span></div>`;
+      html += rowHtml(d, false);
+      contractors.forEach(c=> html += rowHtml(c, true));
+    });
+    if(standalone.length){
+      html += `<div class="fx-removed-title" style="margin-top:14px;">Direct signups</div>`;
+      standalone.forEach(c=> html += rowHtml(c, false));
+    }
+    $('adminDashboard').innerHTML = html;
   }
 
   // ---------------- fixture import template download ----------------
@@ -4081,7 +4167,7 @@
     if(!authUser){ authProfile = null; return; }
     try{
       const { data, error } = await sb.from('profiles')
-        .select('company_id, full_name, role, companies(name, account_type)')
+        .select('company_id, full_name, role, is_platform_admin, companies(name, account_type)')
         .eq('id', authUser.id)
         .single();
       if(!error && data){
@@ -4091,6 +4177,7 @@
           fullName: data.full_name,
           role: data.role,
           accountType: data.companies ? data.companies.account_type : 'contractor',
+          isPlatformAdmin: !!data.is_platform_admin,
         };
       }else{
         authProfile = null;
@@ -4279,13 +4366,21 @@
     $('landingScreen').classList.remove('visible');
   }
   function setAuthMode(mode){
+    // 'recovery' is a third mode reached only via a password-reset email link (see the
+    // PASSWORD_RECOVERY branch in the onAuthStateChange subscription below) -- it reuses
+    // the same form/button infrastructure as signin/signup rather than a separate modal,
+    // just hiding everything but the (repurposed) password field.
     authMode = mode;
+    $('authModeTabs').hidden = mode==='recovery';
     document.querySelectorAll('#authModeTabs .tab').forEach(b=> b.classList.toggle('active', b.dataset.authmode===mode));
     $('authCompanyField').hidden = mode!=='signup';
     $('authNameField').hidden = mode!=='signup';
     $('authAccessCodeField').hidden = mode!=='signup';
-    $('accountModalTitle').textContent = mode==='signup' ? 'Create your account' : 'Sign in';
-    $('accountSubmit').textContent = mode==='signup' ? 'Create account' : 'Sign in';
+    $('authEmailField').hidden = mode==='recovery';
+    $('btnForgotPassword').hidden = mode!=='signin';
+    $('authPasswordLabel').textContent = mode==='recovery' ? 'New password' : 'Password';
+    $('accountModalTitle').textContent = mode==='signup' ? 'Create your account' : mode==='recovery' ? 'Set a new password' : 'Sign in';
+    $('accountSubmit').textContent = mode==='signup' ? 'Create account' : mode==='recovery' ? 'Set new password' : 'Sign in';
     $('authError').textContent = '';
   }
   function openAccountModal(){
@@ -4315,13 +4410,33 @@
     if(!authUser) showLandingScreen(); // logged-out cancel returns to the landing page
   }
   async function submitAuthForm(){
-    const email = $('authEmail').value.trim();
-    const password = $('authPassword').value;
     const errEl = $('authError');
     errEl.style.color = '';
     errEl.textContent = '';
-    if(!email || !password){ errEl.textContent = 'Enter an email and password.'; return; }
     const btn = $('accountSubmit');
+    // Reached only via a password-reset email link (see the PASSWORD_RECOVERY branch in
+    // onAuthStateChange) -- Supabase has already established a temporary recovery session
+    // by this point, so updateUser() just needs the new password, not email/current password.
+    if(authMode==='recovery'){
+      const newPassword = $('authPassword').value;
+      if(!newPassword || newPassword.length<6){ errEl.textContent = 'Enter a password of at least 6 characters.'; return; }
+      btn.disabled = true;
+      try{
+        const { error } = await sb.auth.updateUser({ password: newPassword });
+        if(error) throw error;
+        const { data:{ session } } = await sb.auth.getSession();
+        $('accountModal').hidden = true;
+        if(session && session.user) enterAppForUser(session.user);
+      }catch(err){
+        errEl.textContent = err.message || 'Could not set new password.';
+      }finally{
+        btn.disabled = false;
+      }
+      return;
+    }
+    const email = $('authEmail').value.trim();
+    const password = $('authPassword').value;
+    if(!email || !password){ errEl.textContent = 'Enter an email and password.'; return; }
     btn.disabled = true;
     try{
       if(authMode==='signup'){
@@ -4356,6 +4471,15 @@
     }finally{
       btn.disabled = false;
     }
+  }
+  async function sendPasswordReset(){
+    const errEl = $('authError');
+    const email = $('authEmail').value.trim();
+    if(!email){ errEl.style.color = ''; errEl.textContent = 'Enter your email above first, then tap "Forgot password?".'; return; }
+    const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin });
+    if(error){ errEl.style.color = ''; errEl.textContent = error.message; return; }
+    errEl.style.color = 'var(--muted)';
+    errEl.textContent = 'Check your email for a password reset link.';
   }
   async function handleLogout(){
     await flushCurrentEdits();
@@ -4944,6 +5068,7 @@
     $('accountBackdrop').addEventListener('click', closeAccountModal);
     $('accountSubmit').addEventListener('click', submitAuthForm);
     $('accountLogout').addEventListener('click', handleLogout);
+    $('btnForgotPassword').addEventListener('click', sendPasswordReset);
     document.querySelectorAll('#authModeTabs .tab').forEach(b=>{
       b.addEventListener('click', ()=> setAuthMode(b.dataset.authmode));
     });
@@ -4956,6 +5081,24 @@
     setAppVisible(false);
     showLandingScreen();
     sb.auth.onAuthStateChange((event, session)=>{
+      // Fired with a valid (temporary) session when a user lands here via a password-reset
+      // email link. Without this branch, that session would fall straight through to
+      // enterAppForUser below and silently drop them into the full app with their OLD
+      // password still active -- force "set a new password" instead, before entering the app.
+      if(event==='PASSWORD_RECOVERY'){
+        // Bypasses openAccountModal() (which normally sets these), so set them explicitly --
+        // otherwise this could inherit stale button visibility left over from the modal's
+        // last real state (e.g. still showing "Account"/logged-in mode's hidden submit
+        // button, if a stale reset link is opened while already signed in elsewhere).
+        $('authForms').hidden = false;
+        $('accountInfo').hidden = true;
+        $('accountSubmit').hidden = false;
+        $('accountLogout').hidden = true;
+        $('accountCancel').hidden = false;
+        setAuthMode('recovery');
+        $('accountModal').hidden = false;
+        return;
+      }
       if(!session || !session.user){ leaveApp(); return; }
       // supabase-js re-fires this (e.g. TOKEN_REFRESHED) whenever the tab regains focus/visibility —
       // including after a mailto: link hands off to a mail client and the user switches back — with

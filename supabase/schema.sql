@@ -298,7 +298,7 @@ create table public.distributor_invites (
   label text not null default '',
   created_at timestamptz not null default now(),
   redeemed_at timestamptz,
-  used_by_company_id uuid references public.companies(id)
+  used_by_company_id uuid references public.companies(id) on delete cascade
 );
 
 alter table public.distributor_links enable row level security;
@@ -559,3 +559,12 @@ as $$
 $$;
 
 grant execute on function public.admin_company_summary() to authenticated;
+
+-- Fix for a real cleanup failure: distributor_invites.used_by_company_id was missing
+-- `on delete cascade` (every other FK to companies in this table has it) -- deleting an
+-- orphaned test company that had once redeemed an invite failed with a foreign key
+-- violation instead of cleaning up. Drop and recreate the constraint with cascade.
+alter table public.distributor_invites
+  drop constraint distributor_invites_used_by_company_id_fkey,
+  add constraint distributor_invites_used_by_company_id_fkey
+    foreign key (used_by_company_id) references public.companies(id) on delete cascade;

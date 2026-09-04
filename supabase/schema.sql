@@ -369,7 +369,12 @@ security definer set search_path = public
 as $$
 declare
   new_company_id uuid;
-  v_code text := new.raw_user_meta_data->>'access_code';
+  -- Strip anything outside printable ASCII (incl. plain spaces) before comparing --
+  -- a copy-pasted code can pick up a stray invisible character (non-breaking space,
+  -- zero-width space, smart-quote artifacts, etc.) that looks identical on screen but
+  -- fails a byte-for-byte match. All real codes (generated invites and the hardcoded
+  -- ones below) are plain ASCII with no whitespace, so this normalization is safe.
+  v_code text := regexp_replace(coalesce(new.raw_user_meta_data->>'access_code',''), '[^\x21-\x7E]', '', 'g');
   v_invite record;
   v_account_type text := 'contractor';
 begin
@@ -380,7 +385,9 @@ begin
   elsif v_code = 'DUSKLINEDISTRIBUTORV1' then
     v_account_type := 'distributor';
   elsif v_code is distinct from 'DUSKLINEBETAV12026' then
-    raise exception 'invalid access code';
+    -- The [%](len %) is deliberate -- if this still fires, the Postgres logs will show
+    -- exactly what the server received, byte-length included, instead of just "invalid".
+    raise exception 'invalid access code: [%] (len %)', v_code, length(v_code);
   end if;
 
   insert into public.companies (name, account_type)

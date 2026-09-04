@@ -2981,11 +2981,20 @@
     if(!looksHeic) return file;
     try{
       const converted = await window.heic2any({ blob: file, toType: 'image/jpeg', quality: 0.9 });
-      // A multi-image HEIC container (e.g. iOS "Live Photo" burst) converts to an array --
-      // just take the first frame, same as how iOS itself treats the file as one photo.
+      // heic2any only ever returns an array if you explicitly pass `multiple:true` (which
+      // we don't) -- otherwise it's always a single Blob, even for a multi-image container
+      // (it picks the first image). This is just defensive, not a real case we hit.
       const blob = Array.isArray(converted) ? converted[0] : converted;
       return new File([blob], (file.name||'photo').replace(/\.hei[cf]$/i, '') + '.jpg', {type:'image/jpeg'});
     }catch(err){
+      // heic2any inspects the actual bytes and deliberately rejects with this specific
+      // message when a file named/labeled .heic isn't really HEIC anymore -- a real
+      // scenario: iCloud/Photos sometimes transparently converts a photo (Live Photos
+      // especially) to JPEG during transfer to a non-Apple device depending on the
+      // device's transfer settings, while the filename/reported type stays .heic. In that
+      // case there's nothing to convert -- the file already opens fine as-is.
+      const message = (err && err.message) || (typeof err==='string' ? err : '') || '';
+      if(/already browser readable/i.test(message)) return file;
       console.warn('Duskline: HEIC conversion failed.', err);
       alert('Could not open that HEIC photo. Try sharing/exporting it as a JPEG from your phone first, then upload that instead.');
       return null;

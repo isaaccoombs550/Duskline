@@ -249,3 +249,154 @@ create policy "Company members manage their own photos"
 -- definition, so it renders via a fixed high CSS order value instead.
 alter table public.companies
   add column footer_text text not null default '';
+
+-- ============================================================================
+-- Distributor accounts (see ../CLAUDE.md): a distributor company maintains one
+-- fixture catalog and gives out contractor accounts, each with its own price
+-- multiplier applied live against the distributor's own list price. See
+-- CLAUDE.md's "Distributor accounts" section for the full design rationale —
+-- summarized inline here since it's not obvious from the SQL alone.
+-- ============================================================================
+
+alter table public.companies
+  add column account_type text not null default 'contractor'
+    check (account_type in ('contractor','distributor'));
+
+-- The existing "Users can update their own company" policy (Phase 2, above) has no
+-- column restriction — as written, any signed-in user could PATCH their own company
+-- row and set account_type:'distributor' directly via the REST API, bypassing the UI
+-- entirely. Column-level grants close that: account_type is deliberately excluded
+-- from the writable list below, so it can only ever be set by handle_new_user()
+-- (SECURITY DEFINER, bypasses grants) at signup, never by an ordinary update.
+revoke update on public.companies from authenticated;
+grant update (name, phone, email, address, website, logo, tax_rate, tax_label,
+  quote_accent, pdf_logo_size, pdf_font_size, pdf_bg_color, heading_align,
+  section_order, footer_text) on public.companies to authenticated;
+
+-- One row per contractor a distributor has onboarded. multiplier is what turns the
+-- distributor's own custom_fixtures.price (their sell price -- which IS the
+-- contractor's list price) into that specific contractor's net cost, computed live
+-- by contractor_catalog_view below -- there is no copy/snapshot anywhere, so a
+-- multiplier or price change is visible to the contractor on their very next load.
+create table public.distributor_links (
+  distributor_company_id uuid not null references public.companies(id) on delete cascade,
+  contractor_company_id uuid not null references public.companies(id) on delete cascade,
+  multiplier numeric not null default 1,
+  created_at timestamptz not null default now(),
+  primary key (distributor_company_id, contractor_company_id)
+);
+
+-- How a distributor onboards a contractor who doesn't have an account yet. Redeemed
+-- via the SAME access_code signup field the beta gate already uses (see
+-- handle_new_user() below) -- no separate "distributor invite code" field exists in
+-- the signup form; the trigger disambiguates server-side by looking the code up here
+-- first, before falling back to the hardcoded beta/distributor codes.
+create table public.distributor_invites (
+  code text primary key,
+  distributor_company_id uuid not null references public.companies(id) on delete cascade,
+  multiplier numeric not null default 1,
+  label text not null default '',
+  created_at timestamptz not null default now(),
+  redeemed_at timestamptz,
+  used_by_company_id uuid references public.companies(id)
+);
+
+alter table public.distributor_links enable row level security;
+alter table public.distributor_invites enable row level security;
+
+create policy "Distributor manages own links"
+  on public.distributor_links for all
+  using (distributor_company_id = public.current_company_id())
+  with check (distributor_company_id = public.current_company_id());
+
+-- A contractor can read their own link row (which distributor(s) they're connected
+-- to, and their own multiplier) -- it's their own rate, not another contractor's, so
+-- there's no secrecy concern, and the app surfaces it as "Connected distributors" in
+-- the Company tab.
+create policy "Contractor can view own link"
+  on public.distributor_links for select
+  using (contractor_company_id = public.current_company_id());
+
+create policy "Distributor manages own invites"
+  on public.distributor_invites for all
+  using (distributor_company_id = public.current_company_id())
+  with check (distributor_company_id = public.current_company_id());
+-- No policy for the redeeming contractor -- redemption happens entirely inside
+-- handle_new_user() (SECURITY DEFINER), which bypasses RLS. A contractor never
+-- queries distributor_invites directly.
+
+-- The live-pricing mechanism. Selects a linked distributor's own custom_fixtures
+-- rows, strips their private cost/vendorId (a distributor's own cost basis and PO
+-- vendor are theirs alone -- never exposed to a contractor), and replaces price
+-- (the distributor's sell price = the contractor's list price) with a computed
+-- cost = price * multiplier. This view is owned by whichever role creates it (the
+-- SQL Editor's `postgres` role), so its internal join can read across the
+-- distributor's custom_fixtures rows despite that table's own
+-- `company_id = current_company_id()` RLS policy -- the view's own
+-- `where dl.contractor_company_id = current_company_id()` clause (current_company_id()
+-- reflects the ACTUAL calling user's session regardless of the view's ownership) is
+-- what performs the real per-caller filtering. A contractor querying custom_fixtures
+-- directly is still fully blocked from ever seeing another company's rows -- only
+-- this filtered, computed view is exposed to them.
+create view public.contractor_catalog_view as
+select
+  cf.id,
+  dl.distributor_company_id,
+  c.name as distributor_name,
+  (cf.data - 'cost' - 'vendorId') || jsonb_build_object(
+    'cost', round(((cf.data->>'price')::numeric * dl.multiplier)::numeric, 2)
+  ) as data
+from public.custom_fixtures cf
+join public.companies c on c.id = cf.company_id and c.account_type = 'distributor'
+join public.distributor_links dl on dl.distributor_company_id = cf.company_id
+where dl.contractor_company_id = public.current_company_id();
+
+grant select on public.contractor_catalog_view to authenticated;
+
+-- Supersedes the handle_new_user() defined near the top of this file. Same
+-- access-code gate as before, but the single `access_code` signup field now has
+-- three possible meanings, checked in this order: (1) an unredeemed distributor
+-- invite code -> ordinary contractor account, auto-linked to that distributor at
+-- the given multiplier; (2) the hardcoded distributor-provisioning code -> a
+-- distributor account (handed manually to a paying distributor partner, same way
+-- the beta code itself is shared); (3) the existing hardcoded beta code -> an
+-- ordinary contractor account, unchanged from before. Anything else still rolls
+-- back the whole signup atomically, exactly as before.
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer set search_path = public
+as $$
+declare
+  new_company_id uuid;
+  v_code text := new.raw_user_meta_data->>'access_code';
+  v_invite record;
+  v_account_type text := 'contractor';
+begin
+  select * into v_invite from public.distributor_invites where code = v_code and redeemed_at is null;
+
+  if v_invite is not null then
+    v_account_type := 'contractor';
+  elsif v_code = 'DUSKLINEDISTRIBUTORV1' then
+    v_account_type := 'distributor';
+  elsif v_code is distinct from 'DUSKLINEBETAV12026' then
+    raise exception 'invalid access code';
+  end if;
+
+  insert into public.companies (name, account_type)
+  values (coalesce(new.raw_user_meta_data->>'company_name', 'My Company'), v_account_type)
+  returning id into new_company_id;
+
+  insert into public.profiles (id, company_id, full_name, role)
+  values (new.id, new_company_id, new.raw_user_meta_data->>'full_name', 'owner');
+
+  if v_invite is not null then
+    insert into public.distributor_links (distributor_company_id, contractor_company_id, multiplier)
+    values (v_invite.distributor_company_id, new_company_id, v_invite.multiplier);
+    update public.distributor_invites set redeemed_at = now(), used_by_company_id = new_company_id
+      where code = v_code;
+  end if;
+
+  return new;
+end;
+$$;

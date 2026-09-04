@@ -2630,7 +2630,14 @@
 
   function renderLoadSummary(pr){
     const el = $('loadSummary');
-    if(!pr || !pr.areas.length || state.quoteMode!=='cost'){ el.innerHTML=''; return; }
+    // Clearing innerHTML alone left the box empty but still visible -- .load-summary sets its
+    // own padding/background/border unconditionally, so an empty box still rendered as a
+    // blank rounded pill sitting between the Areas and Project quote sections (a real
+    // user-reported "empty bubble" bug). hidden actually removes it; el has no [hidden]-
+    // fighting `display` rule of its own, unlike some other elements in this file, so this
+    // alone is enough -- no extra `[hidden]{display:none}` override needed here.
+    if(!pr || !pr.areas.length || state.quoteMode!=='cost'){ el.innerHTML=''; el.hidden=true; return; }
+    el.hidden = false;
     const rows = pr.areas.map(a=>`<div class="load-row"><span>${escapeHtml(a.name)}</span><span class="mono">${Math.round(areaWatts(a))} W</span></div>`).join('');
     const total = pr.areas.reduce((s,a)=>s+areaWatts(a),0);
     const rec = Math.ceil((total/0.8)/50)*50;

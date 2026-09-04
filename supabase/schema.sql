@@ -385,15 +385,16 @@ begin
   elsif v_code = 'DUSKLINEDISTRIBUTORV1' then
     v_account_type := 'distributor';
   elsif v_code is distinct from 'DUSKLINEBETAV12026' then
-    -- Temporary extra-verbose diagnostic: shows the normalized code/length, how many
-    -- distributor_invites rows match that code at all (ignoring redeemed_at), and that
-    -- row's actual redeemed_at value -- distinguishes "code truly doesn't match anything"
-    -- from "it matches but redeemed_at wasn't actually null." Trim this back down to the
-    -- simpler message once the real cause is found.
-    raise exception 'invalid access code: code=[%] len=% matches=% redeemed_at=%',
+    -- Temporary extra-verbose diagnostic -- matches_code_only vs matches_combined use the
+    -- EXACT same WHERE clause as the "select * into v_invite" statement above, run as a
+    -- plain count instead of a record assignment, to isolate whether the WHERE clause
+    -- itself is the problem or something about populating v_invite from it is.
+    raise exception 'invalid access code: code=[%] len=% matches_code_only=% matches_combined=% redeemed_at=% v_invite_is_null=%',
       v_code, length(v_code),
       (select count(*) from public.distributor_invites where code = v_code),
-      (select redeemed_at::text from public.distributor_invites where code = v_code limit 1);
+      (select count(*) from public.distributor_invites where code = v_code and redeemed_at is null),
+      (select redeemed_at::text from public.distributor_invites where code = v_code limit 1),
+      (v_invite is null)::text;
   end if;
 
   insert into public.companies (name, account_type)

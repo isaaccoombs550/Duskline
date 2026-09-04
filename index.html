@@ -171,7 +171,17 @@
   .sheet-tab,.fmgmt-tab{flex:1;background:var(--surface-2);border:1px solid var(--line);color:var(--muted);
     padding:7px;border-radius:8px;font-size:11.5px;font-weight:600;cursor:pointer;}
   .sheet-tab.active,.fmgmt-tab.active{background:rgba(240,168,78,.12);border-color:var(--amber);color:var(--amber-soft);}
+  .sheet-filters{display:flex;gap:8px;padding:0 14px 10px;flex-wrap:wrap;}
+  .sheet-filters input[type=search]{flex:1;min-width:120px;background:var(--surface-2);border:1px solid var(--line);
+    border-radius:8px;padding:8px 10px;color:var(--fog);font-size:12.5px;}
+  .sheet-filters select{background:var(--surface-2);border:1px solid var(--line);border-radius:8px;
+    padding:8px 10px;color:var(--fog);font-size:12.5px;}
   .sheet-list{padding:0 12px 18px;display:flex;flex-direction:column;gap:8px;}
+  .fx-bulk-bar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:0 14px 10px;
+    padding:9px 12px;background:rgba(240,168,78,.08);border:1px solid var(--amber);border-radius:10px;
+    font-size:12.5px;color:var(--amber-soft);font-weight:600;}
+  .fx-select{display:flex;align-items:center;padding-right:2px;}
+  .fx-select input{width:16px;height:16px;accent-color:var(--amber);cursor:pointer;}
   .fx-card{display:flex;justify-content:space-between;gap:10px;background:var(--surface-2);
     border:1px solid var(--line);border-radius:10px;padding:10px 12px;}
   .fx-card.is-armed{border-color:var(--amber);box-shadow:0 0 0 1px var(--amber) inset;}
@@ -804,6 +814,13 @@
       <button class="fmgmt-tab" data-fcat="accessory">Accessories</button>
       <button class="fmgmt-tab" data-fcat="strip">Strips</button>
     </div>
+    <div class="fx-bulk-bar" id="fxBulkBar" hidden>
+      <span id="fxBulkCount"></span>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-ghost btn-sm" id="btnFxBulkClear">Clear</button>
+        <button class="btn btn-danger btn-sm" id="btnFxBulkDelete">Delete selected</button>
+      </div>
+    </div>
     <div class="sheet-list" id="fixtureMgmtList"></div>
     <div id="fixtureMgmtRemoved"></div>
   </main>
@@ -967,6 +984,10 @@
         <button class="sheet-tab active" data-cat="fixture">Fixtures</button>
         <button class="sheet-tab" data-cat="accessory">Accessories</button>
         <button class="sheet-tab" data-cat="strip">Strips</button>
+      </div>
+      <div class="sheet-filters">
+        <input type="search" id="sheetSearchInput" placeholder="Search part number or description…">
+        <select id="sheetTypeFilter"></select>
       </div>
       <div class="sheet-list" id="sheetList"></div>
     </div>
@@ -1253,6 +1274,8 @@
         quoteAccent:'#F0A84E', pdfLogoSize:30, pdfFontSize:10, pdfBgColor:'#FFFFFF', headingAlign:'left',
         sectionOrder:['header','customer','areas','load','quote'], footerText:''},
       sheetCat: 'fixture',
+      sheetSearch: '',
+      sheetTypeFilter: 'all',
       armed: null,
       selected: null,
       quoteMode: 'customer',
@@ -2147,9 +2170,30 @@
   }
 
   // ---------------- fixture picker (inside area editor) ----------------
+  function populateSheetTypeFilter(){
+    $('sheetTypeFilter').innerHTML = '<option value="all">All types</option>' +
+      FIXTURE_TYPE_ORDER.map(k=>`<option value="${k}">${escapeHtml(FIXTURE_TYPES[k].label)}</option>`).join('');
+  }
   function renderSheetList(){
     const area = currentArea(); if(!area) return;
-    const list = allFixtures().filter(f=>f.cat===state.sheetCat);
+    let list = allFixtures().filter(f=>f.cat===state.sheetCat);
+    // Type filter only makes sense for fixtures (accessories/strips have no FIXTURE_TYPES
+    // type), so it's hidden on those tabs rather than left visibly inert.
+    $('sheetTypeFilter').hidden = state.sheetCat!=='fixture';
+    if(state.sheetCat==='fixture' && state.sheetTypeFilter!=='all'){
+      list = list.filter(f=> (f.type||'other')===state.sheetTypeFilter);
+    }
+    const search = (state.sheetSearch||'').trim().toLowerCase();
+    if(search){
+      // "part number" isn't its own field -- for imported fixtures it's folded into `name`
+      // (see the fixture-import template's Part Number + Description -> name note), so
+      // matching against name covers it; matching desc too catches everything else.
+      list = list.filter(f=> (f.name||'').toLowerCase().includes(search) || (f.desc||'').toLowerCase().includes(search));
+    }
+    if(!list.length){
+      $('sheetList').innerHTML = `<div class="empty-note" style="padding:28px 10px;text-align:center;">No matches${search?' for "'+escapeHtml(state.sheetSearch.trim())+'"':''}.</div>`;
+      return;
+    }
     $('sheetList').innerHTML = list.map(f=>{
       if(f.cat==='fixture'){
         const armed = state.armed===f.id;
@@ -2786,6 +2830,8 @@
     if(!area.lightStrips) area.lightStrips = [];
     state.armed=null; state.selected=null; state.drawingWire=false; state.currentWirePath=null;
     state.drawingStripFixtureId=null; state.currentStripPath=null; closeInfoSheet();
+    state.sheetSearch=''; state.sheetTypeFilter='all';
+    $('sheetSearchInput').value=''; $('sheetTypeFilter').value='all';
     undoStack = []; redoStack = []; updateUndoRedoButtons();
     $('editorScreen').hidden = false;
     document.body.style.overflow = 'hidden';
@@ -2886,16 +2932,34 @@
   }
 
   // ---------------- fixture library management ----------------
+  // Multi-select for bulk delete, scoped to custom (imported/user-added) fixtures only --
+  // built-ins can't be permanently deleted (see deleteFixtureForm), only hidden one at a time
+  // via their own "Remove from library" flow, so they don't get a bulk-select checkbox here.
+  let fxMgmtSelected = new Set();
+  function updateFxMgmtBulkBar(){
+    const bar = $('fxBulkBar');
+    const n = fxMgmtSelected.size;
+    bar.hidden = n===0;
+    if(n>0) $('fxBulkCount').textContent = `${n} selected`;
+  }
   function renderFixtureMgmtList(){
     const cat = state.fixtureMgmtCat;
     const list = allFixtures().filter(f=>f.cat===cat);
+    // Drop any selected ids that no longer belong to the currently-shown category/list (e.g.
+    // after a bulk delete already removed them) so the count in the bulk bar stays accurate.
+    const listIds = new Set(list.map(f=>f.id));
+    fxMgmtSelected.forEach(id=>{ if(!listIds.has(id)) fxMgmtSelected.delete(id); });
     $('fixtureMgmtList').innerHTML = list.map(f=>{
       const specLine = f.cat==='fixture' ? specStr(f)+' · '+f.watt+'W'
         : f.cat==='strip' ? f.kelvin+'K · '+f.watt+'W/ft'
         : (f.watt?f.watt+'W · ':'')+'';
       const install = f.installTime ? (specLine?' · ':'')+f.installTime+'m install' : '';
       const vendor = f.vendorId && state.distributors.find(d=>d.id===f.vendorId);
+      const checkbox = f.custom
+        ? `<label class="fx-select"><input type="checkbox" data-select="${f.id}" ${fxMgmtSelected.has(f.id)?'checked':''}></label>`
+        : '';
       return `<div class="fx-card">
+        ${checkbox}
         <div class="fx-main">
           <div class="fx-name">${quoteItemNameCell(f)}${f.custom?' <span class="muted" style="font-size:10px;">· custom</span>':''}</div>
           <div class="fx-desc">${escapeHtml(f.desc)}</div>
@@ -2908,6 +2972,12 @@
       </div>`;
     }).join('');
     $('fixtureMgmtList').querySelectorAll('[data-edit]').forEach(b=>b.addEventListener('click', e=> openFixtureForm(e.currentTarget.dataset.edit)));
+    $('fixtureMgmtList').querySelectorAll('[data-select]').forEach(cb=> cb.addEventListener('change', e=>{
+      const id = e.currentTarget.dataset.select;
+      if(e.currentTarget.checked) fxMgmtSelected.add(id); else fxMgmtSelected.delete(id);
+      updateFxMgmtBulkBar();
+    }));
+    updateFxMgmtBulkBar();
 
     const removed = BASE_FIXTURES.filter(f=> f.cat===cat && state.fixtureOverrides[f.id] && state.fixtureOverrides[f.id].hidden);
     const removedList = $('fixtureMgmtRemoved');
@@ -2917,6 +2987,17 @@
       return `<div class="fx-removed-row"><span>${escapeHtml(name)}</span><button data-restore="${f.id}">Restore</button></div>`;
     }).join('');
     removedList.querySelectorAll('[data-restore]').forEach(b=>b.addEventListener('click', e=> restoreFixture(e.currentTarget.dataset.restore)));
+  }
+  async function deleteFxMgmtSelected(){
+    const ids = [...fxMgmtSelected];
+    if(!ids.length) return;
+    if(!confirm(`Delete ${ids.length} fixture${ids.length!==1?'s':''} from your library? This can't be undone.`)) return;
+    state.customFixtures = state.customFixtures.filter(f=> !fxMgmtSelected.has(f.id));
+    fxMgmtSelected.clear();
+    renderFixtureMgmtList();
+    if(!$('editorScreen').hidden) renderSheetList();
+    const { error } = await sb.from('custom_fixtures').delete().in('id', ids);
+    if(error) console.warn('Duskline: bulk fixture delete failed.', error);
   }
 
   let fixtureFormState = {editingId:null};
@@ -4057,6 +4138,7 @@
 
   // ---------------- init ----------------
   function init(){
+    populateSheetTypeFilter();
     // photo pickers (used both for a fresh area and "change photo")
     $('btnTakePhoto').addEventListener('click', ()=> $('fileInputCamera').click());
     $('btnChoosePhoto').addEventListener('click', ()=> $('fileInput').click());
@@ -4300,6 +4382,14 @@
         renderSheetList();
       });
     });
+    $('sheetSearchInput').addEventListener('input', e=>{
+      state.sheetSearch = e.target.value;
+      renderSheetList();
+    });
+    $('sheetTypeFilter').addEventListener('change', e=>{
+      state.sheetTypeFilter = e.target.value;
+      renderSheetList();
+    });
 
     $('infoRemove').addEventListener('click', infoRemove);
     $('infoDuplicate').addEventListener('click', duplicatePlacement);
@@ -4463,9 +4553,12 @@
       t.addEventListener('click', ()=>{
         state.fixtureMgmtCat = t.dataset.fcat;
         document.querySelectorAll('.fmgmt-tab').forEach(x=>x.classList.toggle('active', x===t));
+        fxMgmtSelected.clear();
         renderFixtureMgmtList();
       });
     });
+    $('btnFxBulkDelete').addEventListener('click', deleteFxMgmtSelected);
+    $('btnFxBulkClear').addEventListener('click', ()=>{ fxMgmtSelected.clear(); renderFixtureMgmtList(); });
     document.querySelectorAll('#fxCatSeg button').forEach(b=> b.addEventListener('click', ()=> setCatSeg(b.dataset.cat)));
     document.querySelectorAll('#fxAimSeg button').forEach(b=> b.addEventListener('click', ()=>{
       document.querySelectorAll('#fxAimSeg button').forEach(x=>x.classList.toggle('active', x===b));

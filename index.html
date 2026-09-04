@@ -4481,6 +4481,45 @@
     errEl.style.color = 'var(--muted)';
     errEl.textContent = 'Check your email for a password reset link.';
   }
+  // Shared by both recovery-detection paths below (the PASSWORD_RECOVERY auth event, and
+  // the explicit URL check in handlePasswordRecoveryLink). Bypasses openAccountModal()
+  // (which normally sets this button-visibility state), so it's set explicitly here --
+  // otherwise this could inherit stale visibility left over from the modal's last real
+  // state (e.g. still showing "Account"/logged-in mode's hidden submit button, if a stale
+  // reset link is opened while already signed in elsewhere).
+  function openRecoveryModal(){
+    $('authForms').hidden = false;
+    $('accountInfo').hidden = true;
+    $('accountSubmit').hidden = false;
+    $('accountLogout').hidden = true;
+    $('accountCancel').hidden = false;
+    setAuthMode('recovery');
+    $('accountModal').hidden = false;
+  }
+  // A password-reset email link can land back here as either an older-style hash fragment
+  // (#access_token=...&type=recovery -- auto-processed by supabase-js's own
+  // detectSessionInUrl, which then fires PASSWORD_RECOVERY via onAuthStateChange) or a
+  // newer `?code=...` query param (PKCE-style flow) -- which is NOT processed
+  // automatically and needs an explicit exchangeCodeForSession call, and may not
+  // reliably surface as a PASSWORD_RECOVERY event afterward. Detecting the URL directly
+  // here, rather than trusting onAuthStateChange alone, means the recovery UI opens
+  // reliably regardless of which flow this Supabase project/version actually uses --
+  // a real user reported clicking a reset-password email link and "nothing came up",
+  // which traced back to exactly this gap (this project's flow turned out to use the
+  // `?code=` form, which the PASSWORD_RECOVERY-only handling never caught).
+  async function handlePasswordRecoveryLink(){
+    const search = new URLSearchParams(window.location.search);
+    const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+    const isRecovery = search.get('type')==='recovery' || hash.get('type')==='recovery';
+    const code = search.get('code');
+    if(!isRecovery && !code) return;
+    if(code){
+      const { error } = await sb.auth.exchangeCodeForSession(window.location.href);
+      if(error) console.warn('Duskline: password-reset code exchange failed.', error);
+    }
+    window.history.replaceState({}, document.title, window.location.pathname);
+    if(isRecovery) openRecoveryModal();
+  }
   async function handleLogout(){
     await flushCurrentEdits();
     await sb.auth.signOut();
@@ -5082,23 +5121,14 @@
     showLandingScreen();
     sb.auth.onAuthStateChange((event, session)=>{
       // Fired with a valid (temporary) session when a user lands here via a password-reset
-      // email link. Without this branch, that session would fall straight through to
-      // enterAppForUser below and silently drop them into the full app with their OLD
-      // password still active -- force "set a new password" instead, before entering the app.
-      if(event==='PASSWORD_RECOVERY'){
-        // Bypasses openAccountModal() (which normally sets these), so set them explicitly --
-        // otherwise this could inherit stale button visibility left over from the modal's
-        // last real state (e.g. still showing "Account"/logged-in mode's hidden submit
-        // button, if a stale reset link is opened while already signed in elsewhere).
-        $('authForms').hidden = false;
-        $('accountInfo').hidden = true;
-        $('accountSubmit').hidden = false;
-        $('accountLogout').hidden = true;
-        $('accountCancel').hidden = false;
-        setAuthMode('recovery');
-        $('accountModal').hidden = false;
-        return;
-      }
+      // email link that used the older hash-fragment flow (auto-processed by supabase-js's
+      // own detectSessionInUrl). Without this branch, that session would fall straight
+      // through to enterAppForUser below and silently drop them into the full app with
+      // their OLD password still active. handlePasswordRecoveryLink() (called below, after
+      // this subscription is registered) handles the newer `?code=` flow explicitly, since
+      // that one doesn't reliably surface as this event -- openRecoveryModal() is shared so
+      // either path lands in the same place.
+      if(event==='PASSWORD_RECOVERY'){ openRecoveryModal(); return; }
       if(!session || !session.user){ leaveApp(); return; }
       // supabase-js re-fires this (e.g. TOKEN_REFRESHED) whenever the tab regains focus/visibility —
       // including after a mailto: link hands off to a mail client and the user switches back — with
@@ -5108,6 +5138,7 @@
       if(authUser && authUser.id===session.user.id) return;
       enterAppForUser(session.user);
     });
+    handlePasswordRecoveryLink();
     setInterval(()=>{ flushCurrentEdits(); }, 5000);
     // Best-effort: async network saves aren't guaranteed to complete before the page
     // actually unloads (unlike the old synchronous localStorage.setItem). The 5s tick

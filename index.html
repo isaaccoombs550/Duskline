@@ -9,7 +9,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" integrity="sha384-vtjasyidUo0kW94K5MXDXntzOJpQgBKXmE7e2Ga4LG0skTTLeBi97eFAXsqewJjw" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.3" integrity="sha384-l8ah+VgaWtk1mvOe9VC+OirC6qHFF4yH7l7mKRidV9MSti3E9F463bMp6ZVN4kuC" crossorigin="anonymous"></script>
-<script src="https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js" integrity="sha384-OTofQ0MEeiSgh62havBcemCIK0gqj809wX6UA0uPISNMRnR6NZyCdGzX3SbLrgwL" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/heic-to@1.5.2/dist/iife/heic-to.js" integrity="sha384-cVm8gaWQ5+URpoh6ACKXpm8TuyoHkfIDDBkxvDoUdIZ18w8nV5en0lVQvWMwO/6S" crossorigin="anonymous"></script>
 <style>
   :root{
     --ink:#14171C; --ink-2:#0B0D10; --surface:#1E232B; --surface-2:#262C36; --line:#2E3540;
@@ -2977,24 +2977,20 @@
   // '' rather than 'image/heic' for a file they don't recognize -- so the filename extension
   // is checked too.
   async function convertHeicIfNeeded(file){
-    const looksHeic = /^image\/hei[cf]/i.test(file.type) || /\.hei[cf]$/i.test(file.name||'');
-    if(!looksHeic) return file;
+    // HeicTo.isHeic() sniffs the real magic bytes rather than trusting file.type/the
+    // filename extension (both unreliable -- a file can be named/labeled .heic without
+    // actually being HEIC anymore, e.g. iCloud/Photos sometimes transparently converts a
+    // Live Photo to JPEG during transfer to a non-Apple device while the name stays .heic;
+    // isHeic() correctly says false for that case, so it's returned as-is below with no
+    // conversion attempted at all -- cleaner than the try/convert/catch-a-specific-error-
+    // message approach this used before switching libraries, see the CLAUDE.md note here).
+    let isHeic = false;
+    try{ isHeic = await window.HeicTo.isHeic(file); }catch(err){ console.warn('Duskline: HEIC detection failed.', err); }
+    if(!isHeic) return file;
     try{
-      const converted = await window.heic2any({ blob: file, toType: 'image/jpeg', quality: 0.9 });
-      // heic2any only ever returns an array if you explicitly pass `multiple:true` (which
-      // we don't) -- otherwise it's always a single Blob, even for a multi-image container
-      // (it picks the first image). This is just defensive, not a real case we hit.
-      const blob = Array.isArray(converted) ? converted[0] : converted;
-      return new File([blob], (file.name||'photo').replace(/\.hei[cf]$/i, '') + '.jpg', {type:'image/jpeg'});
+      const jpegBlob = await window.HeicTo({ blob: file, type: 'image/jpeg', quality: 0.9 });
+      return new File([jpegBlob], (file.name||'photo').replace(/\.hei[cf]$/i, '') + '.jpg', {type:'image/jpeg'});
     }catch(err){
-      // heic2any inspects the actual bytes and deliberately rejects with this specific
-      // message when a file named/labeled .heic isn't really HEIC anymore -- a real
-      // scenario: iCloud/Photos sometimes transparently converts a photo (Live Photos
-      // especially) to JPEG during transfer to a non-Apple device depending on the
-      // device's transfer settings, while the filename/reported type stays .heic. In that
-      // case there's nothing to convert -- the file already opens fine as-is.
-      const message = (err && err.message) || (typeof err==='string' ? err : '') || '';
-      if(/already browser readable/i.test(message)) return file;
       console.warn('Duskline: HEIC conversion failed.', err);
       alert('Could not open that HEIC photo. Try sharing/exporting it as a JPEG from your phone first, then upload that instead.');
       return null;

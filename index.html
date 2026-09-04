@@ -9,6 +9,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" integrity="sha384-vtjasyidUo0kW94K5MXDXntzOJpQgBKXmE7e2Ga4LG0skTTLeBi97eFAXsqewJjw" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.3" integrity="sha384-l8ah+VgaWtk1mvOe9VC+OirC6qHFF4yH7l7mKRidV9MSti3E9F463bMp6ZVN4kuC" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js" integrity="sha384-OTofQ0MEeiSgh62havBcemCIK0gqj809wX6UA0uPISNMRnR6NZyCdGzX3SbLrgwL" crossorigin="anonymous"></script>
 <style>
   :root{
     --ink:#14171C; --ink-2:#0B0D10; --surface:#1E232B; --surface-2:#262C36; --line:#2E3540;
@@ -1274,9 +1275,9 @@
   </div>
 </div>
 
-<input type="file" id="fileInput" accept="image/*" hidden>
-<input type="file" id="fileInputCamera" accept="image/*" capture="environment" hidden>
-<input type="file" id="logoInput" accept="image/*" hidden>
+<input type="file" id="fileInput" accept="image/*,.heic,.heif" hidden>
+<input type="file" id="fileInputCamera" accept="image/*,.heic,.heif" capture="environment" hidden>
+<input type="file" id="logoInput" accept="image/*,.heic,.heif" hidden>
 <input type="file" id="fixtureImportInput" accept=".xlsx,.xls,.csv" hidden>
 
 <!-- Populated by buildPoDocumentHtml()/printPoDocument() right before window.print() — see
@@ -2966,8 +2967,35 @@
   }
 
   // ---------------- photo upload -> crop -> area.photo ----------------
-  function handleFile(e){
-    const file = e.target.files[0];
+  // iPhones save photos as HEIC/HEIF by default, which no browser but Safari/WebKit can
+  // decode at all -- a raw HEIC file handed to an <img>/Image() (see openCropScreen below)
+  // just never fires onload anywhere else (Chrome, Firefox, Edge, on any OS). heic2any
+  // (loaded via CDN, wraps a WASM libheif decoder) transcodes it to a real JPEG Blob
+  // client-side first, so it reaches the existing FileReader/Image()/canvas pipeline as an
+  // already-normal image and nothing downstream needs to know the source was ever HEIC.
+  // file.type is unreliable for HEIC specifically -- plenty of browsers/OSes report it as
+  // '' rather than 'image/heic' for a file they don't recognize -- so the filename extension
+  // is checked too.
+  async function convertHeicIfNeeded(file){
+    const looksHeic = /^image\/hei[cf]/i.test(file.type) || /\.hei[cf]$/i.test(file.name||'');
+    if(!looksHeic) return file;
+    try{
+      const converted = await window.heic2any({ blob: file, toType: 'image/jpeg', quality: 0.9 });
+      // A multi-image HEIC container (e.g. iOS "Live Photo" burst) converts to an array --
+      // just take the first frame, same as how iOS itself treats the file as one photo.
+      const blob = Array.isArray(converted) ? converted[0] : converted;
+      return new File([blob], (file.name||'photo').replace(/\.hei[cf]$/i, '') + '.jpg', {type:'image/jpeg'});
+    }catch(err){
+      console.warn('Duskline: HEIC conversion failed.', err);
+      alert('Could not open that HEIC photo. Try sharing/exporting it as a JPEG from your phone first, then upload that instead.');
+      return null;
+    }
+  }
+  async function handleFile(e){
+    const rawFile = e.target.files[0];
+    e.target.value = '';
+    if(!rawFile) return;
+    const file = await convertHeicIfNeeded(rawFile);
     if(!file) return;
     const reader = new FileReader();
     reader.onload = ev=>{
@@ -2981,7 +3009,6 @@
       });
     };
     reader.readAsDataURL(file);
-    e.target.value = '';
   }
 
   // ---------------- crop screen ----------------
@@ -4996,8 +5023,12 @@
 
     // company tab
     $('btnUploadLogo').addEventListener('click', ()=> $('logoInput').click());
-    $('logoInput').addEventListener('change', e=>{
-      const file = e.target.files[0]; if(!file) return;
+    $('logoInput').addEventListener('change', async e=>{
+      const rawFile = e.target.files[0];
+      e.target.value='';
+      if(!rawFile) return;
+      const file = await convertHeicIfNeeded(rawFile);
+      if(!file) return;
       const reader = new FileReader();
       reader.onload = async ev=>{
         const url = await uploadCompanyLogo(ev.target.result, file.type);
@@ -5007,7 +5038,6 @@
         saveCompanyRow();
       };
       reader.readAsDataURL(file);
-      e.target.value='';
     });
     [['companyName','name'],['companyPhone','phone'],['companyEmail','email'],['companyAddress','address'],['companyWebsite','website']].forEach(([id,key])=>{
       $(id).addEventListener('input', ()=>{ state.company[key] = $(id).value; renderCompanyPreview(); });

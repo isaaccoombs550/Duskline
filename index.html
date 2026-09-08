@@ -483,6 +483,14 @@
   .crop-zoom input{flex:1;}
   .crop-hint{padding:0 14px 12px;font-size:11px;color:var(--muted);text-align:center;background:var(--surface);flex-shrink:0;}
 
+  /* ===== satellite view screen (reuses .crop-screen/.crop-top/.crop-hint above) ===== */
+  .satellite-search{display:flex;gap:8px;padding:10px 14px;background:var(--surface);
+    border-bottom:1px solid var(--line);flex-shrink:0;}
+  .satellite-search input{flex:1;background:var(--surface-2);border:1px solid var(--line);border-radius:8px;
+    padding:9px 10px;color:var(--fog);font-size:13.5px;}
+  .satellite-stage{flex:1;position:relative;background:#050607;}
+  .satellite-stage .gm-style{border-radius:0;}
+
   /* ===== desktop / wide screens ===== */
   @media (min-width:860px){
     html,body{background:var(--ink-2);}
@@ -982,6 +990,7 @@
         <div class="empty-actions">
           <button class="btn btn-primary" id="btnTakePhoto">Take photo</button>
           <button class="btn btn-ghost" id="btnChoosePhoto">Choose photo</button>
+          <button class="btn btn-ghost" id="btnSatellitePhoto">Satellite view</button>
         </div>
       </div>
 
@@ -1013,6 +1022,7 @@
 
       <div class="canvas-toolbar" id="canvasToolbar" hidden>
         <button class="chip" id="btnChangePhoto">Change photo</button>
+        <button class="chip" id="btnChangeSatellite">Satellite view</button>
         <button class="chip" id="btnAdjustCrop">Adjust crop</button>
         <button class="chip" id="btnResetZoom">Reset zoom <span class="mono zoom-pct" id="zoomBadge" hidden></span></button>
         <button class="chip" id="btnDrawWire">Draw wire run</button>
@@ -1157,6 +1167,25 @@
   </div>
   <div class="crop-hint">Drag to reposition · use the slider to zoom</div>
   <div class="crop-zoom"><span>Zoom</span><input type="range" id="cropZoom" min="0" max="100" value="0"></div>
+</div>
+
+<!-- ===================== SATELLITE VIEW SCREEN ===================== -->
+<!-- Reuses .crop-screen for its base fullscreen/flex-column/[hidden] chrome (same look as
+     the crop screen right above) -- only the search bar and map stage below are new CSS.
+     openSatelliteScreen() feeds the captured image straight into openCropScreen() same as
+     any picked photo, so this screen's whole job is just producing that one image. -->
+<div class="crop-screen" id="satelliteScreen" hidden>
+  <div class="crop-top">
+    <button class="icon-btn" id="btnSatelliteCancel" aria-label="Cancel">✕</button>
+    <div class="editor-title">Satellite view</div>
+    <button class="btn btn-primary btn-sm" id="btnSatelliteUse">Use this view</button>
+  </div>
+  <div class="satellite-search">
+    <input type="text" id="satelliteAddress" placeholder="Search an address">
+    <button class="btn btn-ghost btn-sm" id="btnSatelliteSearch">Search</button>
+  </div>
+  <div class="satellite-stage" id="satelliteStage"></div>
+  <div class="crop-hint">Drag to pan · scroll or pinch to zoom · frame the property, then tap "Use this view"</div>
 </div>
 
 <!-- ===================== CUSTOMER MODAL ===================== -->
@@ -1433,6 +1462,13 @@
   const SUPABASE_URL = 'https://bolwcxusbfsizsjtulvr.supabase.co';
   const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJvbHdjeHVzYmZzaXpzanR1bHZyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY5ODI4NzksImV4cCI6MjEwMjU1ODg3OX0.5P0-V9moSXtfus5h77kHZfiCIyZU8SV9PNz5PyNDRac';
   const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  // Isaac-provided: a Google Cloud project with billing enabled, Maps JavaScript API +
+  // Maps Static API + Geocoding API all enabled, and the key HTTP-referrer-restricted to
+  // https://duskline.ca/* (same public-but-restricted trust model as SUPABASE_ANON_KEY
+  // above, just enforced by domain instead of RLS). See openSatelliteScreen() for where
+  // this is used -- guarded there so a missing/placeholder key fails with a clear message
+  // instead of a cryptic Google error.
+  const GOOGLE_MAPS_API_KEY = 'YOUR_GOOGLE_MAPS_API_KEY';
   let authUser = null;     // {id, email} for the signed-in Supabase user, or null
   let authProfile = null;  // {companyId, companyName, fullName, role, accountType, isPlatformAdmin} from the profiles/companies tables
   let authMode = 'signin'; // 'signin' | 'signup' | 'recovery', which state the account modal is showing
@@ -2996,6 +3032,17 @@
       return null;
     }
   }
+  // Shared crop-screen onDone callback for every area-photo source (file picker, camera,
+  // satellite capture) -- crops, uploads, and saves identically regardless of where the
+  // original image came from.
+  async function finishAreaPhotoCrop(dataUrl, aspect){
+    const area = currentArea();
+    if(!area) return;
+    const url = await uploadAreaPhoto(area, dataUrl);
+    if(!url) return;
+    area.photo = url; area.photoAspect = aspect; refreshEditorPhotoState();
+    saveAreaRow(area);
+  }
   async function handleFile(e){
     const rawFile = e.target.files[0];
     e.target.value = '';
@@ -3004,16 +3051,115 @@
     if(!file) return;
     const reader = new FileReader();
     reader.onload = ev=>{
-      openCropScreen(ev.target.result, async (dataUrl,aspect)=>{
-        const area = currentArea();
-        if(!area) return;
-        const url = await uploadAreaPhoto(area, dataUrl);
-        if(!url) return;
-        area.photo = url; area.photoAspect = aspect; refreshEditorPhotoState();
-        saveAreaRow(area);
-      });
+      openCropScreen(ev.target.result, finishAreaPhotoCrop);
     };
     reader.readAsDataURL(file);
+  }
+
+  // ---------------- satellite view (Google Maps) ----------------
+  // Deliberately produces nothing more than an image: a Google Static Maps API image for
+  // whatever view the contractor frames on the interactive map is fetched and handed to the
+  // exact same openCropScreen(sourceUrl, onDone) every other photo source uses (see
+  // handleFile above) -- from there on it's indistinguishable from any other area photo to
+  // the rest of the app. Nothing downstream (crop, beam rendering, quote, PDF export) needs
+  // to know or care that the image came from satellite imagery instead of a real photo.
+  let googleMapsLoadPromise = null;
+  function loadGoogleMapsApi(){
+    if(window.google && window.google.maps) return Promise.resolve();
+    if(googleMapsLoadPromise) return googleMapsLoadPromise;
+    googleMapsLoadPromise = new Promise((resolve, reject)=>{
+      const cbName = '__dusklineGoogleMapsReady';
+      window[cbName] = ()=>{ delete window[cbName]; resolve(); };
+      const script = document.createElement('script');
+      // Google's Maps bootstrap loader is generated per-key/per-request and explicitly does
+      // not support Subresource Integrity -- the one deliberate exception to this file's
+      // "every CDN script is pinned with an SRI hash" rule (see the <script> tags in <head>).
+      script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(GOOGLE_MAPS_API_KEY)}&callback=${cbName}&v=weekly`;
+      script.async = true;
+      script.onerror = ()=>{ googleMapsLoadPromise = null; reject(new Error('Could not load Google Maps.')); };
+      document.head.appendChild(script);
+    });
+    return googleMapsLoadPromise;
+  }
+  let satelliteCtx = null; // {map, geocoder, onDone} while the screen is open, else null
+  async function openSatelliteScreen(onDone){
+    if(!GOOGLE_MAPS_API_KEY || GOOGLE_MAPS_API_KEY==='YOUR_GOOGLE_MAPS_API_KEY'){
+      alert('Satellite view needs a Google Maps API key set up first — see GOOGLE_MAPS_API_KEY near the top of the script.');
+      return;
+    }
+    $('satelliteScreen').hidden = false;
+    document.body.style.overflow = 'hidden';
+    $('satelliteStage').innerHTML = '';
+    try{
+      await loadGoogleMapsApi();
+    }catch(err){
+      console.warn('Duskline: Google Maps failed to load.', err);
+      alert('Could not load Google Maps. Check your connection and try again.');
+      closeSatelliteScreen();
+      return;
+    }
+    const map = new google.maps.Map($('satelliteStage'), {
+      center: {lat: 39.8283, lng: -98.5795}, // center of the continental US -- overridden below once geocoded
+      zoom: 4,
+      mapTypeId: 'satellite',
+      tilt: 0,
+      streetViewControl: false,
+      fullscreenControl: false,
+      mapTypeControl: false,
+    });
+    satelliteCtx = { map, geocoder: new google.maps.Geocoder(), onDone };
+    const pr = currentProject();
+    const startAddress = (pr && pr.customer && pr.customer.address) || '';
+    $('satelliteAddress').value = startAddress;
+    if(startAddress) geocodeAndCenter(startAddress);
+  }
+  function closeSatelliteScreen(){
+    $('satelliteScreen').hidden = true;
+    document.body.style.overflow = '';
+    satelliteCtx = null;
+  }
+  function geocodeAndCenter(address){
+    if(!satelliteCtx || !address) return;
+    satelliteCtx.geocoder.geocode({address}, (results, status)=>{
+      if(status==='OK' && results && results[0]){
+        satelliteCtx.map.setCenter(results[0].geometry.location);
+        satelliteCtx.map.setZoom(20);
+      }else{
+        console.warn('Duskline: geocoding failed.', status);
+        alert("Could not find that address. Try adjusting it, or just pan/zoom the map manually.");
+      }
+    });
+  }
+  async function useSatelliteView(){
+    if(!satelliteCtx) return;
+    const btn = $('btnSatelliteUse');
+    btn.disabled = true;
+    try{
+      const center = satelliteCtx.map.getCenter();
+      const zoom = satelliteCtx.map.getZoom();
+      // size=640x640&scale=2 -> a real 1280x1280px image, the largest Static Maps allows
+      // without a separately-billed "Premium" scale tier. Same center/zoom the contractor
+      // just framed interactively, so this matches what they saw on screen.
+      const url = `https://maps.googleapis.com/maps/api/staticmap?center=${center.lat()},${center.lng()}`+
+        `&zoom=${zoom}&size=640x640&scale=2&maptype=satellite&key=${encodeURIComponent(GOOGLE_MAPS_API_KEY)}`;
+      const resp = await fetch(url);
+      if(!resp.ok) throw new Error('Static Maps request failed ('+resp.status+')');
+      const blob = await resp.blob();
+      const dataUrl = await new Promise((resolve, reject)=>{
+        const reader = new FileReader();
+        reader.onload = ()=> resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+      const onDone = satelliteCtx.onDone;
+      closeSatelliteScreen();
+      openCropScreen(dataUrl, onDone);
+    }catch(err){
+      console.warn('Duskline: satellite capture failed.', err);
+      alert('Could not capture that view. Please check your connection and try again.');
+    }finally{
+      btn.disabled = false;
+    }
   }
 
   // ---------------- crop screen ----------------
@@ -4595,6 +4741,14 @@
     $('btnChangePhoto').addEventListener('click', ()=> $('fileInput').click());
     $('fileInput').addEventListener('change', handleFile);
     $('fileInputCamera').addEventListener('change', handleFile);
+    $('btnSatellitePhoto').addEventListener('click', ()=> openSatelliteScreen(finishAreaPhotoCrop));
+    $('btnChangeSatellite').addEventListener('click', ()=> openSatelliteScreen(finishAreaPhotoCrop));
+    $('btnSatelliteCancel').addEventListener('click', closeSatelliteScreen);
+    $('btnSatelliteUse').addEventListener('click', useSatelliteView);
+    $('btnSatelliteSearch').addEventListener('click', ()=> geocodeAndCenter($('satelliteAddress').value.trim()));
+    $('satelliteAddress').addEventListener('keydown', e=>{
+      if(e.key==='Enter'){ e.preventDefault(); geocodeAndCenter($('satelliteAddress').value.trim()); }
+    });
     $('btnAdjustCrop').addEventListener('click', ()=>{
       const area = currentArea();
       if(area && area.photo) openCropScreen(area.photo, async (dataUrl,aspect)=>{

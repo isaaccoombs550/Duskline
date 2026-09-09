@@ -47,7 +47,20 @@
   .app.auth-hidden{display:none;}
 
   /* ===== Landing page ===== */
-  .landing{display:none;flex-direction:column;min-height:100vh;background:var(--ink-2);}
+  /* Pinned to the dark ("Night Shift") palette regardless of the visitor's saved app theme --
+     a returning user who previously toggled to light mode in the app (data-theme="light" on
+     html) would otherwise see the landing page flip light too, since it was always reading the
+     same shared --ink/--surface/--fog tokens as the rest of the app. Caught live via a real
+     Chrome profile with a light preference already saved -- the local preview browser used
+     earlier had no such saved preference, so this never showed up until viewed for real.
+     Redeclaring the tokens here, scoped to .landing, overrides the html[data-theme="light"]
+     values for every descendant that reads var(--ink)/var(--surface)/var(--fog)/etc, with no
+     need to touch each individual landing-* rule. */
+  .landing{
+    --ink:#10182C; --ink-2:#0A0F1F; --surface:#16213A; --surface-2:#1C2A46; --line:#263354;
+    --fog:#F2EFE8; --muted:#8B93AC;
+    display:none;flex-direction:column;min-height:100vh;background:var(--ink-2);
+  }
   .landing.visible{display:flex;}
   .landing-nav{display:flex;align-items:center;justify-content:space-between;padding:20px clamp(20px,5vw,64px);max-width:1080px;margin:0 auto;width:100%;box-sizing:border-box;}
   .landing-hero{position:relative;padding:clamp(56px,10vw,108px) clamp(20px,5vw,64px) clamp(48px,8vw,80px);max-width:1080px;margin:0 auto;width:100%;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;text-align:center;gap:22px;overflow:hidden;}

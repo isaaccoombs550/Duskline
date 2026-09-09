@@ -4,6 +4,22 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
 <title>Duskline — Lighting Designer &amp; Quote Builder</title>
+<meta name="description" content="Duskline is landscape lighting design & quoting software for contractors — place fixtures on a real photo, aim every beam, and send a professional quote in minutes.">
+<link rel="canonical" href="https://duskline.ca/">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://duskline.ca/">
+<meta property="og:title" content="Duskline — Lighting Designer &amp; Quote Builder">
+<meta property="og:description" content="Design landscape lighting your customers can actually see. Place fixtures on a real photo, aim every beam, and send a professional quote in minutes.">
+<meta property="og:image" content="https://duskline.ca/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Duskline — Lighting Designer &amp; Quote Builder">
+<meta name="twitter:description" content="Design landscape lighting your customers can actually see. Place fixtures on a real photo, aim every beam, and send a professional quote in minutes.">
+<meta name="twitter:image" content="https://duskline.ca/og-image.png">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -714,7 +730,7 @@
     </div>
   </section>
 
-  <footer class="landing-footer">&copy; Duskline</footer>
+  <footer class="landing-footer">&copy; Duskline · <a href="/privacy.html" style="color:inherit;">Privacy</a> · <a href="/terms.html" style="color:inherit;">Terms</a></footer>
 </div>
 
 <div class="app auth-hidden">
@@ -867,8 +883,8 @@
         <button class="btn btn-ghost btn-sm" id="btnUploadLogo">Upload logo</button>
       </div>
       <div class="field"><label>Company name</label><input id="companyName" placeholder="Summit Landscape Lighting"></div>
-      <div class="field"><label>Phone</label><input id="companyPhone" placeholder="(250) 555-0123"></div>
-      <div class="field"><label>Email</label><input id="companyEmail" placeholder="you@company.com"></div>
+      <div class="field"><label>Phone</label><input id="companyPhone" type="tel" placeholder="(250) 555-0123"></div>
+      <div class="field"><label>Email</label><input id="companyEmail" type="email" placeholder="you@company.com"></div>
       <div class="field"><label>Address</label><input id="companyAddress" placeholder="123 Main St, Your City"></div>
       <div class="field"><label>Website</label><input id="companyWebsite" placeholder="www.yourcompany.com"></div>
     </div>
@@ -1194,9 +1210,9 @@
   <div class="edit-panel">
     <div class="edit-title" id="customerModalTitle">New project</div>
     <div class="modal-form-body">
-      <div class="field"><label>Customer name</label><input id="custName" placeholder="Jane Smith"></div>
-      <div class="field"><label>Phone</label><input id="custPhone" placeholder="(250) 555-0123"></div>
-      <div class="field"><label>Email</label><input id="custEmail" placeholder="jane@email.com"></div>
+      <div class="field"><label>Customer name</label><input id="custName" placeholder="Jane Smith" required></div>
+      <div class="field"><label>Phone</label><input id="custPhone" type="tel" placeholder="(250) 555-0123"></div>
+      <div class="field"><label>Email</label><input id="custEmail" type="email" placeholder="jane@email.com"></div>
       <div class="field"><label>Address</label><input id="custAddress" placeholder="123 Main St, Your City"></div>
     </div>
     <div class="edit-actions">
@@ -4622,6 +4638,7 @@
     btn.disabled = true;
     try{
       if(authMode==='signup'){
+        if(password.length<6){ errEl.textContent = 'Password must be at least 6 characters.'; return; }
         const companyName = $('authCompanyName').value.trim();
         if(!companyName){ errEl.textContent = 'Enter a company name.'; return; }
         const fullName = $('authFullName').value.trim();
@@ -5072,6 +5089,8 @@
     $('customerBackdrop').addEventListener('click', ()=> $('customerModal').hidden=true);
     $('customerSave').addEventListener('click', async ()=>{
       const data = {name:$('custName').value.trim(), phone:$('custPhone').value.trim(), email:$('custEmail').value.trim(), address:$('custAddress').value.trim()};
+      if(!data.name){ alert('Enter a customer name.'); $('custName').focus(); return; }
+      if(data.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)){ alert('Enter a valid email address, or leave it blank.'); $('custEmail').focus(); return; }
       if(customerModalMode==='new'){
         const btn = $('customerSave'); btn.disabled = true;
         const { data: row, error } = await sb.from('projects')
@@ -5345,5 +5364,8 @@
   document.addEventListener('DOMContentLoaded', init);
 })();
 </script>
+<!-- Vercel Web Analytics -- privacy-friendly (no cookies), just needs Analytics turned on
+     for this project in the Vercel dashboard for data to start showing up there. -->
+<script defer src="/_vercel/insights/script.js"></script>
 </body>
 </html>

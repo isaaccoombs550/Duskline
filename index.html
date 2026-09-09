@@ -55,11 +55,22 @@
      earlier had no such saved preference, so this never showed up until viewed for real.
      Redeclaring the tokens here, scoped to .landing, overrides the html[data-theme="light"]
      values for every descendant that reads var(--ink)/var(--surface)/var(--fog)/etc, with no
-     need to touch each individual landing-* rule. */
+     need to touch each individual landing-* rule.
+
+     One thing that alone does NOT fix: `color` is inherited, and html,body{color:var(--fog)}
+     resolves --fog once, at the body element -- which sits OUTSIDE .landing's scope, so it
+     locks in the light theme's dark --fog before inheritance ever reaches .landing. Anything
+     under .landing that sets its own explicit color:var(--fog)/var(--muted) (most rules here
+     do) re-resolves correctly against the override above and is fine either way. But
+     .landing-hero h1 has no color of its own -- it just inherits -- so it silently inherited
+     body's already-dark color and rendered as dark text on a dark background (confirmed live:
+     the headline was there, just unreadable). Fixed by setting color explicitly here too, so
+     everything without its own color re-inherits the correct value from .landing itself
+     instead of leaking in from body. */
   .landing{
     --ink:#10182C; --ink-2:#0A0F1F; --surface:#16213A; --surface-2:#1C2A46; --line:#263354;
     --fog:#F2EFE8; --muted:#8B93AC;
-    display:none;flex-direction:column;min-height:100vh;background:var(--ink-2);
+    display:none;flex-direction:column;min-height:100vh;background:var(--ink-2);color:var(--fog);
   }
   .landing.visible{display:flex;}
   .landing-nav{display:flex;align-items:center;justify-content:space-between;padding:20px clamp(20px,5vw,64px);max-width:1080px;margin:0 auto;width:100%;box-sizing:border-box;}

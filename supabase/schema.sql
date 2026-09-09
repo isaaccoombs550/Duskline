@@ -646,3 +646,73 @@ as $$
 $$;
 
 grant execute on function public.contractor_distributor_list() to authenticated;
+
+-- ============================================================================
+-- Auto-link the distributor as a vendor contact for PO purposes. Previously, a fixture
+-- sourced from a connected distributor's catalog (contractor_catalog()) had no vendorId at
+-- all -- that function deliberately strips vendorId from the distributor's own raw
+-- custom_fixtures row -- so a contractor had nothing to send a PO to for those fixtures
+-- unless they manually created a matching entry in their own distributors (vendor-contact)
+-- address book themselves. Now, the moment a contractor is onboarded via a distributor's
+-- invite code, that distributor is auto-added to the new contractor's own distributors list,
+-- pre-filled from the distributor's own company profile and tagged via
+-- source_distributor_company_id so index.html's allFixtures() can auto-assign it as the
+-- vendorId on any fixture sourced from that distributor's catalog. Only applies going
+-- forward -- existing already-linked contractors are not backfilled.
+-- ============================================================================
+
+alter table public.distributors
+  add column source_distributor_company_id uuid references public.companies(id) on delete set null;
+
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer set search_path = public
+as $$
+declare
+  new_company_id uuid;
+  v_code text := regexp_replace(coalesce(new.raw_user_meta_data->>'access_code',''), '[^\x21-\x7E]', '', 'g');
+  v_invite record;
+  v_invite_found boolean;
+  v_account_type text := 'contractor';
+begin
+  select * into v_invite from public.distributor_invites where code = v_code and redeemed_at is null;
+  v_invite_found := found;
+
+  if v_invite_found then
+    v_account_type := 'contractor';
+  elsif v_code = 'DUSKLINEDISTRIBUTORV1' then
+    v_account_type := 'distributor';
+  elsif v_code is distinct from 'DUSKLINEBETAV12026' then
+    raise exception 'invalid access code';
+  end if;
+
+  insert into public.companies (name, account_type)
+  values (coalesce(new.raw_user_meta_data->>'company_name', 'My Company'), v_account_type)
+  returning id into new_company_id;
+
+  insert into public.profiles (id, company_id, full_name, role)
+  values (new.id, new_company_id, new.raw_user_meta_data->>'full_name', 'owner');
+
+  insert into public.fixture_overrides (company_id, base_fixture_id, data)
+  select new_company_id, id, jsonb_build_object('hidden', true)
+  from unnest(array['f1','f2','f3','f4','f5','f6','f7','f8','f9','f10',
+    'a1','a2','a3','a4','a5','a6','st1']) as id;
+
+  if v_invite_found then
+    insert into public.distributor_links (distributor_company_id, contractor_company_id, multiplier, label)
+    values (v_invite.distributor_company_id, new_company_id, v_invite.multiplier, v_invite.label);
+    update public.distributor_invites set redeemed_at = now(), used_by_company_id = new_company_id
+      where code = v_code;
+
+    -- Auto-add the distributor as a vendor contact in the new contractor's own distributors
+    -- address book (see the migration note above) -- pre-filled from the distributor's own
+    -- company profile, tagged so allFixtures() can match it back to this distributor later.
+    insert into public.distributors (company_id, name, email, phone, source_distributor_company_id)
+    select new_company_id, c.name, coalesce(c.email,''), coalesce(c.phone,''), c.id
+    from public.companies c where c.id = v_invite.distributor_company_id;
+  end if;
+
+  return new;
+end;
+$$;

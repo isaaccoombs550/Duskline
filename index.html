@@ -961,12 +961,17 @@
       <div class="empty-note" style="padding:0 14px 18px;text-align:left;">Fixtures from a connected distributor's catalog appear automatically in your Fixtures tab, priced at your own rate below.</div>
     </div>
 
-    <div class="section-head">
-      <h3>Distributors</h3>
-      <button class="btn btn-primary btn-sm" id="btnAddDistributor">+ Add distributor</button>
+    <!-- Hidden entirely for distributor accounts (see applyAccountTypeUI) -- a distributor
+         company doesn't have "suppliers" of its own to track POs against the way a contractor
+         does; this vendor-contact address book only makes sense for contractor accounts. -->
+    <div id="distributorVendorSection">
+      <div class="section-head">
+        <h3>Distributors</h3>
+        <button class="btn btn-primary btn-sm" id="btnAddDistributor">+ Add distributor</button>
+      </div>
+      <div class="sheet-list" id="distributorList"></div>
+      <div class="empty-note" id="distributorEmpty" style="padding:0 14px 18px;text-align:left;" hidden>No distributors yet — add one to start assigning fixtures to a supplier for POs.</div>
     </div>
-    <div class="sheet-list" id="distributorList"></div>
-    <div class="empty-note" id="distributorEmpty" style="padding:0 14px 18px;text-align:left;" hidden>No distributors yet — add one to start assigning fixtures to a supplier for POs.</div>
 
     <div class="section-head"><h3>Quote appearance</h3></div>
     <div class="company-form">
@@ -1564,8 +1569,16 @@
     // `price` defaults to the computed `cost` (0% markup) until an override sets a real one,
     // since the distributor never supplies a sell price -- only their own list price, which
     // the view already turned into this item's `cost`.
+    // vendorId is auto-assigned to whichever of this company's own distributors rows was
+    // auto-created for this exact distributor (see handle_new_user()'s source_distributor_
+    // company_id insert) -- so a distributor-sourced fixture is already grouped correctly for
+    // a PO without the contractor having to manually assign a vendor. Falls back to null (same
+    // as before this existed) if that contact was never created or has since been deleted --
+    // fixture_overrides never sets vendorId for these (saveFixtureForm locks it), so this is
+    // always safe to compute up front, before the override merge below.
     const distributorItems = state.distributorCatalog.map(f=>{
-      const base = {...f, price:f.cost};
+      const vendorMatch = state.distributors.find(d=> d.sourceDistributorCompanyId && d.sourceDistributorCompanyId===f.distributorCompanyId);
+      const base = {...f, price:f.cost, vendorId: vendorMatch ? vendorMatch.id : null};
       return state.fixtureOverrides[f.id] ? {...base, ...state.fixtureOverrides[f.id], id:f.id} : base;
     }).filter(f=> !f.hidden);
     return BASE_FIXTURES.map(f=> state.fixtureOverrides[f.id] ? {...f, ...state.fixtureOverrides[f.id], id:f.id} : f)
@@ -2811,6 +2824,10 @@
     // that isn't read as a customer-facing sell price the way it is for a contractor account.
     $('fxCostLabel').textContent = isDistributor ? 'Your cost ($, private)' : 'Your cost ($)';
     $('fxPriceLabel').textContent = isDistributor ? 'List price to contractors ($)' : 'Sell price ($)';
+    // The "Distributors" vendor-contact address book (state.distributors, for PO grouping)
+    // only makes sense for a contractor tracking its own suppliers -- a distributor account
+    // doesn't have suppliers of its own in this app.
+    $('distributorVendorSection').hidden = isDistributor;
     switchTopScreen(isDistributor ? 'fixtures' : 'projects');
   }
 
@@ -3615,7 +3632,10 @@
           <div class="fx-desc">${inv.label ? escapeHtml(inv.label)+' · ' : ''}${status} · ×${inv.multiplier}</div>
         </div>
         <div class="fx-side">
-          <div class="fx-actions">${inv.redeemedAt ? '' : `<button data-copy-invite="${escapeHtml(inv.code)}">Copy</button>`}</div>
+          <div class="fx-actions">
+            ${inv.redeemedAt ? '' : `<button data-copy-invite="${escapeHtml(inv.code)}">Copy</button>`}
+            <button data-delete-invite="${escapeHtml(inv.code)}">Delete</button>
+          </div>
         </div>
       </div>`;
     }).join('');
@@ -3635,6 +3655,23 @@
       } else {
         onFailed();
       }
+    }));
+    $('inviteList').querySelectorAll('[data-delete-invite]').forEach(b=> b.addEventListener('click', e=>{
+      const code = e.currentTarget.dataset.deleteInvite;
+      const inv = state.myInvites.find(i=>i.code===code);
+      // Deleting the invite row is purely a code-list cleanup -- a code that was already
+      // redeemed already did its job (the distributor_links row it created stays intact
+      // either way), so this never revokes an existing contractor's access, only the code
+      // record itself.
+      const msg = inv && inv.redeemedAt
+        ? 'Remove this invite code from your list? The contractor it was used by keeps their access.'
+        : 'Delete this invite code? It will no longer work if someone tries to use it.';
+      if(!confirm(msg)) return;
+      state.myInvites = state.myInvites.filter(i=>i.code!==code);
+      renderInviteList();
+      sb.from('distributor_invites').delete().eq('code', code).then(({error})=>{
+        if(error) console.warn('Duskline: invite delete failed.', error);
+      });
     }));
   }
   async function generateInviteCode(){
@@ -4527,7 +4564,15 @@
     };
   }
   function rowToDistributor(row){
-    return { id: row.id, name: row.name||'', email: row.email||'', phone: row.phone||'', accountNumber: row.account_number||'' };
+    return {
+      id: row.id, name: row.name||'', email: row.email||'', phone: row.phone||'', accountNumber: row.account_number||'',
+      // Set only for the vendor contact handle_new_user() auto-creates when this company was
+      // onboarded via a distributor's invite code -- never set for a manually-added distributor.
+      // allFixtures() matches this against a distributor-sourced fixture's own distributorCompanyId
+      // to auto-assign it as that fixture's vendorId, so PO grouping works without the contractor
+      // having to manually add/assign a vendor contact for their connected distributor.
+      sourceDistributorCompanyId: row.source_distributor_company_id || null,
+    };
   }
   function distributorToRow(d){
     return { name: d.name||'', email: d.email||'', phone: d.phone||'', account_number: d.accountNumber||'' };
@@ -4572,7 +4617,10 @@
     state.customFixtures = (customRes.data||[]).map(row=> ({id: row.id, custom:true, ...row.data}));
     state.fixtureOverrides = {};
     (overridesRes.data||[]).forEach(row=>{ state.fixtureOverrides[row.base_fixture_id] = row.data; });
-    state.distributorCatalog = (catalogRes.data||[]).map(row=> ({id: row.id, distributorSourced:true, distributorName: row.distributor_name, ...row.data}));
+    state.distributorCatalog = (catalogRes.data||[]).map(row=> ({
+      id: row.id, distributorSourced:true, distributorName: row.distributor_name,
+      distributorCompanyId: row.distributor_company_id, ...row.data,
+    }));
     state.distributorLinks = (myLinkRes.data||[]).map(row=> ({
       distributorCompanyId: row.distributor_company_id, multiplier: row.multiplier,
       distributorName: row.distributor_name||'',

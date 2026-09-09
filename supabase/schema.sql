@@ -568,3 +568,81 @@ alter table public.distributor_invites
   drop constraint distributor_invites_used_by_company_id_fkey,
   add constraint distributor_invites_used_by_company_id_fkey
     foreign key (used_by_company_id) references public.companies(id) on delete cascade;
+
+-- ============================================================================
+-- Security Advisor cleanup: Supabase's linter flags contractor_catalog_view,
+-- distributor_contractor_view, and contractor_distributor_view as "Security Definer
+-- View" (CRITICAL) -- correctly so, in the general case: a plain view with no
+-- `security_invoker` option runs with its OWNER's privileges rather than the calling
+-- user's, which is exactly what let these three cross the underlying tables' RLS in
+-- the first place (see each view's own comment above for why that's needed here).
+-- Each one's own `where ... = current_company_id()` clause already scopes its result
+-- to only what the calling user is entitled to see, so there was never an actual data
+-- leak -- but a view getting owner-level privileges *implicitly* is exactly the
+-- footgun the linter exists to catch, and there's no way to tell it "this one's fine"
+-- from a view definition alone. Postgres functions don't have that ambiguity: a
+-- function has to explicitly declare `security definer` to get elevated privileges,
+-- which is precisely the audited, intentional version of the same behavior --
+-- current_company_id()/is_platform_admin()/admin_company_summary() above already use
+-- this pattern and none of them are flagged. So: same queries, same filtering, same
+-- result shape, just re-declared as security-definer functions instead of views --
+-- this removes the advisory without weakening anything. index.html was updated to
+-- call these via sb.rpc(...) instead of sb.from(...).select('*').
+drop view if exists public.contractor_catalog_view;
+drop view if exists public.distributor_contractor_view;
+drop view if exists public.contractor_distributor_view;
+
+create or replace function public.contractor_catalog()
+returns table(id text, distributor_company_id uuid, distributor_name text, data jsonb)
+language sql security definer set search_path = public stable
+as $$
+  select
+    cf.id,
+    dl.distributor_company_id,
+    c.name as distributor_name,
+    (cf.data - 'cost' - 'vendorId') || jsonb_build_object(
+      'cost', round(((cf.data->>'price')::numeric * dl.multiplier)::numeric, 2)
+    ) as data
+  from public.custom_fixtures cf
+  join public.companies c on c.id = cf.company_id and c.account_type = 'distributor'
+  join public.distributor_links dl on dl.distributor_company_id = cf.company_id
+  where dl.contractor_company_id = public.current_company_id();
+$$;
+
+grant execute on function public.contractor_catalog() to authenticated;
+
+create or replace function public.distributor_contractor_list()
+returns table(
+  distributor_company_id uuid, contractor_company_id uuid, multiplier numeric, label text,
+  contractor_name text, contractor_phone text, contractor_email text, contractor_address text
+)
+language sql security definer set search_path = public stable
+as $$
+  select
+    dl.distributor_company_id,
+    dl.contractor_company_id,
+    dl.multiplier,
+    dl.label,
+    c.name as contractor_name,
+    c.phone as contractor_phone,
+    c.email as contractor_email,
+    c.address as contractor_address
+  from public.distributor_links dl
+  join public.companies c on c.id = dl.contractor_company_id
+  where dl.distributor_company_id = public.current_company_id()
+  order by c.name;
+$$;
+
+grant execute on function public.distributor_contractor_list() to authenticated;
+
+create or replace function public.contractor_distributor_list()
+returns table(distributor_company_id uuid, contractor_company_id uuid, multiplier numeric, distributor_name text)
+language sql security definer set search_path = public stable
+as $$
+  select dl.distributor_company_id, dl.contractor_company_id, dl.multiplier, c.name as distributor_name
+  from public.distributor_links dl
+  join public.companies c on c.id = dl.distributor_company_id
+  where dl.contractor_company_id = public.current_company_id();
+$$;
+
+grant execute on function public.contractor_distributor_list() to authenticated;

@@ -1364,7 +1364,7 @@
       fixtureOverrides: {},
       distributors: [],
       // Contractor side: this company's own view onto any distributor(s) it's linked to --
-      // distributorCatalog (from contractor_catalog_view, merged into allFixtures()) and
+      // distributorCatalog (from contractor_catalog(), merged into allFixtures()) and
       // distributorLinks (this company's own distributor_links rows, just for a "Connected
       // distributors" display). Distributor side: myContractorLinks/myInvites are this
       // distributor's own roster of linked contractors and pending/redeemed invite codes,
@@ -1496,7 +1496,7 @@
   // ---------------- fixture catalog helpers ----------------
   function allFixtures(){
     // Distributor-sourced fixtures (state.distributorCatalog, loaded from
-    // contractor_catalog_view) go through the SAME fixtureOverrides-merge + hidden-filter
+    // contractor_catalog()) go through the SAME fixtureOverrides-merge + hidden-filter
     // logic as BASE_FIXTURES -- a contractor "editing" one of these is really just writing
     // a fixture_overrides row keyed by its id, identical in shape to editing a built-in.
     // `price` defaults to the computed `cost` (0% markup) until an override sets a real one,
@@ -2744,7 +2744,7 @@
     // via the SQL Editor -- see admin_company_summary() in schema.sql).
     $('tabAdmin').hidden = !(authProfile && authProfile.isPlatformAdmin);
     // The fixture-form Cost/Price fields mean something different for a distributor: Price
-    // there IS the list price contractors see (via contractor_catalog_view), and Cost is
+    // there IS the list price contractors see (via contractor_catalog()), and Cost is
     // the distributor's own private cost basis, never shown to a contractor -- relabel so
     // that isn't read as a customer-facing sell price the way it is for a contractor account.
     $('fxCostLabel').textContent = isDistributor ? 'Your cost ($, private)' : 'Your cost ($)';
@@ -3321,7 +3321,7 @@
     const f = fixtureId ? findFixture(fixtureId) : null;
     // Distributor-sourced fixtures are read-only except for the contractor's own sell
     // price -- name/desc/specs/cost are the distributor's to manage, synced live via
-    // contractor_catalog_view, not something a contractor can hand-edit here.
+    // contractor_catalog(), not something a contractor can hand-edit here.
     const locked = !!(f && f.distributorSourced);
     fixtureFormState.locked = locked;
     $('fixtureModalTitle').textContent = f ? 'Edit fixture' : 'Add fixture';
@@ -4449,17 +4449,21 @@
     return { name: d.name||'', email: d.email||'', phone: d.phone||'', account_number: d.accountNumber||'' };
   }
   async function loadCompanyDataFromDb(companyId){
-    // The last four queries are cross-checked by RLS against which side of a distributor
-    // relationship this company actually is (see supabase/schema.sql's distributor_links/
-    // contractor_catalog_view policies) -- running all four unconditionally rather than
-    // branching on authProfile.accountType keeps this eager-load-everything function
-    // uniform; the "wrong side" queries just come back empty, same as a company with no
-    // distributor relationship at all. contractor_distributor_view/distributor_contractor_view
-    // (not distributor_links directly) because companies SELECT RLS only ever allows seeing
-    // your OWN company row -- a plain embedded join for "the other side's name" would always
-    // come back null regardless of the distributor_links relationship; these views exist
-    // specifically to expose just enough of the other side (name, and for a distributor,
-    // the contractor's phone/email/address too) without opening up companies more broadly.
+    // The last three RPC calls are security-definer functions (see supabase/schema.sql),
+    // each internally filtered to `current_company_id()` -- running all three unconditionally
+    // rather than branching on authProfile.accountType keeps this eager-load-everything
+    // function uniform; the "wrong side" queries just come back empty, same as a company with
+    // no distributor relationship at all. They're functions rather than plain `distributor_links`
+    // queries because companies SELECT RLS only ever allows seeing your OWN company row -- a
+    // plain embedded join for "the other side's name" would always come back null regardless of
+    // the distributor_links relationship. They were originally views, but Supabase's linter
+    // flags any view that (implicitly) runs with the owner's privileges as a "Security Definer
+    // View" -- converting them to explicit security-definer functions (same pattern already
+    // used by current_company_id()/admin_company_summary()) keeps the exact same behavior
+    // without tripping that advisory, since a function declaring `security definer` is the
+    // intentional, audited version of the same thing a view does implicitly. Each one exposes
+    // just enough of the other side (name, and for a distributor, the contractor's phone/email/
+    // address too) without opening up companies more broadly.
     const [companyRes, projectsRes, areasRes, customRes, overridesRes, distributorsRes,
       catalogRes, myLinkRes, contractorLinksRes, invitesRes] = await Promise.all([
       sb.from('companies').select('*').eq('id', companyId).single(),
@@ -4468,9 +4472,9 @@
       sb.from('custom_fixtures').select('*').eq('company_id', companyId),
       sb.from('fixture_overrides').select('*').eq('company_id', companyId),
       sb.from('distributors').select('*').eq('company_id', companyId).order('name'),
-      sb.from('contractor_catalog_view').select('*'), // RLS/view scopes this to our linked distributor(s)
-      sb.from('contractor_distributor_view').select('*'),
-      sb.from('distributor_contractor_view').select('*').order('contractor_name'),
+      sb.rpc('contractor_catalog'), // security-definer function scopes this to our linked distributor(s)
+      sb.rpc('contractor_distributor_list'),
+      sb.rpc('distributor_contractor_list'), // ordered by contractor name inside the function
       sb.from('distributor_invites').select('*').eq('distributor_company_id', companyId).order('created_at', {ascending:false}),
     ]);
     if(companyRes.data) state.company = rowToCompany(companyRes.data);

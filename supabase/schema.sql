@@ -716,3 +716,102 @@ begin
   return new;
 end;
 $$;
+
+-- ============================================================================
+-- Branches: a distributor with multiple physical locations can give each one its own
+-- catalog and its own contact identity, and assign a contractor to whichever branch is
+-- actually closest to them -- both for what fixtures/pricing they see, and for which
+-- branch's address/phone/email a PO from them goes to (see the auto-vendor-contact insert
+-- in handle_new_user() above, now branch-aware) rather than always the parent company's.
+-- A distributor that never creates a branch sees zero change -- every fixture/link/invite
+-- just has branch_id null, exactly like before this feature existed.
+-- ============================================================================
+
+create table public.distributor_branches (
+  id uuid primary key default gen_random_uuid(),
+  distributor_company_id uuid not null references public.companies(id) on delete cascade,
+  name text not null,
+  email text not null default '',
+  phone text not null default '',
+  address text not null default '',
+  created_at timestamptz not null default now()
+);
+alter table public.distributor_branches enable row level security;
+create policy "Distributor manages own branches" on public.distributor_branches
+  for all using (distributor_company_id = public.current_company_id())
+  with check (distributor_company_id = public.current_company_id());
+
+-- null = the distributor's main/unbranched catalog or link, same meaning in all three places.
+alter table public.custom_fixtures add column branch_id uuid references public.distributor_branches(id) on delete set null;
+alter table public.distributor_links add column branch_id uuid references public.distributor_branches(id) on delete set null;
+alter table public.distributor_invites add column branch_id uuid references public.distributor_branches(id) on delete set null;
+
+-- Branch-aware: a contractor only sees fixtures from the exact branch (or lack of one) their
+-- own distributor_links row is assigned to. `is not distinct from` is the null-safe equality
+-- Postgres needs here -- a plain `=` would silently drop every unbranched (null = null) match.
+create or replace function public.contractor_catalog()
+returns table(id text, distributor_company_id uuid, distributor_name text, data jsonb)
+language sql security definer set search_path = public stable
+as $$
+  select
+    cf.id,
+    dl.distributor_company_id,
+    c.name as distributor_name,
+    (cf.data - 'cost' - 'vendorId') || jsonb_build_object(
+      'cost', round(((cf.data->>'price')::numeric * dl.multiplier)::numeric, 2)
+    ) as data
+  from public.custom_fixtures cf
+  join public.companies c on c.id = cf.company_id and c.account_type = 'distributor'
+  join public.distributor_links dl on dl.distributor_company_id = cf.company_id
+  where dl.contractor_company_id = public.current_company_id()
+    and cf.branch_id is not distinct from dl.branch_id;
+$$;
+
+-- Both extended with trailing branch_id/branch_name columns (CREATE OR REPLACE supports
+-- appending output columns to a RETURNS TABLE function; it cannot reorder or remove existing
+-- ones, which is why these are added at the end, not interleaved with the original columns).
+create or replace function public.distributor_contractor_list()
+returns table(
+  distributor_company_id uuid, contractor_company_id uuid, multiplier numeric, label text,
+  contractor_name text, contractor_phone text, contractor_email text, contractor_address text,
+  branch_id uuid, branch_name text
+)
+language sql security definer set search_path = public stable
+as $$
+  select
+    dl.distributor_company_id,
+    dl.contractor_company_id,
+    dl.multiplier,
+    dl.label,
+    c.name as contractor_name,
+    c.phone as contractor_phone,
+    c.email as contractor_email,
+    c.address as contractor_address,
+    dl.branch_id,
+    b.name as branch_name
+  from public.distributor_links dl
+  join public.companies c on c.id = dl.contractor_company_id
+  left join public.distributor_branches b on b.id = dl.branch_id
+  where dl.distributor_company_id = public.current_company_id()
+  order by c.name;
+$$;
+
+create or replace function public.contractor_distributor_list()
+returns table(
+  distributor_company_id uuid, contractor_company_id uuid, multiplier numeric, distributor_name text,
+  branch_id uuid, branch_name text
+)
+language sql security definer set search_path = public stable
+as $$
+  select
+    dl.distributor_company_id,
+    dl.contractor_company_id,
+    dl.multiplier,
+    c.name as distributor_name,
+    dl.branch_id,
+    b.name as branch_name
+  from public.distributor_links dl
+  join public.companies c on c.id = dl.distributor_company_id
+  left join public.distributor_branches b on b.id = dl.branch_id
+  where dl.contractor_company_id = public.current_company_id();
+$$;

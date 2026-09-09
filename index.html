@@ -26,6 +26,8 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" integrity="sha384-vtjasyidUo0kW94K5MXDXntzOJpQgBKXmE7e2Ga4LG0skTTLeBi97eFAXsqewJjw" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.3" integrity="sha384-l8ah+VgaWtk1mvOe9VC+OirC6qHFF4yH7l7mKRidV9MSti3E9F463bMp6ZVN4kuC" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/heic-to@1.5.2/dist/iife/heic-to.js" integrity="sha384-cVm8gaWQ5+URpoh6ACKXpm8TuyoHkfIDDBkxvDoUdIZ18w8nV5en0lVQvWMwO/6S" crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/4.2.1/jspdf.umd.min.js" integrity="sha384-qovJwSBbRDPP5cEjCp8S0UP66wrvnjaa60XMOGzTNanrThcrGfXfnZkvgY8N1KT3" crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/5.0.8/jspdf.plugin.autotable.min.js" integrity="sha384-5jk55M0XWoAw7LyhlXJe19ErOr3doBAPzxw9vahPFbvolqWa2yDk4fhHa2zuYeOa" crossorigin="anonymous"></script>
 <style>
   :root{
     --ink:#10182C; --ink-2:#0A0F1F; --surface:#16213A; --surface-2:#1C2A46; --line:#263354;
@@ -897,6 +899,11 @@
       <span id="importStatusText"></span>
       <button class="link-btn" id="btnUndoImport" hidden>Undo this import</button>
     </div>
+    <!-- Only shown for a distributor account that has created at least one branch (see
+         Contractors screen) -- switches which catalog (custom_fixtures.branch_id) is being
+         viewed/edited/imported into below. Hidden entirely for contractor accounts and for a
+         distributor with no branches, so this is a no-op for the vast majority of accounts. -->
+    <div class="sheet-tabs" id="branchTabs" hidden></div>
     <div class="sheet-tabs">
       <button class="fmgmt-tab active" data-fcat="fixture">Fixtures</button>
       <button class="fmgmt-tab" data-fcat="accessory">Accessories</button>
@@ -920,15 +927,32 @@
        plus generating the invite codes a new contractor redeems at signup. -->
   <main id="screen-distributor-contractors" class="screen">
     <div class="section-head"><h2>Contractors</h2></div>
+
+    <!-- A branch is its own catalog (custom_fixtures.branch_id) and its own contact info
+         (distributor_branches), so a contractor assigned to one only sees that branch's
+         fixtures, and PO emails/prints for them route to that branch's address/phone/email
+         instead of the parent company's -- see contractor_catalog()'s branch-aware filter and
+         handle_new_user()'s branch-aware auto-vendor-contact insert in schema.sql. A distributor
+         with no branches yet behaves exactly as before this feature existed. -->
+    <div class="section-head">
+      <h3>Branches</h3>
+      <button class="btn btn-primary btn-sm" id="btnAddBranch">+ Add branch</button>
+    </div>
+    <div class="sheet-list" id="branchList"></div>
+    <div class="empty-note" id="branchEmpty" style="padding:0 14px 18px;text-align:left;" hidden>No branches yet — everything uses your main catalog. Add a branch if you have multiple locations with separate fixtures/pricing, so you can assign each contractor to the one nearest them.</div>
+
     <div class="section-head"><h3>Invite a contractor</h3></div>
     <div class="company-form">
       <div class="form-row-2">
         <div class="field"><label>Starting multiplier</label><input id="inviteMultiplier" type="number" step="0.01" min="0" placeholder="0.50"></div>
         <div class="field"><label>Label (optional)</label><input id="inviteLabel" placeholder="e.g. Smith Landscaping"></div>
       </div>
+      <div class="field" id="inviteBranchField" hidden><label>Branch</label>
+        <select id="inviteBranch"><option value="">Main catalog (no branch)</option></select>
+      </div>
       <button class="btn btn-primary btn-sm" id="btnGenerateInvite">Generate invite code</button>
     </div>
-    <div class="empty-note" style="padding:0 14px 18px;text-align:left;">A contractor's cost = your fixtures' Sell Price × this multiplier, updated live if you change either one later. Give them the generated code to enter as their access code at signup — it creates their account already linked to your catalog.</div>
+    <div class="empty-note" style="padding:0 14px 18px;text-align:left;">A contractor's cost = the assigned branch's (or your main catalog's) Sell Price × this multiplier, updated live if you change either one later. Give them the generated code to enter as their access code at signup — it creates their account already linked and, if you picked a branch above, assigned to it.</div>
     <div class="sheet-list" id="inviteList"></div>
 
     <div class="section-head"><h3>Linked contractors</h3></div>
@@ -1387,6 +1411,25 @@
   </div>
 </div>
 
+<!-- ===================== BRANCH MODAL (distributor accounts only) ===================== -->
+<div class="edit-sheet" id="branchModal" hidden>
+  <div class="edit-backdrop" id="branchBackdrop"></div>
+  <div class="edit-panel">
+    <div class="edit-title" id="branchModalTitle">Add branch</div>
+    <div class="modal-form-body">
+      <div class="field"><label>Branch name</label><input id="branchName" placeholder="e.g. North Branch"></div>
+      <div class="field"><label>Email</label><input id="branchEmail" type="email" placeholder="orders@yourbranch.com"></div>
+      <div class="field"><label>Phone</label><input id="branchPhone" type="tel" placeholder="(250) 555-0123"></div>
+      <div class="field"><label>Address</label><input id="branchAddress" placeholder="123 Main St, Your City"></div>
+    </div>
+    <div class="edit-actions">
+      <button class="btn btn-danger" id="branchDelete" hidden>Delete</button>
+      <button class="btn btn-ghost" id="branchCancel">Cancel</button>
+      <button class="btn btn-primary" id="branchSave">Save</button>
+    </div>
+  </div>
+</div>
+
 <input type="file" id="fileInput" accept="image/*,.heic,.heif" hidden>
 <input type="file" id="fileInputCamera" accept="image/*,.heic,.heif" capture="environment" hidden>
 <input type="file" id="logoInput" accept="image/*,.heic,.heif" hidden>
@@ -1441,6 +1484,11 @@
       distributorLinks: [],
       myContractorLinks: [],
       myInvites: [],
+      // Distributor-account only: this company's own branches (distributor_branches), and
+      // which one the Fixtures tab is currently viewing/editing -- null means the main
+      // (unbranched) catalog. See the "Branches" section on the Contractors screen.
+      branches: [],
+      currentBranchId: null,
       fixtureMgmtCat: 'fixture',
       company: {logo:null, name:'', phone:'', email:'', address:'', website:'', taxRate:0, taxLabel:'Tax',
         quoteAccent:'#F0A84E', pdfLogoSize:30, pdfFontSize:10, pdfBgColor:'#FFFFFF', headingAlign:'left',
@@ -2655,16 +2703,96 @@
         <div class="fx-side"><div class="fx-actions">${action}</div></div>
       </div>`;
     }).join('');
-    el.querySelectorAll('[data-po-email]').forEach(b=> b.addEventListener('click', e=>{
+    el.querySelectorAll('[data-po-email]').forEach(b=> b.addEventListener('click', async e=>{
+      const btn = e.currentTarget;
       const group = groups.find(g=> g.distributor && g.distributor.id===e.currentTarget.dataset.poEmail);
-      if(group) sendPoEmail(pr, group);
+      if(!group) return;
+      // Generating + uploading the PDF is a real network round trip (unlike the old
+      // instant, purely-local mailto: build), so the button needs its own busy state or a
+      // click here would otherwise look like it silently did nothing for a moment.
+      const prevText = btn.textContent;
+      btn.disabled = true; btn.textContent = 'Preparing…';
+      await sendPoEmail(pr, group);
+      btn.disabled = false; btn.textContent = prevText;
     }));
     el.querySelectorAll('[data-po-print]').forEach(b=> b.addEventListener('click', e=>{
       const group = groups.find(g=> g.distributor && g.distributor.id===e.currentTarget.dataset.poPrint);
       if(group) printPoDocument(pr, group);
     }));
   }
-  function sendPoEmail(pr, group){
+  // Builds the same purchase-order content as buildPoDocumentHtml() (see below) as a real PDF
+  // file via jsPDF + its autoTable plugin, instead of HTML meant for print/screen. mailto:
+  // links can't carry file attachments -- a hard email-client limitation, not something any
+  // code here can work around -- so sendPoEmail() below uploads this to Storage and links to
+  // it in the email body instead of attaching it directly.
+  function buildPoPdfBlob(pr, group){
+    const c = state.company, d = group.distributor;
+    const dateStr = new Date().toLocaleDateString();
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit:'pt', format:'letter' });
+    const pageW = doc.internal.pageSize.getWidth();
+    const marginX = 40;
+    doc.setFont('helvetica','bold'); doc.setFontSize(18);
+    doc.text('Purchase Order', marginX, 50);
+    doc.setFont('helvetica','normal'); doc.setFontSize(10);
+    doc.text(dateStr, pageW-marginX, 50, { align:'right' });
+
+    let y = 84;
+    doc.setFont('helvetica','bold'); doc.setFontSize(9);
+    doc.text('FROM', marginX, y);
+    doc.text('TO', pageW/2, y);
+    y += 14;
+    doc.setFont('helvetica','normal'); doc.setFontSize(10);
+    const fromLines = [c.name||'—', c.phone, c.email].filter(Boolean);
+    const toLines = [d.name, d.phone, d.email, d.accountNumber?('Account #: '+d.accountNumber):null].filter(Boolean);
+    fromLines.forEach((line,i)=> doc.text(String(line), marginX, y+i*14));
+    toLines.forEach((line,i)=> doc.text(String(line), pageW/2, y+i*14));
+    y += Math.max(fromLines.length, toLines.length)*14 + 18;
+
+    doc.setFont('helvetica','bold'); doc.setFontSize(10);
+    doc.text('Job: '+(pr.customer.name||'Untitled project'), marginX, y);
+    y += 18;
+
+    doc.autoTable({
+      startY: y,
+      margin: { left: marginX, right: marginX },
+      head: [['Item','Qty','Unit Price','Line Total']],
+      body: group.items.map(i=> [i.name, String(i.qty), money(i.cost), money(i.lineCost)]),
+      styles: { fontSize: 9, cellPadding: 5 },
+      headStyles: { fillColor: [20,23,28] },
+      columnStyles: { 1:{halign:'right'}, 2:{halign:'right'}, 3:{halign:'right'} },
+    });
+
+    let afterY = doc.lastAutoTable.finalY + 24;
+    doc.setFont('helvetica','bold'); doc.setFontSize(12);
+    doc.text('Total: '+money(group.totalCost), pageW-marginX, afterY, { align:'right' });
+    afterY += 24;
+    doc.setFont('helvetica','normal'); doc.setFontSize(9);
+    doc.text('Please confirm availability and lead time. Thank you.', marginX, afterY);
+    doc.setFontSize(8);
+    doc.text('Generated via Duskline', marginX, doc.internal.pageSize.getHeight()-30);
+
+    return doc.output('blob');
+  }
+  // Reuses the same public "photos" Storage bucket every other upload in this app already
+  // goes through (see uploadToPhotosBucket) -- RLS there keys off the leading company-id path
+  // segment, not the file type or subfolder, so a new pos/ prefix needs no policy change.
+  async function uploadPoPdf(pr, group){
+    try{
+      const blob = buildPoPdfBlob(pr, group);
+      const path = `${authProfile.companyId}/pos/po-${pr.id}-${Date.now()}.pdf`;
+      const { error } = await sb.storage.from('photos').upload(path, blob, { contentType:'application/pdf', upsert:true });
+      if(error) throw error;
+      const { data } = sb.storage.from('photos').getPublicUrl(path);
+      return data.publicUrl;
+    }catch(err){
+      // A failed PDF upload shouldn't block the email itself -- sendPoEmail falls back to the
+      // plain-text-only body (its pre-this-feature behavior) when this returns null.
+      console.warn('Duskline: PO PDF upload failed.', err);
+      return null;
+    }
+  }
+  async function sendPoEmail(pr, group){
     const d = group.distributor;
     const c = state.company;
     const lines = [
@@ -2681,7 +2809,10 @@
     group.items.forEach(i=>{
       lines.push(`${i.name}  x${i.qty}  @ ${money(i.cost)}  = ${money(i.lineCost)}`);
     });
-    lines.push('', 'Total: '+money(group.totalCost), '', 'Please confirm availability and lead time. Thank you.');
+    lines.push('', 'Total: '+money(group.totalCost));
+    const pdfUrl = await uploadPoPdf(pr, group);
+    if(pdfUrl) lines.push('', 'PDF copy: '+pdfUrl);
+    lines.push('', 'Please confirm availability and lead time. Thank you.');
     const subject = `Purchase Order — ${pr.customer.name||'Project'}${c.name?' — '+c.name:''}`;
     const url = `mailto:${d.email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(lines.join('\n'))}`;
     // An <a> click (rather than assigning window.location.href) avoids touching the page's
@@ -2800,8 +2931,8 @@
       const tabName = t.dataset.screen;
       t.classList.toggle('active', tabName===name || (tabName==='projects' && name==='project-detail'));
     });
-    if(name==='fixtures') renderFixtureMgmtList();
-    if(name==='distributor-contractors'){ renderInviteList(); renderContractorLinkList(); }
+    if(name==='fixtures'){ renderBranchTabs(); renderFixtureMgmtList(); }
+    if(name==='distributor-contractors'){ renderBranchList(); renderInviteBranchOptions(); renderInviteList(); renderContractorLinkList(); }
     if(name==='company'){ renderCompanyPreview(); renderDistributorList(); renderDistributorLinksSection(); }
     if(name==='projects') renderProjectList();
     if(name==='admin') renderAdminDashboard();
@@ -3317,7 +3448,14 @@
   }
   function renderFixtureMgmtList(){
     const cat = state.fixtureMgmtCat;
-    const list = allFixtures().filter(f=>f.cat===cat);
+    let list = allFixtures().filter(f=>f.cat===cat);
+    // Distributor accounts only: show just the currently-selected branch's own catalog (or the
+    // main/unbranched one). (f.branchId||null) normalizes undefined (a fixture created before
+    // this feature, or a BASE_FIXTURES item) down to null, same as state.currentBranchId's own
+    // default, so pre-existing fixtures correctly show up under "Main catalog."
+    if(authProfile && authProfile.accountType==='distributor'){
+      list = list.filter(f=> (f.branchId||null) === state.currentBranchId);
+    }
     // Drop any selected ids that no longer belong to the currently-shown category/list (e.g.
     // after a bulk delete already removed them) so the count in the bulk bar stays accurate.
     const listIds = new Set(list.map(f=>f.id));
@@ -3483,8 +3621,12 @@
       }
     } else {
       const id = 'c'+Date.now();
-      state.customFixtures.push({id, custom:true, ...data});
-      sb.from('custom_fixtures').insert({ id, company_id: authProfile.companyId, data }).then(({error})=>{
+      // Stamps the fixture into whichever branch's catalog is currently selected on the
+      // Fixtures tab (null = main catalog) -- meaningless/always-null for a contractor account,
+      // since state.currentBranchId is never set outside the distributor branch-tabs UI.
+      const branchId = (authProfile && authProfile.accountType==='distributor') ? state.currentBranchId : null;
+      state.customFixtures.push({id, custom:true, branchId, ...data});
+      sb.from('custom_fixtures').insert({ id, company_id: authProfile.companyId, data, branch_id: branchId }).then(({error})=>{
         if(error) console.warn('Duskline: custom fixture create failed.', error);
       });
     }
@@ -3544,7 +3686,7 @@
     if(!list.length) return;
     $('distributorLinksList').innerHTML = list.map(link=>`
       <div class="fx-card">
-        <div class="fx-main"><div class="fx-name">${escapeHtml(link.distributorName||'Distributor')}</div>
+        <div class="fx-main"><div class="fx-name">${escapeHtml(link.distributorName||'Distributor')}${link.branchName ? ` <span class="muted" style="font-size:12px;font-weight:400;">— ${escapeHtml(link.branchName)}</span>` : ''}</div>
           <div class="fx-desc">Your cost = their list price × ${link.multiplier}</div>
         </div>
       </div>`).join('');
@@ -3617,6 +3759,113 @@
     renderFixtureMgmtList();
   }
 
+  // ---------------- distributor ORG: branches (distributor accounts only) ----------------
+  // A branch is its own catalog (custom_fixtures.branch_id) and its own contact identity
+  // (distributor_branches: name/email/phone/address) -- NOT the same thing as state.distributors
+  // above, which is a per-company vendor-contact address book. A contractor assigned to a branch
+  // (distributor_links.branch_id) only sees that branch's fixtures (see contractor_catalog()'s
+  // branch-aware filter in schema.sql), and their auto-created vendor contact for POs uses that
+  // branch's own info instead of the parent distributor company's (handle_new_user()).
+  function renderBranchList(){
+    const list = state.branches;
+    $('branchEmpty').hidden = list.length>0;
+    $('branchList').innerHTML = list.map(b=>{
+      const sub = [b.email, b.phone, b.address].filter(Boolean).join(' · ');
+      return `<div class="fx-card">
+        <div class="fx-main">
+          <div class="fx-name">${escapeHtml(b.name)}</div>
+          ${sub ? `<div class="fx-desc">${escapeHtml(sub)}</div>` : ''}
+        </div>
+        <div class="fx-side">
+          <div class="fx-actions"><button data-edit-branch="${b.id}">Edit</button></div>
+        </div>
+      </div>`;
+    }).join('');
+    $('branchList').querySelectorAll('[data-edit-branch]').forEach(b=>b.addEventListener('click', e=> openBranchForm(e.currentTarget.dataset.editBranch)));
+  }
+  let branchFormState = {editingId:null};
+  function openBranchForm(branchId){
+    branchFormState.editingId = branchId || null;
+    const b = branchId ? state.branches.find(x=>x.id===branchId) : null;
+    $('branchModalTitle').textContent = b ? 'Edit branch' : 'Add branch';
+    $('branchName').value = b ? b.name : '';
+    $('branchEmail').value = b ? b.email : '';
+    $('branchPhone').value = b ? b.phone : '';
+    $('branchAddress').value = b ? b.address : '';
+    $('branchDelete').hidden = !b;
+    $('branchModal').hidden = false;
+  }
+  function closeBranchForm(){ $('branchModal').hidden = true; }
+  async function saveBranchForm(){
+    const name = $('branchName').value.trim();
+    if(!name){ alert('Enter a branch name.'); $('branchName').focus(); return; }
+    const email = $('branchEmail').value.trim();
+    const phone = $('branchPhone').value.trim();
+    const address = $('branchAddress').value.trim();
+    const data = {name, email, phone, address};
+
+    if(branchFormState.editingId){
+      const id = branchFormState.editingId;
+      const existing = state.branches.find(b=>b.id===id);
+      if(existing) Object.assign(existing, data);
+      const { error } = await sb.from('distributor_branches').update(branchToRow(data)).eq('id', id);
+      if(error) console.warn('Duskline: branch save failed.', error);
+    } else {
+      const { data: row, error } = await sb.from('distributor_branches')
+        .insert({ ...branchToRow(data), distributor_company_id: authProfile.companyId }).select().single();
+      if(error){ console.warn('Duskline: branch create failed.', error); alert('Could not create the branch: '+error.message); }
+      else state.branches.push(rowToBranch(row));
+    }
+    closeBranchForm();
+    renderBranchList();
+    renderBranchTabs();
+    renderInviteBranchOptions();
+  }
+  async function deleteBranchForm(){
+    const id = branchFormState.editingId;
+    if(!id) return;
+    if(!confirm('Delete this branch? Its fixtures and any contractors assigned to it will fall back to your main catalog.')) return;
+    state.branches = state.branches.filter(b=>b.id!==id);
+    if(state.currentBranchId===id) state.currentBranchId = null;
+    const { error } = await sb.from('distributor_branches').delete().eq('id', id);
+    if(error) console.warn('Duskline: branch delete failed.', error);
+    closeBranchForm();
+    renderBranchList();
+    renderBranchTabs();
+    renderInviteBranchOptions();
+    renderFixtureMgmtList();
+  }
+  // The Fixtures-tab switcher: "Main catalog" plus one button per branch. Hidden entirely
+  // (rather than showing a single-item switcher) when there are no branches, so this is
+  // invisible for every account except a distributor that's actually created one.
+  function renderBranchTabs(){
+    const wrap = $('branchTabs');
+    const isDistributor = authProfile && authProfile.accountType==='distributor';
+    if(!isDistributor || !state.branches.length){ wrap.hidden = true; wrap.innerHTML=''; return; }
+    wrap.hidden = false;
+    const tabs = [{id:null, name:'Main catalog'}, ...state.branches.map(b=>({id:b.id, name:b.name}))];
+    wrap.innerHTML = tabs.map(t=>
+      `<button class="fmgmt-tab${state.currentBranchId===t.id?' active':''}" data-branch="${t.id||''}">${escapeHtml(t.name)}</button>`
+    ).join('');
+    wrap.querySelectorAll('[data-branch]').forEach(btn=> btn.addEventListener('click', ()=>{
+      state.currentBranchId = btn.dataset.branch || null;
+      fxMgmtSelected.clear();
+      renderBranchTabs();
+      renderFixtureMgmtList();
+    }));
+  }
+  // Populates the branch <select> on the "Invite a contractor" form -- hidden when there are
+  // no branches, since inviting into a company with no branches has nothing to pick from.
+  function renderInviteBranchOptions(){
+    const field = $('inviteBranchField');
+    field.hidden = state.branches.length===0;
+    const sel = $('inviteBranch');
+    const current = sel.value;
+    sel.innerHTML = '<option value="">Main catalog (no branch)</option>' +
+      state.branches.map(b=> `<option value="${b.id}">${escapeHtml(b.name)}</option>`).join('');
+    sel.value = current;
+  }
+
   // ---------------- distributor ORG: contractors screen (distributor accounts only) ----------------
   // NOT the same thing as state.distributors/renderDistributorList above -- that's a per-company
   // vendor-contact address book for PO grouping. This section is the distributor-*account*
@@ -3626,10 +3875,12 @@
   function renderInviteList(){
     $('inviteList').innerHTML = state.myInvites.map(inv=>{
       const status = inv.redeemedAt ? 'Redeemed' : 'Pending';
+      const branch = inv.branchId ? state.branches.find(b=>b.id===inv.branchId) : null;
+      const branchTxt = state.branches.length ? ` · ${escapeHtml(branch ? branch.name : 'Main catalog')}` : '';
       return `<div class="fx-card">
         <div class="fx-main">
           <div class="fx-name mono">${escapeHtml(inv.code)}</div>
-          <div class="fx-desc">${inv.label ? escapeHtml(inv.label)+' · ' : ''}${status} · ×${inv.multiplier}</div>
+          <div class="fx-desc">${inv.label ? escapeHtml(inv.label)+' · ' : ''}${status} · ×${inv.multiplier}${branchTxt}</div>
         </div>
         <div class="fx-side">
           <div class="fx-actions">
@@ -3677,21 +3928,31 @@
   async function generateInviteCode(){
     const multiplier = parseFloat($('inviteMultiplier').value)||1;
     const label = $('inviteLabel').value.trim();
+    const branchId = $('inviteBranch').value || null;
     // Not cryptographically significant -- an invite code only ever grants "create a new
     // contractor account linked to us," same trust level as the existing beta access code.
     const code = 'DL-'+Math.random().toString(36).slice(2,8).toUpperCase()+Math.random().toString(36).slice(2,6).toUpperCase();
     const { error } = await sb.from('distributor_invites')
-      .insert({ code, distributor_company_id: authProfile.companyId, multiplier, label });
+      .insert({ code, distributor_company_id: authProfile.companyId, multiplier, label, branch_id: branchId });
     if(error){ console.warn('Duskline: invite create failed.', error); alert('Could not generate an invite code: '+error.message); return; }
-    state.myInvites.unshift({ code, multiplier, label, redeemedAt:null, createdAt:new Date().toISOString() });
-    $('inviteMultiplier').value = ''; $('inviteLabel').value = '';
+    state.myInvites.unshift({ code, multiplier, label, branchId, redeemedAt:null, createdAt:new Date().toISOString() });
+    $('inviteMultiplier').value = ''; $('inviteLabel').value = ''; $('inviteBranch').value = '';
     renderInviteList();
   }
   function renderContractorLinkList(){
     const list = state.myContractorLinks;
     $('contractorLinkEmpty').hidden = list.length>0;
+    const branchOptions = state.branches.map(b=> `<option value="${b.id}">${escapeHtml(b.name)}</option>`).join('');
     $('contractorLinkList').innerHTML = list.map(link=>{
       const contact = [link.contractorPhone, link.contractorEmail, link.contractorAddress].filter(Boolean).join(' · ');
+      // The branch picker only shows once this distributor has branches -- for everyone else
+      // this reassignment concept doesn't exist yet, so no reason to clutter the row with it.
+      const branchPicker = state.branches.length ? `
+          <div class="field" style="margin:0;"><label style="margin:0 0 3px;">Branch</label>
+            <select data-branch="${link.contractorCompanyId}" style="width:140px;">
+              <option value="">Main catalog</option>${branchOptions}
+            </select>
+          </div>` : '';
       return `<div class="fx-card">
         <div class="fx-main">
           <div class="fx-name">${escapeHtml(link.contractorName||'Unnamed contractor')}</div>
@@ -3702,6 +3963,7 @@
           </div>
         </div>
         <div class="fx-side">
+          ${branchPicker}
           <div class="field" style="margin:0;"><label style="margin:0 0 3px;">Multiplier</label>
             <input type="number" step="0.01" min="0" style="width:80px;" data-multiplier="${link.contractorCompanyId}" value="${link.multiplier}">
           </div>
@@ -3709,6 +3971,19 @@
         </div>
       </div>`;
     }).join('');
+    $('contractorLinkList').querySelectorAll('[data-branch]').forEach(sel=>{
+      const link = state.myContractorLinks.find(l=>l.contractorCompanyId===sel.dataset.branch);
+      sel.value = link && link.branchId ? link.branchId : '';
+      sel.addEventListener('change', e=>{
+        const contractorId = e.currentTarget.dataset.branch;
+        const branchId = e.currentTarget.value || null;
+        const l = state.myContractorLinks.find(x=>x.contractorCompanyId===contractorId);
+        if(l) l.branchId = branchId;
+        sb.from('distributor_links').update({branch_id: branchId})
+          .eq('distributor_company_id', authProfile.companyId).eq('contractor_company_id', contractorId)
+          .then(({error})=>{ if(error) console.warn('Duskline: contractor branch update failed.', error); });
+      });
+    });
     $('contractorLinkList').querySelectorAll('[data-multiplier]').forEach(inp=> inp.addEventListener('change', e=>{
       const contractorId = e.currentTarget.dataset.multiplier;
       const multiplier = parseFloat(e.currentTarget.value)||0;
@@ -3998,8 +4273,11 @@
           showImportStatus('No fixture rows found. Make sure column A has a "Category" header, with your items in the rows below it, and each row has at least a Part Number or Description.', false);
           return;
         }
-        const newRows = parsed.map(f=>({ id: 'c'+Date.now()+'_'+(uidCounter++), data: f }));
-        newRows.forEach(row=> state.customFixtures.push({id: row.id, custom:true, ...row.data}));
+        // Same branch stamping as a manually-added fixture (see saveFixtureForm) -- an import
+        // always lands in whichever catalog is currently selected on the Fixtures tab.
+        const branchId = (authProfile && authProfile.accountType==='distributor') ? state.currentBranchId : null;
+        const newRows = parsed.map(f=>({ id: 'c'+Date.now()+'_'+(uidCounter++), data: f, branch_id: branchId }));
+        newRows.forEach(row=> state.customFixtures.push({id: row.id, custom:true, branchId, ...row.data}));
         sb.from('custom_fixtures').insert(newRows.map(row=> ({...row, company_id: authProfile.companyId}))).then(({error})=>{
           if(error) console.warn('Duskline: fixture import save failed.', error);
         });
@@ -4577,6 +4855,12 @@
   function distributorToRow(d){
     return { name: d.name||'', email: d.email||'', phone: d.phone||'', account_number: d.accountNumber||'' };
   }
+  function rowToBranch(row){
+    return { id: row.id, name: row.name||'', email: row.email||'', phone: row.phone||'', address: row.address||'' };
+  }
+  function branchToRow(b){
+    return { name: b.name||'', email: b.email||'', phone: b.phone||'', address: b.address||'' };
+  }
   async function loadCompanyDataFromDb(companyId){
     // The last three RPC calls are security-definer functions (see supabase/schema.sql),
     // each internally filtered to `current_company_id()` -- running all three unconditionally
@@ -4594,7 +4878,7 @@
     // just enough of the other side (name, and for a distributor, the contractor's phone/email/
     // address too) without opening up companies more broadly.
     const [companyRes, projectsRes, areasRes, customRes, overridesRes, distributorsRes,
-      catalogRes, myLinkRes, contractorLinksRes, invitesRes] = await Promise.all([
+      catalogRes, myLinkRes, contractorLinksRes, invitesRes, branchesRes] = await Promise.all([
       sb.from('companies').select('*').eq('id', companyId).single(),
       sb.from('projects').select('*').eq('company_id', companyId).order('created_at', {ascending:false}),
       sb.from('areas').select('*'), // RLS alone scopes this to the caller's own company
@@ -4605,6 +4889,7 @@
       sb.rpc('contractor_distributor_list'),
       sb.rpc('distributor_contractor_list'), // ordered by contractor name inside the function
       sb.from('distributor_invites').select('*').eq('distributor_company_id', companyId).order('created_at', {ascending:false}),
+      sb.from('distributor_branches').select('*').eq('distributor_company_id', companyId).order('name'),
     ]);
     if(companyRes.data) state.company = rowToCompany(companyRes.data);
     const projectsById = {};
@@ -4614,7 +4899,12 @@
       if(pr) pr.areas.push(rowToArea(row));
     });
     state.distributors = (distributorsRes.data||[]).map(rowToDistributor);
-    state.customFixtures = (customRes.data||[]).map(row=> ({id: row.id, custom:true, ...row.data}));
+    state.branches = (branchesRes.data||[]).map(rowToBranch);
+    // branchId is a real column on custom_fixtures (not part of the data jsonb blob), so it
+    // has to be captured explicitly here the same way distributorCompanyId is below --
+    // meaningful only for a distributor account's own catalog (see renderFixtureMgmtList's
+    // branch filter); always null/absent for a contractor's own custom_fixtures rows.
+    state.customFixtures = (customRes.data||[]).map(row=> ({id: row.id, custom:true, branchId: row.branch_id||null, ...row.data}));
     state.fixtureOverrides = {};
     (overridesRes.data||[]).forEach(row=>{ state.fixtureOverrides[row.base_fixture_id] = row.data; });
     state.distributorCatalog = (catalogRes.data||[]).map(row=> ({
@@ -4623,15 +4913,16 @@
     }));
     state.distributorLinks = (myLinkRes.data||[]).map(row=> ({
       distributorCompanyId: row.distributor_company_id, multiplier: row.multiplier,
-      distributorName: row.distributor_name||'',
+      distributorName: row.distributor_name||'', branchId: row.branch_id||null, branchName: row.branch_name||'',
     }));
     state.myContractorLinks = (contractorLinksRes.data||[]).map(row=> ({
       contractorCompanyId: row.contractor_company_id, multiplier: row.multiplier, label: row.label||'',
       contractorName: row.contractor_name||'', contractorPhone: row.contractor_phone||'',
       contractorEmail: row.contractor_email||'', contractorAddress: row.contractor_address||'',
+      branchId: row.branch_id||null, branchName: row.branch_name||'',
     }));
     state.myInvites = (invitesRes.data||[]).map(row=> ({
-      code: row.code, multiplier: row.multiplier, label: row.label,
+      code: row.code, multiplier: row.multiplier, label: row.label, branchId: row.branch_id||null,
       redeemedAt: row.redeemed_at, createdAt: row.created_at,
     }));
   }
@@ -5335,6 +5626,11 @@
     $('distributorBackdrop').addEventListener('click', closeDistributorForm);
     $('distributorSave').addEventListener('click', saveDistributorForm);
     $('distDelete').addEventListener('click', deleteDistributorForm);
+    $('btnAddBranch').addEventListener('click', ()=> openBranchForm(null));
+    $('branchCancel').addEventListener('click', closeBranchForm);
+    $('branchBackdrop').addEventListener('click', closeBranchForm);
+    $('branchSave').addEventListener('click', saveBranchForm);
+    $('branchDelete').addEventListener('click', deleteBranchForm);
 
     // company tab
     $('btnUploadLogo').addEventListener('click', ()=> $('logoInput').click());

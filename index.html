@@ -60,7 +60,7 @@
   .landing-cta{display:flex;gap:12px;flex-wrap:wrap;justify-content:center;margin-top:6px;}
   .landing-cta .btn{padding:12px 22px;font-size:14px;}
   .landing-features{padding:0 clamp(20px,5vw,64px) clamp(48px,7vw,80px);max-width:1080px;margin:0 auto;width:100%;box-sizing:border-box;
-    display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;}
+    display:grid;grid-template-columns:1fr;gap:16px;}
   .landing-feature{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:22px 20px;display:flex;flex-direction:column;gap:8px;text-align:left;}
   .landing-feature-icon{width:34px;height:34px;border-radius:9px;background:var(--amber-soft, var(--amber));
     display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:0 0 14px 1px rgba(240,168,78,.35);}
@@ -68,7 +68,8 @@
   .landing-feature h3{font-family:var(--font-body);font-weight:700;font-size:15.5px;letter-spacing:-.005em;margin:0;}
   .landing-feature p{font-size:13.5px;color:var(--muted);line-height:1.55;margin:0;}
   .landing-footer{padding:20px clamp(20px,5vw,64px) 32px;text-align:center;color:var(--muted);font-size:12px;}
-  @media (min-width:640px){ .landing-hero{text-align:center;} }
+  @media (min-width:640px){ .landing-hero{text-align:center;} .landing-features{grid-template-columns:repeat(2,1fr);} }
+  @media (min-width:960px){ .landing-features{grid-template-columns:repeat(4,1fr);} }
 
   header.topbar{position:sticky;top:0;z-index:20;display:flex;align-items:center;justify-content:space-between;gap:8px;
     padding:12px 14px;border-bottom:1px solid var(--line);background:var(--ink);}
@@ -260,6 +261,12 @@
   .edit-sheet{position:fixed;inset:0;z-index:60;display:flex;align-items:flex-end;}
   .edit-sheet[hidden]{display:none;}
   .edit-backdrop{position:absolute;inset:0;background:rgba(0,0,0,.55);}
+  /* The auth modal opens over an otherwise-empty app shell (the landing page is hidden first,
+     see hideLandingScreen()), so its plain 55%-black backdrop read as a stark, brandless void --
+     nothing carries over from the hero's warm amber glow the visitor just clicked through from.
+     Scoped to #accountModal specifically so every other modal in the app (customer, area name,
+     fixture form) keeps the plain neutral backdrop, which is correct for them. */
+  #accountModal .edit-backdrop{background:radial-gradient(ellipse 70% 45% at 50% 100%, rgba(240,168,78,.20) 0%, rgba(240,168,78,.06) 45%, rgba(0,0,0,.72) 75%);}
   /* user-select:none because a drag gesture that doesn't land exactly on a control (e.g. a
      range-slider thumb -- infoKelvin/infoBrightness here, real user-reported "sliders rarely
      work") falls through to the browser's native text-selection drag instead when nothing

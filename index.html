@@ -807,6 +807,7 @@
     </div>
     <div class="header-actions">
       <button class="icon-btn" id="btnThemeToggle" aria-label="Toggle light/dark mode">🌙</button>
+      <button class="icon-btn" id="btnFeedback" aria-label="Send feedback">💬</button>
       <button class="icon-btn" id="btnAccount" aria-label="Account">👤</button>
     </div>
   </header>
@@ -1051,6 +1052,10 @@
     <div class="empty-note" style="padding:0 14px 18px;text-align:left;">Every company that's signed up, grouped by distributor, with last login and usage.</div>
     <div id="adminDashboard"></div>
     <div class="empty-note" id="adminEmpty" style="padding:24px 14px;text-align:center;" hidden>No companies yet.</div>
+
+    <div class="section-head"><h3>Feedback</h3></div>
+    <div class="sheet-list" id="adminFeedbackList"></div>
+    <div class="empty-note" id="adminFeedbackEmpty" style="padding:0 14px 24px;text-align:left;" hidden>No feedback yet.</div>
   </main>
 
 </div>
@@ -1324,6 +1329,24 @@
     <div class="edit-actions">
       <button class="btn btn-ghost" id="areaNameCancel">Cancel</button>
       <button class="btn btn-primary" id="areaNameCreate">Create</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== FEEDBACK MODAL ===================== -->
+<div class="edit-sheet" id="feedbackModal" hidden>
+  <div class="edit-backdrop" id="feedbackBackdrop"></div>
+  <div class="edit-panel">
+    <div class="edit-title">Send feedback</div>
+    <div class="modal-form-body">
+      <div class="field"><label>What's on your mind?</label>
+        <textarea id="feedbackMessage" rows="5" placeholder="A bug, something confusing, an idea — whatever it is."></textarea>
+      </div>
+      <div class="edit-hint" id="feedbackError" style="color:var(--danger);" hidden></div>
+    </div>
+    <div class="edit-actions">
+      <button class="btn btn-ghost" id="feedbackCancel">Cancel</button>
+      <button class="btn btn-primary" id="feedbackSend">Send</button>
     </div>
   </div>
 </div>
@@ -3943,6 +3966,11 @@
     const list = state.myContractorLinks;
     $('contractorLinkEmpty').hidden = list.length>0;
     const branchOptions = state.branches.map(b=> `<option value="${b.id}">${escapeHtml(b.name)}</option>`).join('');
+    // Matches the login-recency formatting already used on the platform Admin dashboard
+    // (renderAdminDashboard's fmtLogin) -- kept as its own small copy here rather than a
+    // shared helper since each render function in this file is otherwise self-contained.
+    const fmtLogin = iso => iso ? new Date(iso).toLocaleString('en-US', {month:'short', day:'numeric', hour:'numeric', minute:'2-digit'}) : 'Never logged in';
+    const fmtJoined = iso => iso ? new Date(iso).toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'}) : '—';
     $('contractorLinkList').innerHTML = list.map(link=>{
       const contact = [link.contractorPhone, link.contractorEmail, link.contractorAddress].filter(Boolean).join(' · ');
       // The branch picker only shows once this distributor has branches -- for everyone else
@@ -3953,9 +3981,11 @@
               <option value="">Main catalog</option>${branchOptions}
             </select>
           </div>` : '';
+      const stats = `Joined ${fmtJoined(link.joinedAt)} · ${fmtLogin(link.lastSignInAt)} · ${link.projectCount} project${link.projectCount!==1?'s':''}`;
       return `<div class="fx-card">
         <div class="fx-main">
           <div class="fx-name">${escapeHtml(link.contractorName||'Unnamed contractor')}</div>
+          <div class="fx-spec mono" style="margin-top:2px;">${escapeHtml(stats)}</div>
           ${contact ? `<div class="fx-desc">${escapeHtml(contact)}</div>` : ''}
           <div class="fx-spec" style="margin-top:6px;">
             <label style="display:block;margin-bottom:3px;">Your label for them</label>
@@ -4066,6 +4096,20 @@
       standalone.forEach(c=> html += rowHtml(c, false));
     }
     $('adminDashboard').innerHTML = html;
+
+    // Same "empty result for a non-admin, not an error" contract as admin_company_summary()
+    // above, and the same fmtLogin helper for the timestamp.
+    const { data: fbRows, error: fbError } = await sb.rpc('admin_list_feedback');
+    if(fbError) console.warn('Duskline: admin feedback load failed.', fbError);
+    const feedback = fbRows || [];
+    $('adminFeedbackEmpty').hidden = feedback.length>0;
+    $('adminFeedbackList').innerHTML = feedback.map(f=> `<div class="fx-card">
+      <div class="fx-main">
+        <div class="fx-name">${escapeHtml(f.company_name||'Unknown company')} <span class="muted" style="font-weight:400;">· ${escapeHtml(f.account_type||'')} · ${escapeHtml(f.user_email||'—')}</span></div>
+        <div class="fx-desc" style="white-space:pre-wrap;">${escapeHtml(f.message)}</div>
+        <div class="fx-spec" style="margin-top:6px;">${fmtLogin(f.created_at)}</div>
+      </div>
+    </div>`).join('');
   }
 
   // ---------------- fixture import template download ----------------
@@ -4213,13 +4257,17 @@
     for(let i=dataStart; i<rows.length; i++){
       const row = rows[i];
       if(!row) continue;
-      // Name isn't its own column -- it's built from Part Number + Description so a
-      // contractor can paste both of those straight from a distributor price sheet (which
-      // almost always has them as separate columns already) without retyping a combined name.
+      // Name isn't its own column -- it's just the Part Number, so a contractor can paste
+      // straight from a distributor price sheet's part-number column without retyping a name.
+      // (Previously this concatenated Part Number + Description into the name; changed per
+      // direct request since that read as redundant/cluttered once the description was also
+      // shown right below it everywhere a fixture's name appears.) Falls back to the
+      // description only in the edge case of a row with a description but no part number, so
+      // an import never silently produces a nameless fixture.
       const partNumber = (row[2]||'').toString().trim();
       const descRaw = (row[4]||'').toString().trim();
       if(!partNumber && !descRaw) continue;
-      const name = [partNumber, descRaw].filter(Boolean).join(' — ');
+      const name = partNumber || descRaw;
       const catRaw = (row[0]||'').toString().trim().toLowerCase();
       const cat = catRaw.startsWith('access') ? 'accessory' : catRaw.startsWith('strip') ? 'strip' : 'fixture';
       // Fixture Type only applies to cat==='fixture' rows -- matched against the same
@@ -4733,6 +4781,35 @@
     applyTheme(current==='light' ? 'dark' : 'light');
   }
 
+  // ---------------- feedback ----------------
+  // Writes straight to a feedback table rather than a mailto: link (unlike the PO email flow)
+  // -- feedback should land somewhere Isaac can review as a list (see admin_list_feedback() /
+  // the Admin dashboard's Feedback section), not depend on every user having a mail client
+  // configured, and shouldn't expose Isaac's own email address in the page source either.
+  function openFeedbackModal(){
+    $('feedbackMessage').value = '';
+    $('feedbackError').hidden = true;
+    $('feedbackModal').hidden = false;
+  }
+  function closeFeedbackModal(){ $('feedbackModal').hidden = true; }
+  async function sendFeedback(){
+    const message = $('feedbackMessage').value.trim();
+    if(!message){ $('feedbackError').textContent = 'Enter a message first.'; $('feedbackError').hidden = false; return; }
+    if(!authUser || !authProfile){ $('feedbackError').textContent = 'You need to be signed in to send feedback.'; $('feedbackError').hidden = false; return; }
+    const btn = $('feedbackSend');
+    btn.disabled = true; btn.textContent = 'Sending…';
+    const { error } = await sb.from('feedback').insert({ company_id: authProfile.companyId, user_id: authUser.id, message });
+    btn.disabled = false; btn.textContent = 'Send';
+    if(error){
+      console.warn('Duskline: feedback send failed.', error);
+      $('feedbackError').textContent = 'Could not send that — please try again.';
+      $('feedbackError').hidden = false;
+      return;
+    }
+    closeFeedbackModal();
+    alert('Thanks — feedback sent.');
+  }
+
   function syncCompanyFormFromState(){
     const c = state.company;
     $('companyName').value = c.name||''; $('companyPhone').value = c.phone||'';
@@ -4920,6 +4997,7 @@
       contractorName: row.contractor_name||'', contractorPhone: row.contractor_phone||'',
       contractorEmail: row.contractor_email||'', contractorAddress: row.contractor_address||'',
       branchId: row.branch_id||null, branchName: row.branch_name||'',
+      joinedAt: row.joined_at||null, lastSignInAt: row.last_sign_in_at||null, projectCount: row.project_count||0,
     }));
     state.myInvites = (invitesRes.data||[]).map(row=> ({
       code: row.code, multiplier: row.multiplier, label: row.label, branchId: row.branch_id||null,
@@ -5745,6 +5823,10 @@
     try{ savedTheme = localStorage.getItem('duskline_theme') || 'dark'; }catch(err){}
     applyTheme(savedTheme);
     $('btnThemeToggle').addEventListener('click', toggleTheme);
+    $('btnFeedback').addEventListener('click', openFeedbackModal);
+    $('feedbackCancel').addEventListener('click', closeFeedbackModal);
+    $('feedbackBackdrop').addEventListener('click', closeFeedbackModal);
+    $('feedbackSend').addEventListener('click', sendFeedback);
 
     // account / auth
     $('btnAccount').addEventListener('click', openAccountModal);

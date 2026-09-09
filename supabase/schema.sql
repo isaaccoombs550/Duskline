@@ -1038,3 +1038,87 @@ begin
   return new;
 end;
 $$;
+
+-- ============================================================================
+-- Feedback: a simple in-app "send feedback" button (header icon, every screen) writes here
+-- instead of a mailto: link -- lands as a reviewable list for Isaac (see admin_list_feedback()
+-- and the Admin dashboard's new Feedback section) rather than depending on every user having a
+-- mail client configured, and doesn't expose Isaac's own email address in the page source.
+-- ============================================================================
+
+create table public.feedback (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references public.companies(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  message text not null,
+  created_at timestamptz not null default now()
+);
+alter table public.feedback enable row level security;
+-- Insert-only for regular users -- nobody needs to read back their own (or anyone else's)
+-- past feedback from inside the app, only submit new messages. Isaac reads all of it through
+-- admin_list_feedback() below instead, same "security definer function gated on
+-- is_platform_admin()" pattern as admin_company_summary().
+create policy "Users can submit feedback" on public.feedback
+  for insert with check (company_id = public.current_company_id() and user_id = auth.uid());
+
+create or replace function public.admin_list_feedback()
+returns table(
+  id uuid, company_id uuid, company_name text, account_type text,
+  user_email text, message text, created_at timestamptz
+)
+language sql security definer set search_path = public, auth stable
+as $$
+  select f.id, f.company_id, c.name, c.account_type, u.email, f.message, f.created_at
+  from public.feedback f
+  join public.companies c on c.id = f.company_id
+  left join auth.users u on u.id = f.user_id
+  where public.is_platform_admin()
+  order by f.created_at desc;
+$$;
+grant execute on function public.admin_list_feedback() to authenticated;
+
+-- ============================================================================
+-- distributor_contractor_list() extended with joined_at/last_sign_in_at/project_count so a
+-- distributor can see, right under each linked contractor's name on the Contractors screen,
+-- whether they've actually signed in and how much they're using the catalog -- previously the
+-- list only showed static contact info. Same auth.users/cross-company read as
+-- admin_company_summary() (security definer, gated by being scoped to this distributor's own
+-- links via current_company_id() in the where clause, not by is_platform_admin() -- a
+-- distributor is allowed to see usage for their OWN contractors, unlike the platform-wide
+-- admin view). Adds trailing columns to a RETURNS TABLE function, so this needs the same
+-- drop-then-create as the branches migration -- CREATE OR REPLACE alone fails with 42P13 here.
+-- ============================================================================
+
+drop function if exists public.distributor_contractor_list();
+create function public.distributor_contractor_list()
+returns table(
+  distributor_company_id uuid, contractor_company_id uuid, multiplier numeric, label text,
+  contractor_name text, contractor_phone text, contractor_email text, contractor_address text,
+  branch_id uuid, branch_name text,
+  joined_at timestamptz, last_sign_in_at timestamptz, project_count bigint
+)
+language sql security definer set search_path = public, auth stable
+as $$
+  select
+    dl.distributor_company_id,
+    dl.contractor_company_id,
+    dl.multiplier,
+    dl.label,
+    c.name as contractor_name,
+    c.phone as contractor_phone,
+    c.email as contractor_email,
+    c.address as contractor_address,
+    dl.branch_id,
+    b.name as branch_name,
+    c.created_at as joined_at,
+    u.last_sign_in_at,
+    (select count(*) from public.projects pr where pr.company_id = c.id) as project_count
+  from public.distributor_links dl
+  join public.companies c on c.id = dl.contractor_company_id
+  left join public.distributor_branches b on b.id = dl.branch_id
+  left join public.profiles p on p.company_id = c.id and p.role = 'owner'
+  left join auth.users u on u.id = p.id
+  where dl.distributor_company_id = public.current_company_id()
+  order by c.name;
+$$;
+grant execute on function public.distributor_contractor_list() to authenticated;

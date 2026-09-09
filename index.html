@@ -910,6 +910,13 @@
       <button class="fmgmt-tab" data-fcat="accessory">Accessories</button>
       <button class="fmgmt-tab" data-fcat="strip">Strips</button>
     </div>
+    <!-- Always visible (unlike the bulk bar below, which only appears once something's
+         selected) so there's a way to select everything without checking a box by hand
+         first -- only ever selects the custom fixtures actually shown/checkable in the
+         current category (and branch, for a distributor account), see selectAllFxMgmt(). -->
+    <div style="padding:0 14px 4px;text-align:right;">
+      <button class="link-btn" id="btnFxSelectAll">Select all</button>
+    </div>
     <div class="fx-bulk-bar" id="fxBulkBar" hidden>
       <span id="fxBulkCount"></span>
       <div style="display:flex;gap:8px;">
@@ -3469,6 +3476,19 @@
     bar.hidden = n===0;
     if(n>0) $('fxBulkCount').textContent = `${n} selected`;
   }
+  // Selects every checkable (i.e. f.custom -- built-ins/distributor-sourced fixtures never get
+  // a checkbox, see renderFixtureMgmtList) fixture currently shown for this category (and, for
+  // a distributor account, this branch) -- mirrors that function's own filtering exactly so
+  // "select all" only ever selects what's actually visible/checkable on screen right now.
+  function selectAllFxMgmt(){
+    const cat = state.fixtureMgmtCat;
+    let list = allFixtures().filter(f=>f.cat===cat);
+    if(authProfile && authProfile.accountType==='distributor'){
+      list = list.filter(f=> (f.branchId||null) === state.currentBranchId);
+    }
+    list.filter(f=>f.custom).forEach(f=> fxMgmtSelected.add(f.id));
+    renderFixtureMgmtList();
+  }
   function renderFixtureMgmtList(){
     const cat = state.fixtureMgmtCat;
     let list = allFixtures().filter(f=>f.cat===cat);
@@ -5688,6 +5708,7 @@
     });
     $('btnFxBulkDelete').addEventListener('click', deleteFxMgmtSelected);
     $('btnFxBulkClear').addEventListener('click', ()=>{ fxMgmtSelected.clear(); renderFixtureMgmtList(); });
+    $('btnFxSelectAll').addEventListener('click', selectAllFxMgmt);
     $('btnGenerateInvite').addEventListener('click', generateInviteCode);
     document.querySelectorAll('#fxCatSeg button').forEach(b=> b.addEventListener('click', ()=> setCatSeg(b.dataset.cat)));
     document.querySelectorAll('#fxAimSeg button').forEach(b=> b.addEventListener('click', ()=>{

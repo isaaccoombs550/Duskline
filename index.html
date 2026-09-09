@@ -3578,11 +3578,18 @@
     }));
     updateFxMgmtBulkBar();
 
-    // A hidden distributor-sourced fixture needs to show up here too, same as a hidden
-    // built-in -- both are "hide via override," not a real delete (see deleteFixtureForm).
+    // Deliberately NOT including BASE_FIXTURES here, even though hiding one via override still
+    // works exactly the same way as hiding a distributor-sourced fixture (see isHidden below --
+    // both are "hide via override," not a real delete, see deleteFixtureForm). Every one of
+    // BASE_FIXTURES' ~17 entries is generic placeholder/example content that handle_new_user()
+    // already hides for every single new signup (see its own comment in schema.sql), so this
+    // list would otherwise ALWAYS show the full example catalog on a brand-new account -- real
+    // user-reported clutter, and there's no real scenario where a contractor wants to restore a
+    // "Contour Spot — Small" placeholder into their actual business catalog. Only a hidden
+    // distributor-sourced fixture (a REAL catalog item from a connected distributor, which a
+    // contractor might legitimately want back) still shows up here.
     const isHidden = f=> state.fixtureOverrides[f.id] && state.fixtureOverrides[f.id].hidden;
-    const removed = BASE_FIXTURES.filter(f=> f.cat===cat && isHidden(f))
-      .concat(state.distributorCatalog.filter(f=> f.cat===cat && isHidden(f)));
+    const removed = state.distributorCatalog.filter(f=> f.cat===cat && isHidden(f));
     const removedList = $('fixtureMgmtRemoved');
     if(!removed.length){ removedList.innerHTML=''; return; }
     removedList.innerHTML = `<div class="fx-removed-title">Removed from your library</div>` + removed.map(f=>{

@@ -952,10 +952,11 @@
   </main>
 
   <!-- ===================== DISTRIBUTOR CONTRACTORS ===================== -->
-  <!-- Distributor-only screen (hidden entirely for a contractor account, see the
-       data-role="distributor" tab and applyAccountTypeUI()) for managing which
-       contractors are linked to this distributor's catalog and at what multiplier,
-       plus generating the invite codes a new contractor redeems at signup. -->
+  <!-- Distributor screen -- hidden for a plain contractor account, but shown for BOTH a real
+       distributor account_type AND a platform admin's own account regardless of their
+       account_type (see applyAccountTypeUI()) -- for managing which contractors are linked to
+       this company's catalog and at what multiplier, plus generating the invite codes a new
+       contractor redeems at signup. -->
   <main id="screen-distributor-contractors" class="screen">
     <div class="section-head"><h2>Contractors</h2></div>
 
@@ -3004,8 +3005,17 @@
   // catalog) rather than Projects on login. Called once per login, from enterAppForUser.
   function applyAccountTypeUI(){
     const isDistributor = authProfile && authProfile.accountType==='distributor';
+    // A platform admin sees BOTH tabs regardless of their own account_type -- lets Isaac hand
+    // out his own invite codes (Contractors tab) and generate/manage them from his existing
+    // admin account, without giving up Projects the way a real distributor account_type would.
+    // Nothing else needs to change for this to work: distributor_links/distributor_invites and
+    // every query in loadCompanyDataFromDb already run unconditionally for any company (see
+    // that function's comment) -- the only place account_type='distributor' was actually load-
+    // bearing was contractor_catalog()'s join, relaxed in schema.sql to also match a company
+    // owned by a platform admin.
+    const isAdmin = authProfile && authProfile.isPlatformAdmin;
     document.querySelectorAll('#screenTabs .tab[data-role]').forEach(t=>{
-      t.hidden = t.dataset.role !== (isDistributor ? 'distributor' : 'contractor');
+      t.hidden = (isAdmin && !isDistributor) ? false : t.dataset.role !== (isDistributor ? 'distributor' : 'contractor');
     });
     // Orthogonal to account_type -- an admin's own account is still a normal
     // contractor/distributor account underneath, just with this flag also set (by hand,

@@ -1122,3 +1122,37 @@ as $$
   order by c.name;
 $$;
 grant execute on function public.distributor_contractor_list() to authenticated;
+
+-- ============================================================================
+-- Let a platform admin's own account act as a catalog/invite-code source without
+-- converting it to account_type='distributor' -- Isaac wants to hand out individual
+-- access codes from his existing admin account and have his own custom_fixtures serve
+-- as the catalog those contractors see, while keeping his Projects tab (a real
+-- distributor account_type hides it). Nothing else needed changing for this: the
+-- Contractors screen, invite generation, and handle_new_user()'s invite-redemption
+-- branch all already work for ANY company_id, since distributor_links/distributor_invites
+-- and every query in loadCompanyDataFromDb (index.html) are keyed only on
+-- current_company_id(), never on account_type. The ONE place account_type='distributor'
+-- was actually load-bearing was this join in contractor_catalog() -- relaxed below to
+-- also match a company owned by a platform admin. Column list unchanged, so
+-- CREATE OR REPLACE is fine here, no drop needed.
+-- ============================================================================
+create or replace function public.contractor_catalog()
+returns table(id text, distributor_company_id uuid, distributor_name text, data jsonb)
+language sql security definer set search_path = public stable
+as $$
+  select
+    cf.id,
+    dl.distributor_company_id,
+    c.name as distributor_name,
+    (cf.data - 'cost' - 'vendorId') || jsonb_build_object(
+      'cost', round(((cf.data->>'price')::numeric * dl.multiplier)::numeric, 2)
+    ) as data
+  from public.custom_fixtures cf
+  join public.companies c on c.id = cf.company_id
+    and (c.account_type = 'distributor'
+      or exists (select 1 from public.profiles p2 where p2.company_id = c.id and p2.is_platform_admin))
+  join public.distributor_links dl on dl.distributor_company_id = cf.company_id
+  where dl.contractor_company_id = public.current_company_id()
+    and cf.branch_id is not distinct from dl.branch_id;
+$$;

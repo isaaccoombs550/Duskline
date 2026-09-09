@@ -815,3 +815,67 @@ as $$
   left join public.distributor_branches b on b.id = dl.branch_id
   where dl.contractor_company_id = public.current_company_id();
 $$;
+
+-- Branch-aware redefinition of handle_new_user() -- the version above (that added the
+-- auto-vendor-contact insert) never actually referenced distributor_invites.branch_id, so an
+-- invite generated with a branch selected would silently create a link with branch_id still
+-- null and a vendor contact using the parent company's info instead of the branch's, defeating
+-- the whole point of this feature. Caught before this was ever run live. Two changes from the
+-- prior version: (1) the distributor_links insert now carries v_invite.branch_id through, and
+-- (2) the auto-vendor-contact insert prefers the assigned branch's own name/email/phone via a
+-- left join, coalescing back to the parent company's when no branch was picked (or has none).
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer set search_path = public
+as $$
+declare
+  new_company_id uuid;
+  v_code text := regexp_replace(coalesce(new.raw_user_meta_data->>'access_code',''), '[^\x21-\x7E]', '', 'g');
+  v_invite record;
+  v_invite_found boolean;
+  v_account_type text := 'contractor';
+begin
+  select * into v_invite from public.distributor_invites where code = v_code and redeemed_at is null;
+  v_invite_found := found;
+
+  if v_invite_found then
+    v_account_type := 'contractor';
+  elsif v_code = 'DUSKLINEDISTRIBUTORV1' then
+    v_account_type := 'distributor';
+  elsif v_code is distinct from 'DUSKLINEBETAV12026' then
+    raise exception 'invalid access code';
+  end if;
+
+  insert into public.companies (name, account_type)
+  values (coalesce(new.raw_user_meta_data->>'company_name', 'My Company'), v_account_type)
+  returning id into new_company_id;
+
+  insert into public.profiles (id, company_id, full_name, role)
+  values (new.id, new_company_id, new.raw_user_meta_data->>'full_name', 'owner');
+
+  insert into public.fixture_overrides (company_id, base_fixture_id, data)
+  select new_company_id, id, jsonb_build_object('hidden', true)
+  from unnest(array['f1','f2','f3','f4','f5','f6','f7','f8','f9','f10',
+    'a1','a2','a3','a4','a5','a6','st1']) as id;
+
+  if v_invite_found then
+    insert into public.distributor_links (distributor_company_id, contractor_company_id, multiplier, label, branch_id)
+    values (v_invite.distributor_company_id, new_company_id, v_invite.multiplier, v_invite.label, v_invite.branch_id);
+    update public.distributor_invites set redeemed_at = now(), used_by_company_id = new_company_id
+      where code = v_code;
+
+    insert into public.distributors (company_id, name, email, phone, source_distributor_company_id)
+    select new_company_id,
+      coalesce(b.name, c.name),
+      coalesce(nullif(b.email,''), c.email, ''),
+      coalesce(nullif(b.phone,''), c.phone, ''),
+      c.id
+    from public.companies c
+    left join public.distributor_branches b on b.id = v_invite.branch_id
+    where c.id = v_invite.distributor_company_id;
+  end if;
+
+  return new;
+end;
+$$;

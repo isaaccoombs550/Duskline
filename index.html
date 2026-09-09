@@ -3762,9 +3762,14 @@
     if(!$('editorScreen').hidden) renderSheetList();
   }
 
-  // Contractor side: which distributor(s) this company is linked to and at what multiplier
-  // (read-only -- see the "Contractor can view own link" RLS policy). Hidden entirely when
-  // empty, which covers the vast majority of accounts that have never been distributor-linked.
+  // Contractor side: which distributor(s) this company is linked to (read-only -- see the
+  // "Contractor can view own link" RLS policy). Hidden entirely when empty, which covers the
+  // vast majority of accounts that have never been distributor-linked. Deliberately does NOT
+  // show the multiplier itself -- a contractor seeing "your cost = their list price x N" would
+  // let them back out the distributor's actual list price from their own already-known cost,
+  // which the distributor has no way to opt out of; contractor_catalog() already never sends
+  // the distributor's raw price for this same reason (only the pre-computed cost), so showing
+  // the multiplier here would leak by a different route what that was deliberately hiding.
   function renderDistributorLinksSection(){
     const list = state.distributorLinks;
     $('distributorLinksWrap').hidden = list.length===0;
@@ -3772,7 +3777,6 @@
     $('distributorLinksList').innerHTML = list.map(link=>`
       <div class="fx-card">
         <div class="fx-main"><div class="fx-name">${escapeHtml(link.distributorName||'Distributor')}${link.branchName ? ` <span class="muted" style="font-size:12px;font-weight:400;">— ${escapeHtml(link.branchName)}</span>` : ''}</div>
-          <div class="fx-desc">Your cost = their list price × ${link.multiplier}</div>
         </div>
       </div>`).join('');
   }

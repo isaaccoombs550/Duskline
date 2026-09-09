@@ -879,3 +879,162 @@ begin
   return new;
 end;
 $$;
+
+-- ============================================================================
+-- Fix for a real failure hit running the branches migration above: Postgres refuses to
+-- change a RETURNS TABLE function's output columns via CREATE OR REPLACE (error 42P13,
+-- "cannot change return type of existing function" -- its own HINT says to drop first),
+-- which distributor_contractor_list()/contractor_distributor_list() both needed since this
+-- migration adds trailing branch_id/branch_name columns to each. The SQL Editor runs a pasted
+-- block as one transaction, so that failure rolled the whole thing back -- everything below is
+-- written to be safe to re-run regardless of what did or didn't land from that attempt.
+-- ============================================================================
+
+create table if not exists public.distributor_branches (
+  id uuid primary key default gen_random_uuid(),
+  distributor_company_id uuid not null references public.companies(id) on delete cascade,
+  name text not null,
+  email text not null default '',
+  phone text not null default '',
+  address text not null default '',
+  created_at timestamptz not null default now()
+);
+alter table public.distributor_branches enable row level security;
+drop policy if exists "Distributor manages own branches" on public.distributor_branches;
+create policy "Distributor manages own branches" on public.distributor_branches
+  for all using (distributor_company_id = public.current_company_id())
+  with check (distributor_company_id = public.current_company_id());
+
+alter table public.custom_fixtures add column if not exists branch_id uuid references public.distributor_branches(id) on delete set null;
+alter table public.distributor_links add column if not exists branch_id uuid references public.distributor_branches(id) on delete set null;
+alter table public.distributor_invites add column if not exists branch_id uuid references public.distributor_branches(id) on delete set null;
+
+-- contractor_catalog()'s column list is unchanged (still id/distributor_company_id/
+-- distributor_name/data) -- only its body changed, so CREATE OR REPLACE is fine here, no drop needed.
+create or replace function public.contractor_catalog()
+returns table(id text, distributor_company_id uuid, distributor_name text, data jsonb)
+language sql security definer set search_path = public stable
+as $$
+  select
+    cf.id,
+    dl.distributor_company_id,
+    c.name as distributor_name,
+    (cf.data - 'cost' - 'vendorId') || jsonb_build_object(
+      'cost', round(((cf.data->>'price')::numeric * dl.multiplier)::numeric, 2)
+    ) as data
+  from public.custom_fixtures cf
+  join public.companies c on c.id = cf.company_id and c.account_type = 'distributor'
+  join public.distributor_links dl on dl.distributor_company_id = cf.company_id
+  where dl.contractor_company_id = public.current_company_id()
+    and cf.branch_id is not distinct from dl.branch_id;
+$$;
+
+-- Both of these DO change their output columns (trailing branch_id/branch_name), so each
+-- needs an explicit drop first -- CREATE OR REPLACE alone fails with 42P13 for this case.
+drop function if exists public.distributor_contractor_list();
+create function public.distributor_contractor_list()
+returns table(
+  distributor_company_id uuid, contractor_company_id uuid, multiplier numeric, label text,
+  contractor_name text, contractor_phone text, contractor_email text, contractor_address text,
+  branch_id uuid, branch_name text
+)
+language sql security definer set search_path = public stable
+as $$
+  select
+    dl.distributor_company_id,
+    dl.contractor_company_id,
+    dl.multiplier,
+    dl.label,
+    c.name as contractor_name,
+    c.phone as contractor_phone,
+    c.email as contractor_email,
+    c.address as contractor_address,
+    dl.branch_id,
+    b.name as branch_name
+  from public.distributor_links dl
+  join public.companies c on c.id = dl.contractor_company_id
+  left join public.distributor_branches b on b.id = dl.branch_id
+  where dl.distributor_company_id = public.current_company_id()
+  order by c.name;
+$$;
+grant execute on function public.distributor_contractor_list() to authenticated;
+
+drop function if exists public.contractor_distributor_list();
+create function public.contractor_distributor_list()
+returns table(
+  distributor_company_id uuid, contractor_company_id uuid, multiplier numeric, distributor_name text,
+  branch_id uuid, branch_name text
+)
+language sql security definer set search_path = public stable
+as $$
+  select
+    dl.distributor_company_id,
+    dl.contractor_company_id,
+    dl.multiplier,
+    c.name as distributor_name,
+    dl.branch_id,
+    b.name as branch_name
+  from public.distributor_links dl
+  join public.companies c on c.id = dl.distributor_company_id
+  left join public.distributor_branches b on b.id = dl.branch_id
+  where dl.contractor_company_id = public.current_company_id();
+$$;
+grant execute on function public.contractor_distributor_list() to authenticated;
+
+-- handle_new_user() returns trigger (never changes), so CREATE OR REPLACE is always fine for
+-- it -- re-running this exact block (identical to the one two sections above) is harmless.
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer set search_path = public
+as $$
+declare
+  new_company_id uuid;
+  v_code text := regexp_replace(coalesce(new.raw_user_meta_data->>'access_code',''), '[^\x21-\x7E]', '', 'g');
+  v_invite record;
+  v_invite_found boolean;
+  v_account_type text := 'contractor';
+begin
+  select * into v_invite from public.distributor_invites where code = v_code and redeemed_at is null;
+  v_invite_found := found;
+
+  if v_invite_found then
+    v_account_type := 'contractor';
+  elsif v_code = 'DUSKLINEDISTRIBUTORV1' then
+    v_account_type := 'distributor';
+  elsif v_code is distinct from 'DUSKLINEBETAV12026' then
+    raise exception 'invalid access code';
+  end if;
+
+  insert into public.companies (name, account_type)
+  values (coalesce(new.raw_user_meta_data->>'company_name', 'My Company'), v_account_type)
+  returning id into new_company_id;
+
+  insert into public.profiles (id, company_id, full_name, role)
+  values (new.id, new_company_id, new.raw_user_meta_data->>'full_name', 'owner');
+
+  insert into public.fixture_overrides (company_id, base_fixture_id, data)
+  select new_company_id, id, jsonb_build_object('hidden', true)
+  from unnest(array['f1','f2','f3','f4','f5','f6','f7','f8','f9','f10',
+    'a1','a2','a3','a4','a5','a6','st1']) as id;
+
+  if v_invite_found then
+    insert into public.distributor_links (distributor_company_id, contractor_company_id, multiplier, label, branch_id)
+    values (v_invite.distributor_company_id, new_company_id, v_invite.multiplier, v_invite.label, v_invite.branch_id);
+    update public.distributor_invites set redeemed_at = now(), used_by_company_id = new_company_id
+      where code = v_code;
+
+    insert into public.distributors (company_id, name, email, phone, source_distributor_company_id)
+    select new_company_id,
+      coalesce(b.name, c.name),
+      coalesce(nullif(b.email,''), c.email, ''),
+      coalesce(nullif(b.phone,''), c.phone, ''),
+      c.id
+    from public.companies c
+    left join public.distributor_branches b on b.id = v_invite.branch_id
+    where c.id = v_invite.distributor_company_id;
+  end if;
+
+  return new;
+end;
+$$;

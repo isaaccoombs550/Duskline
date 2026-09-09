@@ -358,7 +358,7 @@
   /* Quick day/night preview toggle below the Darkness slider -- jumps between a bright-day
      and a dark-night preset so a contractor can eyeball both looks without dragging the slider
      back and forth. The slider itself still gives fine control; this is just a shortcut. Sized
-     up (was 22x12, easy to miss/mis-tap) and given a visible "Toggle nighttime" label instead
+     up (was 22x12, easy to miss/mis-tap) and given a visible "Toggle Night Time" label instead
      of relying on just the aria-label/title tooltip, per direct request. */
   .night-toggle-row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:6px;}
   .night-toggle-row span{font-size:10.5px;color:var(--muted);}
@@ -1108,7 +1108,7 @@
       </div>
       <input type="range" id="ctrlDarkness" min="0" max="100" step="5" value="60">
       <label class="night-toggle-row">
-        <span>Toggle nighttime</span>
+        <span>Toggle Night Time</span>
         <button class="mini-switch" id="btnDarknessToggle" aria-label="Jump between day and night preview" title="Jump between day and night preview"><span class="mini-switch-knob"></span></button>
       </label>
     </div>

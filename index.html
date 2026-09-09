@@ -303,12 +303,14 @@
   .edit-sheet{position:fixed;inset:0;z-index:60;display:flex;align-items:flex-end;}
   .edit-sheet[hidden]{display:none;}
   .edit-backdrop{position:absolute;inset:0;background:rgba(0,0,0,.55);}
-  /* The auth modal opens over an otherwise-empty app shell (the landing page is hidden first,
-     see hideLandingScreen()), so its plain 55%-black backdrop read as a stark, brandless void --
-     nothing carries over from the hero's warm amber glow the visitor just clicked through from.
-     Scoped to #accountModal specifically so every other modal in the app (customer, area name,
-     fixture form) keeps the plain neutral backdrop, which is correct for them. */
-  #accountModal .edit-backdrop{background:radial-gradient(ellipse 70% 45% at 50% 100%, rgba(240,168,78,.20) 0%, rgba(240,168,78,.06) 45%, rgba(0,0,0,.72) 75%);}
+  /* A radial amber glow was tried here once for #accountModal specifically (the auth modal opens
+     over an otherwise-empty app shell, since hideLandingScreen() runs first, and a plain flat
+     backdrop read as a stark void). Reverted: it assumed a dark app shell behind the modal, but
+     in light theme that shell is cream, and the glow's dark radial base smeared into a muddy
+     grey-brown blotch instead -- confirmed live via Playwriter against a real light-theme
+     session, real user-reported "weird glow." Back to the plain backdrop every other modal in
+     the app already uses correctly in both themes -- don't reintroduce a theme-specific
+     backdrop here without testing it in light theme too. */
   /* user-select:none because a drag gesture that doesn't land exactly on a control (e.g. a
      range-slider thumb -- infoKelvin/infoBrightness here, real user-reported "sliders rarely
      work") falls through to the browser's native text-selection drag instead when nothing

@@ -225,7 +225,9 @@
     border:1px dashed var(--line);border-radius:10px;margin-bottom:6px;font-size:12.5px;color:var(--muted);}
   .fx-removed-row button{background:transparent;border:1px solid var(--line);color:var(--amber-soft);border-radius:7px;
     padding:5px 10px;font-size:11px;cursor:pointer;}
-  .import-status{margin:0 14px 12px;padding:10px 12px;border-radius:10px;font-size:12px;line-height:1.5;}
+  .import-status{margin:0 14px 12px;padding:10px 12px;border-radius:10px;font-size:12px;line-height:1.5;
+    display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;}
+  .import-status .link-btn{flex-shrink:0;}
   .import-status.ok{background:rgba(111,191,139,.12);border:1px solid var(--good);color:var(--good);}
   .import-status.err{background:rgba(226,104,92,.12);border:1px solid var(--danger);color:var(--danger);}
 
@@ -841,7 +843,10 @@
         <button class="btn btn-primary btn-sm" id="btnAddFixture">+ Add fixture</button>
       </div>
     </div>
-    <div class="import-status" id="importStatus" hidden></div>
+    <div class="import-status" id="importStatus" hidden>
+      <span id="importStatusText"></span>
+      <button class="link-btn" id="btnUndoImport" hidden>Undo this import</button>
+    </div>
     <div class="sheet-tabs">
       <button class="fmgmt-tab active" data-fcat="fixture">Fixtures</button>
       <button class="fmgmt-tab" data-fcat="accessory">Accessories</button>
@@ -3808,9 +3813,29 @@
   function showImportStatus(msg, ok){
     const el = $('importStatus');
     if(!el) return;
-    el.textContent = msg;
+    $('importStatusText').textContent = msg;
     el.className = 'import-status ' + (ok ? 'ok' : 'err');
     el.hidden = false;
+  }
+  // Tracks just the most recent successful import (session-only, not persisted -- reloading
+  // the page or doing a second import clears the ability to undo the one before it) so
+  // "Undo this import" can cleanly remove exactly the rows that one import added, even if the
+  // user has since edited one of them (undo is id-based, not a snapshot of the row contents).
+  let lastFixtureImport = null;
+  function undoLastImport(){
+    if(!lastFixtureImport) return;
+    const { ids, count } = lastFixtureImport;
+    if(!confirm(`Remove the ${count} item${count!==1?'s':''} from that import?`)) return;
+    const idSet = new Set(ids);
+    state.customFixtures = state.customFixtures.filter(f=> !idSet.has(f.id));
+    lastFixtureImport = null;
+    $('btnUndoImport').hidden = true;
+    renderFixtureMgmtList();
+    if(!$('editorScreen').hidden) renderSheetList();
+    showImportStatus(`Removed ${count} item${count!==1?'s':''} from that import.`, true);
+    sb.from('custom_fixtures').delete().in('id', ids).then(({error})=>{
+      if(error) console.warn('Duskline: undo-import delete failed.', error);
+    });
   }
   function findFixtureHeaderRow(rows){
     for(let i=0; i<Math.min(rows.length,10); i++){
@@ -3891,6 +3916,8 @@
         sb.from('custom_fixtures').insert(newRows.map(row=> ({...row, company_id: authProfile.companyId}))).then(({error})=>{
           if(error) console.warn('Duskline: fixture import save failed.', error);
         });
+        lastFixtureImport = { ids: newRows.map(row=> row.id), count: parsed.length };
+        $('btnUndoImport').hidden = false;
         renderFixtureMgmtList();
         if(!$('editorScreen').hidden) renderSheetList();
         let msg = `Imported ${parsed.length} item${parsed.length!==1?'s':''} into your library.`;
@@ -5183,6 +5210,7 @@
       importFixturesFromFile(file);
       e.target.value = '';
     });
+    $('btnUndoImport').addEventListener('click', undoLastImport);
     document.querySelectorAll('.fmgmt-tab').forEach(t=>{
       t.addEventListener('click', ()=>{
         state.fixtureMgmtCat = t.dataset.fcat;

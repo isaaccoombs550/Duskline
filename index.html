@@ -28,8 +28,8 @@
 <script src="https://cdn.jsdelivr.net/npm/heic-to@1.5.2/dist/iife/heic-to.js" integrity="sha384-cVm8gaWQ5+URpoh6ACKXpm8TuyoHkfIDDBkxvDoUdIZ18w8nV5en0lVQvWMwO/6S" crossorigin="anonymous"></script>
 <style>
   :root{
-    --ink:#14171C; --ink-2:#0B0D10; --surface:#1E232B; --surface-2:#262C36; --line:#2E3540;
-    --amber:#F0A84E; --amber-soft:#FFC97A; --fog:#F2EFE8; --muted:#8D95A3; --good:#6FBF8B; --danger:#E2685C;
+    --ink:#10182C; --ink-2:#0A0F1F; --surface:#16213A; --surface-2:#1C2A46; --line:#263354;
+    --amber:#F0A84E; --amber-soft:#FFC97A; --fog:#F2EFE8; --muted:#8B93AC; --good:#6FBF8B; --danger:#E2685C;
     --font-display:'Space Grotesk',sans-serif; --font-body:'Inter',sans-serif; --font-mono:'IBM Plex Mono',monospace;
   }
   html[data-theme="light"]{
@@ -59,13 +59,29 @@
   .landing-sub{font-size:clamp(15px,1.6vw,17px);color:var(--muted);max-width:48ch;line-height:1.6;margin:0;}
   .landing-cta{display:flex;gap:12px;flex-wrap:wrap;justify-content:center;margin-top:6px;}
   .landing-cta .btn{padding:12px 22px;font-size:14px;}
+  /* Small colored dots scattered near the hero, using the same identity colors as
+     FIXTURE_TYPES (see fixtureTypeMeta) -- purely decorative, but drawn from the app's
+     own real palette rather than invented accent colors. */
+  .landing-dot{position:absolute;width:8px;height:8px;border-radius:50%;opacity:.8;z-index:1;pointer-events:none;}
+  /* A small "product screenshot" card resting on the dark hero, echoing a real quote
+     line list -- gives the hero a concrete glimpse of the actual product instead of
+     only abstract copy. Deliberately light (cream), the one light surface on an
+     otherwise dark page, the same way a screenshot card would rest on a dark backdrop. */
+  .landing-preview{position:relative;z-index:1;max-width:420px;width:100%;margin:8px auto 0;background:var(--fog);
+    border-radius:12px;overflow:hidden;box-shadow:0 24px 48px -8px rgba(0,0,0,.55);text-align:left;}
+  .landing-preview-bar{display:flex;gap:5px;padding:10px 12px;border-bottom:1px solid rgba(0,0,0,.08);}
+  .landing-preview-bar span{width:8px;height:8px;border-radius:50%;background:rgba(0,0,0,.12);}
+  .landing-preview-rows{padding:12px 16px;}
+  .landing-preview-row{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid rgba(0,0,0,.06);font-size:12px;color:#3a3226;}
+  .landing-preview-row:last-child{border-bottom:none;}
+  .landing-preview-row .dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
+  .landing-preview-row .name{flex:1;}
+  .landing-preview-row .price{font-family:var(--font-mono);color:#6b6252;}
   .landing-features{padding:0 clamp(20px,5vw,64px) clamp(48px,7vw,80px);max-width:1080px;margin:0 auto;width:100%;box-sizing:border-box;
     display:grid;grid-template-columns:1fr;gap:16px;}
-  .landing-feature{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:22px 20px;display:flex;flex-direction:column;gap:8px;text-align:left;}
-  .landing-feature-icon{width:34px;height:34px;border-radius:9px;background:var(--amber-soft, var(--amber));
-    display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:0 0 14px 1px rgba(240,168,78,.35);}
-  .landing-feature-icon svg{width:18px;height:18px;stroke:#191308;}
-  .landing-feature h3{font-family:var(--font-body);font-weight:700;font-size:15.5px;letter-spacing:-.005em;margin:0;}
+  .landing-feature{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:22px 20px;
+    display:flex;flex-direction:column;gap:8px;text-align:left;border-top:3px solid var(--feature-accent, var(--amber));}
+  .landing-feature h3{font-family:var(--font-body);font-weight:700;font-size:15.5px;letter-spacing:-.005em;margin:0;color:var(--feature-accent, var(--fog));}
   .landing-feature p{font-size:13.5px;color:var(--muted);line-height:1.55;margin:0;}
   .landing-footer{padding:20px clamp(20px,5vw,64px) 32px;text-align:center;color:var(--muted);font-size:12px;}
   @media (min-width:640px){ .landing-hero{text-align:center;} .landing-features{grid-template-columns:repeat(2,1fr);} }
@@ -708,32 +724,40 @@
   </header>
 
   <section class="landing-hero">
+    <span class="landing-dot" style="background:#F0A84E;top:14%;left:8%;"></span>
+    <span class="landing-dot" style="background:#6FBF8B;top:58%;left:5%;"></span>
+    <span class="landing-dot" style="background:#B98CE0;top:18%;right:7%;"></span>
+    <span class="landing-dot" style="background:#5B9BD5;top:62%;right:10%;"></span>
     <h1>Design landscape lighting your customers can actually see</h1>
     <p class="landing-sub">Duskline is landscape lighting design &amp; quoting software — place fixtures on a real photo, aim every beam, and send a professional quote in minutes.</p>
     <div class="landing-cta">
       <button class="btn btn-primary" id="landingGetStarted">Get started free</button>
       <button class="btn btn-ghost" id="landingSignIn2">Sign in</button>
     </div>
+    <div class="landing-preview" aria-hidden="true">
+      <div class="landing-preview-bar"><span></span><span></span><span></span></div>
+      <div class="landing-preview-rows">
+        <div class="landing-preview-row"><span class="dot" style="background:#F0A84E;"></span><span class="name">Adjustable uplight — Brass, 2700K</span><span class="price">$145.00</span></div>
+        <div class="landing-preview-row"><span class="dot" style="background:#6FBF8B;"></span><span class="name">Path light — Bronze, 3000K</span><span class="price">$98.00</span></div>
+        <div class="landing-preview-row"><span class="dot" style="background:#48C7C2;"></span><span class="name">6&Prime; hardscape bar — Black</span><span class="price">$62.00</span></div>
+      </div>
+    </div>
   </section>
 
   <section class="landing-features">
-    <div class="landing-feature">
-      <div class="landing-feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></svg></div>
+    <div class="landing-feature" style="--feature-accent:#F0A84E;">
       <h3>Design on the real photo</h3>
       <p>Place fixtures directly on a photo of the property. Aim every beam and run every wire exactly where it'll go.</p>
     </div>
-    <div class="landing-feature">
-      <div class="landing-feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h9l5 5v13H6z"/><path d="M9 12h6M9 16h6"/></svg></div>
+    <div class="landing-feature" style="--feature-accent:#6FBF8B;">
       <h3>Quotes, built in</h3>
       <p>Every design becomes a polished, itemized quote automatically — customer price or your internal cost, one click apart.</p>
     </div>
-    <div class="landing-feature">
-      <div class="landing-feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 8l10 6 10-6z"/><path d="m2 15 10 6 10-6"/></svg></div>
+    <div class="landing-feature" style="--feature-accent:#B98CE0;">
       <h3>Built for the trade</h3>
       <p>Real beam angles, lumens, and color temperatures. Real install times and your own pricing — not guesswork.</p>
     </div>
-    <div class="landing-feature">
-      <div class="landing-feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a8 8 0 0 1 14-5"/><path d="M20 12a8 8 0 0 1-14 5"/><path d="M14 3h4v4M10 21H6v-4"/></svg></div>
+    <div class="landing-feature" style="--feature-accent:#48C7C2;">
       <h3>Always in sync</h3>
       <p>Your projects, fixtures, and photos live in the cloud. Start a design on-site, finish the quote back at the shop.</p>
     </div>

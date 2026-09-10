@@ -495,6 +495,14 @@
   .marker-dot.just-placed{animation:placedPop .5s ease-out;}
   @keyframes placedPop{0%{transform:translate(-50%,-50%) scale(.2);}60%{transform:translate(-50%,-50%) scale(1.4);}100%{transform:translate(-50%,-50%) scale(1);}}
 
+  /* A square, not a circle -- deliberately distinct from .marker-dot's round fixture markers so
+     a transformer reads as a different kind of object on the canvas at a glance, matching the
+     same distinction the wiring-plan PDF export draws (see buildWiringPlanPdfBlob()). */
+  .transformer-marker{position:absolute;left:0;top:0;width:18px;height:18px;
+    background:var(--surface-2);border:2px solid var(--danger);border-radius:3px;
+    box-shadow:0 0 0 3px rgba(226,104,92,.25);transform:translate(-50%,-50%);
+    cursor:pointer;z-index:4;}
+
   .beam-handle{position:absolute;width:16px;height:16px;border-radius:50%;background:rgba(255,255,255,.18);
     border:2px solid var(--amber-soft);transform:translate(-50%,-50%);cursor:grab;touch-action:none;
     z-index:3;pointer-events:auto;box-shadow:0 0 8px rgba(0,0,0,.5);}
@@ -1171,6 +1179,8 @@
         <button class="chip" id="btnAdjustCrop">Adjust crop</button>
         <button class="chip" id="btnResetZoom">Reset zoom <span class="mono zoom-pct" id="zoomBadge" hidden></span></button>
         <button class="chip" id="btnDrawWire">Draw wire run</button>
+        <button class="chip" id="btnPlaceTransformer">Place transformer</button>
+        <button class="chip" id="btnExportWiringPlan">Export wiring plan</button>
         <button class="chip chip-danger" id="btnClearDesign">Clear design</button>
       </div>
 
@@ -1238,6 +1248,17 @@
       <div class="field"><label>Distance (ft)</label><input id="wireDistanceInput" type="number" step="1" min="0" placeholder="e.g. 42">
         <div class="fx-desc" id="wireDistanceHint" hidden>Estimated from the satellite view's scale — adjust if needed.</div>
       </div>
+      <!-- Both fields below are optional -- a wire run works fine with neither set, same as
+           before this feature existed. They only matter for the wiring-plan PDF export's
+           per-transformer load/run tables (see buildWiringPlanPdfBlob()), which needs to know
+           which fixtures are actually wired on this run and which transformer feeds it. -->
+      <div class="field"><label>Transformer</label>
+        <select id="wireTransformerSelect"><option value="">Unassigned</option></select>
+      </div>
+      <div class="field"><label>Fixtures on this run</label>
+        <div class="sheet-list" id="wireFixtureList" style="max-height:180px;overflow-y:auto;"></div>
+        <div class="fx-desc" id="wireRunVaTotal"></div>
+      </div>
     </div>
     <div class="edit-actions">
       <button class="btn btn-danger" id="wireDelete" hidden>Delete</button>
@@ -1261,6 +1282,23 @@
       <button class="btn btn-danger" id="stripDelete" hidden>Delete</button>
       <button class="btn btn-ghost" id="stripCancel">Cancel</button>
       <button class="btn btn-primary" id="stripSave">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== TRANSFORMER MODAL ===================== -->
+<div class="edit-sheet" id="transformerModal" hidden>
+  <div class="edit-backdrop" id="transformerBackdrop"></div>
+  <div class="edit-panel">
+    <div class="edit-title">Transformer</div>
+    <div class="modal-form-body">
+      <div class="field"><label>Name</label><input id="transformerNameInput" placeholder="e.g. Transformer 1"></div>
+      <div class="field"><label>Capacity (W)</label><input id="transformerCapacityInput" type="number" step="1" min="0" placeholder="e.g. 300"></div>
+    </div>
+    <div class="edit-actions">
+      <button class="btn btn-danger" id="transformerDelete">Delete</button>
+      <button class="btn btn-ghost" id="transformerCancel">Cancel</button>
+      <button class="btn btn-primary" id="transformerSave">Save</button>
     </div>
   </div>
 </div>
@@ -1564,6 +1602,7 @@
       selectedWire: null,
       drawingStripFixtureId: null,
       currentStripPath: null,
+      placingTransformer: false,
       activeProfile: null,
     };
   }
@@ -1576,6 +1615,7 @@
   let editingWireId = null;
   let pendingStripPath = null;
   let editingStripId = null;
+  let editingTransformerId = null;
   let suppressNextCanvasClick = false;
   let view = {zoom:1, panX:0, panY:0}; // canvas pan/zoom for precise placement (desktop ctrl+scroll)
 
@@ -2082,7 +2122,12 @@
         ${widthHandle}
         <div class="marker-dot ${isBar?'is-bar':''} ${selected?'is-selected':''} ${justPlaced?'just-placed':''}" data-uid="${p.uid}" style="border-color:rgb(${tcol});${dotGlow}${barStyle}"></div>
       </div>`;
-    }).join('');
+    }).join('') + (area.transformers||[]).map(t=>
+      `<div class="transformer-marker" data-id="${t.id}" style="left:${t.xPct}%;top:${t.yPct}%;" title="${escapeHtml(t.name)} · ${t.capacityW}W"></div>`
+    ).join('');
+    wrap.querySelectorAll('.transformer-marker').forEach(el=>{
+      el.addEventListener('click', e=>{ e.stopPropagation(); openTransformerEdit(el.dataset.id); });
+    });
     attachPlacementHandlers();
     renderWireLayer();
     renderStripLayer();
@@ -2220,6 +2265,39 @@
     }
     return ft;
   }
+  // Populates the transformer <select> and fixture checklist shared by both the "new wire run"
+  // and "edit wire run" modal states -- w is the existing run being edited, or null for a fresh
+  // one (nothing pre-selected/checked in that case). Both fields are optional -- see the HTML
+  // comment above #wireTransformerSelect -- so this never blocks saving, it only feeds the
+  // wiring-plan PDF's per-transformer load/run tables when filled in.
+  function renderWireModalFixturePicker(w){
+    const area = currentArea();
+    const sel = $('wireTransformerSelect');
+    sel.innerHTML = '<option value="">Unassigned</option>' +
+      (area.transformers||[]).map(t=>`<option value="${t.id}">${escapeHtml(t.name)} (${t.capacityW}W)</option>`).join('');
+    sel.value = (w && w.transformerId) || '';
+    const checkedUids = new Set(w ? (w.fixtureUids||[]) : []);
+    const list = $('wireFixtureList');
+    list.innerHTML = (area.placements||[]).map(p=>{
+      const f = findFixture(p.fixtureId);
+      if(!f) return '';
+      return `<label class="fx-card" style="cursor:pointer;">
+        <input type="checkbox" data-wire-fixture="${p.uid}" ${checkedUids.has(p.uid)?'checked':''} style="margin-right:10px;">
+        <div class="fx-main"><div class="fx-name">${escapeHtml(f.name)}</div><div class="fx-desc">${f.watt||0}W</div></div>
+      </label>`;
+    }).join('') || '<div class="fx-desc">No fixtures placed in this area yet.</div>';
+    const updateVaTotal = ()=>{
+      const checked = [...list.querySelectorAll('[data-wire-fixture]:checked')].map(cb=>cb.dataset.wireFixture);
+      const va = checked.reduce((s,uid)=>{
+        const p = (area.placements||[]).find(pp=>pp.uid===uid);
+        const f = p && findFixture(p.fixtureId);
+        return s + ((f&&f.watt)?f.watt:0);
+      }, 0);
+      $('wireRunVaTotal').textContent = checked.length ? `Total load: ${Math.round(va)} VA` : '';
+    };
+    list.querySelectorAll('[data-wire-fixture]').forEach(cb=> cb.addEventListener('change', updateVaTotal));
+    updateVaTotal();
+  }
   function openWireDistanceModal(path){
     pendingWirePath = path;
     editingWireId = null;
@@ -2227,6 +2305,7 @@
     $('wireDistanceInput').value = est!=null ? Math.round(est) : '';
     $('wireDistanceHint').hidden = est==null;
     $('wireDelete').hidden = true;
+    renderWireModalFixturePicker(null);
     $('wireModal').hidden = false;
   }
   function openWireEdit(id){
@@ -2238,6 +2317,7 @@
     $('wireDistanceInput').value = w.distanceFt;
     $('wireDistanceHint').hidden = true;
     $('wireDelete').hidden = false;
+    renderWireModalFixturePicker(w);
     $('wireModal').hidden = false;
   }
   function closeWireModal(){
@@ -2249,13 +2329,15 @@
     const area = currentArea(); if(!area) return;
     pushUndoSnapshot();
     const dist = parseFloat($('wireDistanceInput').value)||0;
+    const transformerId = $('wireTransformerSelect').value || null;
+    const fixtureUids = [...$('wireFixtureList').querySelectorAll('[data-wire-fixture]:checked')].map(cb=>cb.dataset.wireFixture);
     if(!area.wireRuns) area.wireRuns = [];
     if(pendingWirePath){
       const id = 'w'+(uidCounter++);
-      area.wireRuns.push({id, points:pendingWirePath, distanceFt:dist});
+      area.wireRuns.push({id, points:pendingWirePath, distanceFt:dist, transformerId, fixtureUids});
     } else if(editingWireId){
       const w = area.wireRuns.find(x=>x.id===editingWireId);
-      if(w) w.distanceFt = dist;
+      if(w){ w.distanceFt = dist; w.transformerId = transformerId; w.fixtureUids = fixtureUids; }
     }
     $('wireModal').hidden = true;
     pendingWirePath = null; editingWireId = null;
@@ -2276,6 +2358,288 @@
     const btn = $('btnDrawWire'); if(!btn) return;
     btn.classList.toggle('is-active', state.drawingWire);
     btn.textContent = state.drawingWire ? 'Drawing…' : 'Draw wire run';
+  }
+
+  // ---------------- transformers ----------------
+  // A transformer is a placed object (position + capacity), not a catalog item like a fixture --
+  // it exists purely so a wire run can be assigned to one, which is what makes the wiring-plan
+  // PDF's per-transformer load/run tables possible (see buildWiringPlanPdfBlob()). Rendered live
+  // in the editor (renderOverlays()) so a contractor sees it while designing, not just on export.
+  function updatePlaceTransformerBtn(){
+    const btn = $('btnPlaceTransformer'); if(!btn) return;
+    btn.classList.toggle('is-active', state.placingTransformer);
+    btn.textContent = state.placingTransformer ? 'Click to place…' : 'Place transformer';
+  }
+  function openTransformerEdit(id){
+    const area = currentArea(); if(!area) return;
+    const t = (area.transformers||[]).find(x=>x.id===id);
+    if(!t) return;
+    editingTransformerId = id;
+    $('transformerNameInput').value = t.name;
+    $('transformerCapacityInput').value = t.capacityW;
+    $('transformerModal').hidden = false;
+  }
+  function closeTransformerModal(){
+    $('transformerModal').hidden = true;
+    editingTransformerId = null;
+    renderOverlays();
+  }
+  function saveTransformerModal(){
+    const area = currentArea(); if(!area || !editingTransformerId) return;
+    const t = (area.transformers||[]).find(x=>x.id===editingTransformerId);
+    if(!t) return;
+    pushUndoSnapshot();
+    t.name = $('transformerNameInput').value.trim() || t.name;
+    t.capacityW = parseFloat($('transformerCapacityInput').value) || t.capacityW;
+    $('transformerModal').hidden = true;
+    editingTransformerId = null;
+    renderOverlays();
+  }
+  function deleteTransformerModal(){
+    const area = currentArea(); if(!area || !editingTransformerId) return;
+    pushUndoSnapshot();
+    area.transformers = (area.transformers||[]).filter(x=>x.id!==editingTransformerId);
+    // Any wire run pointed at this transformer falls back to "Unassigned" rather than keeping a
+    // dangling reference -- same "don't leave a stale id behind" principle as the accessory-
+    // fixture-delete/wire-run-fixtureUids cleanup elsewhere in this file.
+    (area.wireRuns||[]).forEach(w=>{ if(w.transformerId===editingTransformerId) w.transformerId=null; });
+    $('transformerModal').hidden = true;
+    editingTransformerId = null;
+    renderOverlays();
+  }
+
+  // ---------------- wiring plan PDF export ----------------
+  // Voltage-drop estimate, calibrated against a real reference: landscape-lighting transformers
+  // commonly have multiple voltage taps (12/13/14/15V) specifically so a long or heavy run can
+  // be fed from a higher tap to compensate for drop -- a real professional site plan Isaac
+  // shared (Kichler/LightPro software) explicitly labels its own run-length table "USING 15
+  // VOLT TAP". This assumes the same: a 15V tap, allowing the voltage to drop to ~10.5V at the
+  // far end (4.5V of drop) before calling a run "maxed out". V=I*R_roundtrip, R_roundtrip=2*
+  // length_ft*resistance-per-ft, I=VA/15 => length_ft = allowedDropV/(2*resistancePerFt*(VA/15)).
+  // Resistance-per-1000ft figures are standard published copper-wire constants (one-way), not
+  // something specific to this app. Verified against that same reference's own printed numbers
+  // (81.8VA/10AWG->440', 70.8VA/10AWG->480', 90.4VA/10AWG->380') -- this formula reproduces all
+  // three within ~6%, versus a naive "12V nominal, 5% drop" assumption which was off by ~15x
+  // (that assumption was tried first and was WRONG -- don't reintroduce it). Still labeled an
+  // ESTIMATE on the PDF, matching the reference's own hedged language -- splices, connectors,
+  // and whether the installer actually uses a 15V tap can all shift the real number, so this is
+  // a planning aid, not a guarantee.
+  const WIRE_GAUGES = [ {awg:12, label:'12/2', resistancePer1000ft:1.588}, {awg:10, label:'10/2', resistancePer1000ft:0.999} ];
+  function estimateMaxRunFt(va, gauge){
+    if(!va || va<=0) return null;
+    const supplyV = 15, allowedDropV = 4.5;
+    const amps = va/supplyV;
+    const resistancePerFt = gauge.resistancePer1000ft/1000;
+    return allowedDropV / (2 * resistancePerFt * amps);
+  }
+  // Picks a "nice" round per-segment unit (feet) for the scale bar so a 4-segment bar spans
+  // roughly a quarter of the drawing's real-world width -- purely cosmetic rounding, the actual
+  // math (ptPerFt) is exact regardless of which unit gets picked.
+  function pickScaleBarUnitFt(groundWidthFt){
+    const target = groundWidthFt/4;
+    const niceSteps = [5,10,20,25,50,100,200,250,500,1000];
+    let unit = niceSteps[0];
+    for(const s of niceSteps){ if(s<=target) unit=s; else break; }
+    return unit;
+  }
+  function buildWiringPlanPdfBlob(pr, area){
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit:'pt', format:'letter', orientation:'landscape' });
+    const pageW = doc.internal.pageSize.getWidth(), pageH = doc.internal.pageSize.getHeight();
+    const marginX = 40, marginY = 40;
+    const dateStr = new Date().toLocaleDateString();
+
+    // ---- header ----
+    doc.setFont('helvetica','bold'); doc.setFontSize(18);
+    doc.text('Wiring Plan', marginX, marginY+8);
+    doc.setFont('helvetica','normal'); doc.setFontSize(10);
+    doc.text(dateStr, pageW-marginX, marginY+8, { align:'right' });
+    doc.setFontSize(11);
+    doc.text(`${pr.customer.name||'Untitled project'} — ${area.name}`, marginX, marginY+26);
+    doc.setFontSize(9); doc.setTextColor(120,120,120);
+    doc.text(`Prepared by ${state.company.name||'—'}${authProfile&&authProfile.fullName?' · '+authProfile.fullName:''}`, marginX, marginY+40);
+    doc.setTextColor(0,0,0);
+
+    // ---- layout regions ----
+    const rightColX = pageW-marginX-192, rightColW = 192;
+    const drawBoxX = marginX, drawBoxY = marginY+58, drawBoxW = rightColX-20-marginX, drawBoxH = pageH-marginY-drawBoxY-140;
+
+    // Fit the actual drawing to the area's real aspect ratio inside the box, letterboxed rather
+    // than stretched -- same "don't distort the real layout" principle as PRINT_PHOTO_CAP_H
+    // elsewhere in this app (see CLAUDE.md's print-photo note).
+    const aspect = area.photoAspect || 0.8;
+    let drawW = drawBoxW, drawH = drawBoxW/aspect;
+    if(drawH > drawBoxH){ drawH = drawBoxH; drawW = drawBoxH*aspect; }
+    const drawX = drawBoxX + (drawBoxW-drawW)/2, drawY = drawBoxY + (drawBoxH-drawH)/2;
+    doc.setDrawColor(180,180,180); doc.setLineWidth(1);
+    doc.rect(drawX, drawY, drawW, drawH);
+    const toPt = p=> ({ x: drawX+(p.xPct/100)*drawW, y: drawY+(p.yPct/100)*drawH });
+
+    // ---- wire runs (drawn first, under the fixture/transformer markers) ----
+    doc.setLineWidth(1.2);
+    doc.setDrawColor(94,200,224);
+    if(doc.setLineDashPattern) doc.setLineDashPattern([3,2], 0);
+    (area.wireRuns||[]).forEach(w=>{
+      for(let i=1;i<w.points.length;i++){
+        const a = toPt(w.points[i-1]), b = toPt(w.points[i]);
+        doc.line(a.x, a.y, b.x, b.y);
+      }
+    });
+    if(doc.setLineDashPattern) doc.setLineDashPattern([], 0);
+
+    // ---- fixture dots ----
+    (area.placements||[]).forEach(p=>{
+      const f = findFixture(p.fixtureId); if(!f) return;
+      const pt = toPt(p);
+      const col = fixtureTypeMeta(f).col.split(',').map(Number);
+      doc.setFillColor(col[0],col[1],col[2]);
+      doc.setDrawColor(255,255,255); doc.setLineWidth(0.75);
+      doc.circle(pt.x, pt.y, 4, 'FD');
+    });
+
+    // ---- transformer symbols ----
+    (area.transformers||[]).forEach(t=>{
+      const pt = toPt(t);
+      doc.setFillColor(226,104,92); doc.setDrawColor(255,255,255); doc.setLineWidth(0.75);
+      doc.rect(pt.x-5, pt.y-5, 10, 10, 'FD');
+      doc.setFont('helvetica','bold'); doc.setFontSize(7); doc.setTextColor(226,104,92);
+      doc.text(t.name, pt.x+8, pt.y+3);
+      doc.setTextColor(0,0,0);
+    });
+
+    // ---- scale bar (only when the area's real-world width is known -- see photoWidthFt) ----
+    const barY = drawY+drawH+22;
+    if(area.photoWidthFt){
+      const ptPerFt = drawW/area.photoWidthFt;
+      const unit = pickScaleBarUnitFt(area.photoWidthFt);
+      doc.setFont('helvetica','normal'); doc.setFontSize(8);
+      let bx = drawX;
+      for(let i=0;i<4;i++){
+        const segW = unit*ptPerFt;
+        doc.setFillColor(i%2===0 ? 20 : 255, i%2===0 ? 20 : 255, i%2===0 ? 20 : 255);
+        doc.setDrawColor(20,20,20); doc.setLineWidth(0.6);
+        doc.rect(bx, barY, segW, 7, 'FD');
+        doc.text(String(i*unit)+"'", bx, barY-3, {align:'center'});
+        bx += segW;
+      }
+      doc.text(String(4*unit)+"'", bx, barY-3, {align:'center'});
+    } else {
+      doc.setFont('helvetica','italic'); doc.setFontSize(8); doc.setTextColor(150,150,150);
+      doc.text('Not to scale', drawX, barY);
+      doc.setTextColor(0,0,0);
+    }
+
+    // ---- legend ----
+    let legY = barY+22;
+    doc.setFont('helvetica','bold'); doc.setFontSize(9);
+    doc.text('LEGEND', drawX, legY);
+    legY += 14;
+    doc.setFont('helvetica','normal'); doc.setFontSize(8);
+    usedFixtureTypes(area.placements).forEach(type=>{
+      const m = FIXTURE_TYPES[type];
+      const col = m.col.split(',').map(Number);
+      doc.setFillColor(col[0],col[1],col[2]); doc.setDrawColor(255,255,255); doc.setLineWidth(0.5);
+      doc.circle(drawX+4, legY-3, 4, 'FD');
+      doc.text(m.label, drawX+14, legY);
+      legY += 13;
+    });
+    if((area.transformers||[]).length){
+      doc.setFillColor(226,104,92); doc.setDrawColor(255,255,255); doc.setLineWidth(0.5);
+      doc.rect(drawX, legY-7, 8, 8, 'FD');
+      doc.text('Transformer', drawX+14, legY);
+      legY += 13;
+    }
+    if((area.wireRuns||[]).length){
+      doc.setDrawColor(94,200,224); doc.setLineWidth(1.2);
+      if(doc.setLineDashPattern) doc.setLineDashPattern([3,2], 0);
+      doc.line(drawX, legY-4, drawX+10, legY-4);
+      if(doc.setLineDashPattern) doc.setLineDashPattern([], 0);
+      doc.text('Wire run', drawX+14, legY);
+    }
+
+    // ---- per-transformer load/run tables (right column) ----
+    let tableY = drawBoxY;
+    const gaugeFor = w => WIRE_GAUGES.find(g=>g.awg===(w.gaugeAwg||12)) || WIRE_GAUGES[0];
+    const buildRunRows = runs => runs.map((w,i)=>{
+      const va = (w.fixtureUids||[]).reduce((s,uid)=>{
+        const p = (area.placements||[]).find(pp=>pp.uid===uid);
+        const f = p && findFixture(p.fixtureId);
+        return s + ((f&&f.watt)?f.watt:0);
+      }, 0);
+      const gauge = gaugeFor(w);
+      const maxFt = estimateMaxRunFt(va, gauge);
+      return [
+        'Run '+(i+1),
+        Math.round(va)+' VA',
+        gauge.label,
+        maxFt ? '~'+Math.round(maxFt)+"'" : '—',
+        Math.round(w.distanceFt||0)+"'",
+      ];
+    });
+    const allRuns = area.wireRuns||[];
+    (area.transformers||[]).forEach(t=>{
+      const runs = allRuns.filter(w=>w.transformerId===t.id);
+      const totalVa = runs.reduce((s,w)=>{
+        return s + (w.fixtureUids||[]).reduce((s2,uid)=>{
+          const p = (area.placements||[]).find(pp=>pp.uid===uid);
+          const f = p && findFixture(p.fixtureId);
+          return s2 + ((f&&f.watt)?f.watt:0);
+        }, 0);
+      }, 0);
+      doc.setFont('helvetica','bold'); doc.setFontSize(9);
+      doc.text(`${t.name} — ${t.capacityW}W`, rightColX, tableY);
+      tableY += 6;
+      doc.autoTable({
+        startY: tableY,
+        margin: { left: rightColX, right: marginX },
+        tableWidth: rightColW,
+        head: [['Run','VA','Gauge','Max @ 15V tap (est.)','Drawn']],
+        body: runs.length ? buildRunRows(runs) : [['No runs assigned yet','','','','']],
+        styles: { fontSize: 7, cellPadding: 3 },
+        headStyles: { fillColor: [20,23,28] },
+      });
+      tableY = doc.lastAutoTable.finalY + 8;
+      doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(120,120,120);
+      doc.text(`Total: ${Math.round(totalVa)} VA of ${t.capacityW}W capacity`, rightColX, tableY);
+      doc.setTextColor(0,0,0);
+      tableY += 16;
+    });
+    const unassigned = allRuns.filter(w=>!w.transformerId);
+    if(unassigned.length){
+      doc.setFont('helvetica','bold'); doc.setFontSize(9);
+      doc.text('Unassigned runs', rightColX, tableY);
+      tableY += 6;
+      doc.autoTable({
+        startY: tableY,
+        margin: { left: rightColX, right: marginX },
+        tableWidth: rightColW,
+        head: [['Run','VA','Gauge','Max @ 15V tap (est.)','Drawn']],
+        body: buildRunRows(unassigned),
+        styles: { fontSize: 7, cellPadding: 3 },
+        headStyles: { fillColor: [20,23,28] },
+      });
+    }
+    if(!(area.transformers||[]).length && !unassigned.length){
+      doc.setFont('helvetica','italic'); doc.setFontSize(8); doc.setTextColor(150,150,150);
+      doc.text('No transformers placed yet.', rightColX, tableY);
+      doc.setTextColor(0,0,0);
+    }
+
+    doc.setFont('helvetica','italic'); doc.setFontSize(7); doc.setTextColor(150,150,150);
+    doc.text('Max run lengths are estimates assuming a 15V transformer tap -- verify in the field.', marginX, pageH-20);
+    doc.setTextColor(0,0,0);
+
+    return doc.output('blob');
+  }
+  function exportWiringPlan(){
+    const pr = currentProject(); const area = currentArea();
+    if(!pr || !area) return;
+    const blob = buildWiringPlanPdfBlob(pr, area);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `wiring-plan-${area.name.replace(/[^a-z0-9]+/gi,'-')}.pdf`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   }
 
   function updatePlacementBeam(p,f,rect){
@@ -2407,11 +2771,26 @@
     if(suppressNextCanvasClick){ suppressNextCanvasClick=false; return; }
     const area = currentArea(); if(!area) return;
     if(state.drawingWire || state.drawingStripFixtureId) return;
-    if(e.target.closest('.marker-dot') || e.target.closest('.beam-handle') || e.target.closest('.width-handle')) return;
+    if(e.target.closest('.marker-dot') || e.target.closest('.beam-handle') || e.target.closest('.width-handle') || e.target.closest('.transformer-marker')) return;
     const loc = screenToLocalPct(e.clientX, e.clientY);
     let xPct = Math.min(96, Math.max(4, loc.xPct));
     let yPct = Math.min(96, Math.max(4, loc.yPct));
 
+    // Placing a transformer is a single click, like arming/placing a fixture (state.armed)
+    // below -- not a drag gesture like wire runs/strips, since a transformer has no shape to
+    // draw, just a position. Opens straight into the edit modal so its name/capacity can be
+    // set immediately, the same "place then configure" flow a wire run already uses.
+    if(state.placingTransformer){
+      pushUndoSnapshot();
+      if(!area.transformers) area.transformers = [];
+      const id = 't'+(uidCounter++);
+      area.transformers.push({id, name:'Transformer '+(area.transformers.length+1), capacityW:300, xPct, yPct});
+      state.placingTransformer = false;
+      updatePlaceTransformerBtn();
+      renderOverlays(); updatePlacementBanner();
+      openTransformerEdit(id);
+      return;
+    }
     if(state.armed){
       pushUndoSnapshot();
       const f = findFixture(state.armed);
@@ -2449,6 +2828,11 @@
     const area = currentArea(); if(!area) return;
     pushUndoSnapshot();
     area.placements = area.placements.filter(p=>p.uid!==state.selected);
+    // A removed placement's uid can be sitting in a wire run's fixtureUids -- purge it so the
+    // wiring-plan PDF's per-run VA total doesn't keep silently referencing a fixture that's no
+    // longer actually there (it would just be ignored, not crash, but leaving it is a real
+    // dangling reference worth cleaning up rather than tolerating indefinitely).
+    (area.wireRuns||[]).forEach(w=>{ if(w.fixtureUids) w.fixtureUids = w.fixtureUids.filter(uid=>uid!==state.selected); });
     state.selected = null; closeInfoSheet(); renderOverlays(); renderSheetList(); updateQuoteBar(); updateEditorStats();
   }
   function duplicatePlacement(){
@@ -2498,10 +2882,15 @@
       $('btnBannerAction').textContent = 'Done';
       $('btnBannerAction').onclick = ()=>{ state.drawingStripFixtureId=null; renderSheetList(); updatePlacementBanner(); };
       banner.hidden = false;
+    } else if(state.placingTransformer){
+      $('placementText').textContent = 'Tap the photo to place a transformer';
+      $('btnBannerAction').textContent = 'Cancel';
+      $('btnBannerAction').onclick = ()=>{ state.placingTransformer=false; updatePlaceTransformerBtn(); updatePlacementBanner(); };
+      banner.hidden = false;
     } else {
       banner.hidden = true;
     }
-    if(cp) cp.classList.toggle('is-armed', !!state.armed || !!state.drawingWire || !!state.drawingStripFixtureId);
+    if(cp) cp.classList.toggle('is-armed', !!state.armed || !!state.drawingWire || !!state.drawingStripFixtureId || !!state.placingTransformer);
   }
 
   // ---------------- fixture picker (inside area editor) ----------------
@@ -2571,15 +2960,15 @@
     $('sheetList').querySelectorAll('[data-arm]').forEach(b=>b.addEventListener('click', e=>{
       const id = e.currentTarget.dataset.arm;
       state.armed = state.armed===id ? null : id;
-      state.drawingWire = false; state.drawingStripFixtureId = null;
-      state.selected = null; closeInfoSheet();
+      state.drawingWire = false; state.drawingStripFixtureId = null; state.placingTransformer = false;
+      state.selected = null; closeInfoSheet(); updatePlaceTransformerBtn();
       renderSheetList(); updatePlacementBanner(); renderOverlays();
     }));
     $('sheetList').querySelectorAll('[data-arm-strip]').forEach(b=>b.addEventListener('click', e=>{
       const id = e.currentTarget.dataset.armStrip;
       state.drawingStripFixtureId = state.drawingStripFixtureId===id ? null : id;
-      state.armed = null; state.drawingWire = false;
-      state.selected = null; closeInfoSheet();
+      state.armed = null; state.drawingWire = false; state.placingTransformer = false;
+      state.selected = null; closeInfoSheet(); updatePlaceTransformerBtn();
       renderSheetList(); updatePlacementBanner(); renderOverlays();
     }));
     $('sheetList').querySelectorAll('[data-inc]').forEach(b=>b.addEventListener('click', e=>{
@@ -3292,8 +3681,9 @@
     const area = currentArea(); if(!area) return;
     if(!area.wireRuns) area.wireRuns = [];
     if(!area.lightStrips) area.lightStrips = [];
+    if(!area.transformers) area.transformers = [];
     state.armed=null; state.selected=null; state.drawingWire=false; state.currentWirePath=null;
-    state.drawingStripFixtureId=null; state.currentStripPath=null; closeInfoSheet();
+    state.drawingStripFixtureId=null; state.currentStripPath=null; state.placingTransformer=false; closeInfoSheet();
     state.sheetSearch=''; state.sheetTypeFilter='all';
     $('sheetSearchInput').value=''; $('sheetTypeFilter').value='all';
     undoStack = []; redoStack = []; updateUndoRedoButtons();
@@ -3307,6 +3697,7 @@
     $('beamBrightnessVal').textContent = Math.round(area.beamBrightness*100)+'%';
     resetView();
     updateDrawWireBtn();
+    updatePlaceTransformerBtn();
     refreshEditorPhotoState();
     renderSheetList();
     updatePlacementBanner();
@@ -3316,16 +3707,16 @@
   function closeAreaEditor(){
     flushCurrentEdits();
     state.drawingWire=false; state.currentWirePath=null;
-    state.drawingStripFixtureId=null; state.currentStripPath=null;
+    state.drawingStripFixtureId=null; state.currentStripPath=null; state.placingTransformer=false;
     $('editorScreen').hidden = true;
     document.body.style.overflow = '';
     renderProjectDetail();
   }
   function clearDesign(){
     const area = currentArea(); if(!area) return;
-    if(!confirm('Clear all placed fixtures, accessories, wire runs, and LED strips in this area? The photo will stay.')) return;
+    if(!confirm('Clear all placed fixtures, accessories, wire runs, LED strips, and transformers in this area? The photo will stay.')) return;
     pushUndoSnapshot();
-    area.placements=[]; area.accessoryQty={}; area.wireRuns=[]; area.lightStrips=[]; state.selected=null; state.armed=null;
+    area.placements=[]; area.accessoryQty={}; area.wireRuns=[]; area.lightStrips=[]; area.transformers=[]; state.selected=null; state.armed=null;
     closeInfoSheet(); renderOverlays(); renderSheetList(); updateQuoteBar(); updatePlacementBanner(); updateEditorStats();
   }
 
@@ -5042,6 +5433,10 @@
       darkness: area.darkness!=null?area.darkness:0.6, beam_brightness: area.beamBrightness!=null?area.beamBrightness:1,
       placements: area.placements||[], accessory_qty: area.accessoryQty||{},
       wire_runs: area.wireRuns||[], light_strips: area.lightStrips||[],
+      // Placed transformer objects ({id,name,capacityW,xPct,yPct}) -- powers the wiring-plan
+      // PDF's per-transformer load/run tables (see buildWiringPlanPdfBlob()). A wire run's own
+      // transformerId/fixtureUids live inside wire_runs' own jsonb, no separate column needed.
+      transformers: area.transformers||[],
     };
   }
   function rowToArea(row){
@@ -5051,6 +5446,7 @@
       darkness: row.darkness!=null?row.darkness:0.6, beamBrightness: row.beam_brightness!=null?row.beam_brightness:1,
       placements: row.placements||[], accessoryQty: row.accessory_qty||{},
       wireRuns: row.wire_runs||[], lightStrips: row.light_strips||[],
+      transformers: row.transformers||[],
     };
   }
   function rowToDistributor(row){
@@ -5467,7 +5863,7 @@
     $('btnDrawWire').addEventListener('click', ()=>{
       const area = currentArea(); if(!area || !area.photo) return;
       state.drawingWire = !state.drawingWire;
-      if(state.drawingWire){ state.armed=null; state.selected=null; closeInfoSheet(); renderSheetList(); }
+      if(state.drawingWire){ state.armed=null; state.selected=null; state.placingTransformer=false; closeInfoSheet(); renderSheetList(); updatePlaceTransformerBtn(); }
       state.currentWirePath = null;
       updateDrawWireBtn();
       updatePlacementBanner();
@@ -5616,6 +6012,21 @@
     $('stripBackdrop').addEventListener('click', closeStripModal);
     $('stripSave').addEventListener('click', saveStripModal);
     $('stripDelete').addEventListener('click', deleteLightStrip);
+    $('transformerCancel').addEventListener('click', closeTransformerModal);
+    $('transformerBackdrop').addEventListener('click', closeTransformerModal);
+    $('transformerSave').addEventListener('click', saveTransformerModal);
+    $('transformerDelete').addEventListener('click', deleteTransformerModal);
+    $('btnPlaceTransformer').addEventListener('click', ()=>{
+      const area = currentArea(); if(!area || !area.photo) return;
+      state.placingTransformer = !state.placingTransformer;
+      if(state.placingTransformer){
+        state.armed=null; state.drawingWire=false; state.drawingStripFixtureId=null;
+        state.selected=null; closeInfoSheet(); renderSheetList(); updateDrawWireBtn();
+      }
+      updatePlaceTransformerBtn();
+      updatePlacementBanner();
+    });
+    $('btnExportWiringPlan').addEventListener('click', exportWiringPlan);
     $('toggleExportWires').addEventListener('change', e=>{
       document.body.classList.toggle('export-wires', e.target.checked);
     });

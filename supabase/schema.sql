@@ -1167,3 +1167,11 @@ $$;
 -- of the contractor always having to type one in by hand.
 -- ============================================================================
 alter table public.areas add column if not exists photo_width_ft numeric;
+
+-- ============================================================================
+-- Wiring/installation plan PDF export: placed transformer objects on an area.
+-- A wire run's own transformer/fixture assignment (transformerId/fixtureUids) lives inside the
+-- existing wire_runs jsonb column, so no separate migration is needed for that part -- only the
+-- transformers themselves are new, stored the same way wire_runs/light_strips already are.
+-- ============================================================================
+alter table public.areas add column if not exists transformers jsonb not null default '[]';

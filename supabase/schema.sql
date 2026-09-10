@@ -1156,3 +1156,14 @@ as $$
   where dl.contractor_company_id = public.current_company_id()
     and cf.branch_id is not distinct from dl.branch_id;
 $$;
+
+-- ============================================================================
+-- Satellite-view real-world scale: the real-world width (feet) spanned by an area's photo,
+-- known only when that photo came from a Google Static Maps satellite capture (computed
+-- client-side from the capture's zoom/latitude via the standard Web Mercator formula, and
+-- re-derived smaller each time the photo is re-cropped -- see useSatelliteView()/
+-- openCropScreen() in index.html). null for a regular ground-level photo, same as before this
+-- column existed. Powers an auto-estimated (still editable) wire-run/LED-strip length instead
+-- of the contractor always having to type one in by hand.
+-- ============================================================================
+alter table public.areas add column if not exists photo_width_ft numeric;

@@ -1235,7 +1235,9 @@
   <div class="edit-panel">
     <div class="edit-title">Wire run</div>
     <div class="modal-form-body">
-      <div class="field"><label>Distance (ft)</label><input id="wireDistanceInput" type="number" step="1" min="0" placeholder="e.g. 42"></div>
+      <div class="field"><label>Distance (ft)</label><input id="wireDistanceInput" type="number" step="1" min="0" placeholder="e.g. 42">
+        <div class="fx-desc" id="wireDistanceHint" hidden>Estimated from the satellite view's scale — adjust if needed.</div>
+      </div>
     </div>
     <div class="edit-actions">
       <button class="btn btn-danger" id="wireDelete" hidden>Delete</button>
@@ -1251,7 +1253,9 @@
   <div class="edit-panel">
     <div class="edit-title">LED strip run</div>
     <div class="modal-form-body">
-      <div class="field"><label>Length (ft)</label><input id="stripLengthInput" type="number" step="0.5" min="0" placeholder="e.g. 12"></div>
+      <div class="field"><label>Length (ft)</label><input id="stripLengthInput" type="number" step="0.5" min="0" placeholder="e.g. 12">
+        <div class="fx-desc" id="stripLengthHint" hidden>Estimated from the satellite view's scale — adjust if needed.</div>
+      </div>
     </div>
     <div class="edit-actions">
       <button class="btn btn-danger" id="stripDelete" hidden>Delete</button>
@@ -2147,7 +2151,9 @@
     pendingStripPath = path;
     pendingStripPath._fixtureId = fixtureId;
     editingStripId = null;
-    $('stripLengthInput').value = '';
+    const est = pathLengthFt(path, currentArea());
+    $('stripLengthInput').value = est!=null ? (Math.round(est*2)/2) : '';
+    $('stripLengthHint').hidden = est==null;
     $('stripDelete').hidden = true;
     $('stripModal').hidden = false;
   }
@@ -2158,6 +2164,7 @@
     pendingStripPath = null;
     editingStripId = id;
     $('stripLengthInput').value = s.lengthFt;
+    $('stripLengthHint').hidden = true;
     $('stripDelete').hidden = false;
     $('stripModal').hidden = false;
   }
@@ -2194,10 +2201,31 @@
   }
   function areaStripFeet(area){ return (area.lightStrips||[]).reduce((s,r)=>s+(r.lengthFt||0),0); }
 
+  // Real-world length of a drawn {xPct,yPct} path, in feet -- only possible when the area's
+  // photo carries a known ground scale (area.photoWidthFt, set only for a satellite-captured
+  // photo, see useSatelliteView()/openCropScreen()). xPct/yPct are percentages of the photo's
+  // own rendered box, which always matches its true aspect ratio (area.photoAspect) regardless
+  // of container size -- so a %-delta converts to real feet via the photo's real width in feet
+  // (x) and that same width divided by aspect, i.e. the photo's real height in feet (y). Returns
+  // null (not 0) when there's no known scale, so callers can tell "unmeasurable" apart from "a
+  // real zero-length path" and fall back to the existing manual-entry flow untouched.
+  function pathLengthFt(path, area){
+    if(!area || !area.photoWidthFt || !path || path.length<2) return null;
+    const heightFt = area.photoWidthFt / (area.photoAspect||0.8);
+    let ft = 0;
+    for(let i=1;i<path.length;i++){
+      const dx = (path[i].xPct-path[i-1].xPct)/100 * area.photoWidthFt;
+      const dy = (path[i].yPct-path[i-1].yPct)/100 * heightFt;
+      ft += Math.hypot(dx, dy);
+    }
+    return ft;
+  }
   function openWireDistanceModal(path){
     pendingWirePath = path;
     editingWireId = null;
-    $('wireDistanceInput').value = '';
+    const est = pathLengthFt(path, currentArea());
+    $('wireDistanceInput').value = est!=null ? Math.round(est) : '';
+    $('wireDistanceHint').hidden = est==null;
     $('wireDelete').hidden = true;
     $('wireModal').hidden = false;
   }
@@ -2208,6 +2236,7 @@
     pendingWirePath = null;
     editingWireId = id;
     $('wireDistanceInput').value = w.distanceFt;
+    $('wireDistanceHint').hidden = true;
     $('wireDelete').hidden = false;
     $('wireModal').hidden = false;
   }
@@ -3333,12 +3362,17 @@
   // Shared crop-screen onDone callback for every area-photo source (file picker, camera,
   // satellite capture) -- crops, uploads, and saves identically regardless of where the
   // original image came from.
-  async function finishAreaPhotoCrop(dataUrl, aspect){
+  async function finishAreaPhotoCrop(dataUrl, aspect, groundWidthFt){
     const area = currentArea();
     if(!area) return;
     const url = await uploadAreaPhoto(area, dataUrl);
     if(!url) return;
-    area.photo = url; area.photoAspect = aspect; refreshEditorPhotoState();
+    // Explicitly null out (not just "leave stale") when this photo has no known scale -- e.g.
+    // replacing a satellite-sourced photo with a regular camera photo must not leave the old
+    // scale behind, or wire/strip auto-length would keep using a real-world width computed from
+    // an image that's no longer this area's photo at all.
+    area.photo = url; area.photoAspect = aspect; area.photoWidthFt = groundWidthFt || null;
+    refreshEditorPhotoState();
     saveAreaRow(area);
   }
   async function handleFile(e){
@@ -3435,11 +3469,21 @@
     try{
       const center = satelliteCtx.map.getCenter();
       const zoom = satelliteCtx.map.getZoom();
+      const SIZE = 640; // the Static Maps `size` param -- see the ground-width comment below
       // size=640x640&scale=2 -> a real 1280x1280px image, the largest Static Maps allows
       // without a separately-billed "Premium" scale tier. Same center/zoom the contractor
       // just framed interactively, so this matches what they saw on screen.
       const url = `https://maps.googleapis.com/maps/api/staticmap?center=${center.lat()},${center.lng()}`+
-        `&zoom=${zoom}&size=640x640&scale=2&maptype=satellite&key=${encodeURIComponent(GOOGLE_MAPS_API_KEY)}`;
+        `&zoom=${zoom}&size=${SIZE}x${SIZE}&scale=2&maptype=satellite&key=${encodeURIComponent(GOOGLE_MAPS_API_KEY)}`;
+      // Real-world ground width (feet) of the FULL captured square, from the standard Web
+      // Mercator "world pixel" formula: at zoom 0 the whole world is 256px wide and each pixel
+      // covers 156543.03392m at the equator, halving every zoom level, and narrowing further
+      // toward the poles by cos(latitude) since Mercator stretches things horizontally more the
+      // further you get from the equator. This is meters per pixel of the `size` request (640),
+      // NOT the actual returned bitmap (640*scale=1280px) -- `scale` only asks for a
+      // higher-pixel-density render of the exact same ground area, it doesn't zoom in further.
+      const metersPerPixelAtZoom = 156543.03392 * Math.cos(center.lat()*Math.PI/180) / Math.pow(2, zoom);
+      const captureGroundWidthFt = metersPerPixelAtZoom * SIZE * 3.28084;
       const resp = await fetch(url);
       if(!resp.ok) throw new Error('Static Maps request failed ('+resp.status+')');
       const blob = await resp.blob();
@@ -3451,7 +3495,7 @@
       });
       const onDone = satelliteCtx.onDone;
       closeSatelliteScreen();
-      openCropScreen(dataUrl, onDone);
+      openCropScreen(dataUrl, onDone, captureGroundWidthFt);
     }catch(err){
       console.warn('Duskline: satellite capture failed.', err);
       alert('Could not capture that view. Please check your connection and try again.');
@@ -3461,7 +3505,16 @@
   }
 
   // ---------------- crop screen ----------------
-  function openCropScreen(sourceUrl, onDone){
+  // priorGroundWidthFt: the real-world width, in feet, spanned by the FULL sourceUrl image being
+  // loaded here -- only ever known for a satellite-captured image (computed in useSatelliteView()
+  // from the Static Maps request's zoom/lat, or carried over from area.photoWidthFt when
+  // re-cropping an already-satellite-sourced photo via "Adjust crop"). Cropping/zooming in this
+  // screen narrows the field of view, so the ground width of the FINAL output is smaller than
+  // this by exactly the same fraction the image itself got zoomed in by -- see btnCropUse's
+  // handler for that computation. undefined/null for any non-satellite photo, meaning "no known
+  // scale," which flows through to area.photoWidthFt staying null and wire/strip length staying
+  // a manual-entry field, exactly today's behavior.
+  function openCropScreen(sourceUrl, onDone, priorGroundWidthFt){
     const img = new Image();
     // Required for "Adjust crop" on an already-uploaded (Storage-hosted) photo: without this,
     // the browser loads the image in a non-CORS mode regardless of what CORS headers the
@@ -3469,7 +3522,11 @@
     // Harmless no-op for a freshly-picked local photo, which is still a same-origin data: URL.
     img.crossOrigin = 'anonymous';
     img.onload = ()=>{
-      cropCtx = { img, natW: img.naturalWidth, natH: img.naturalHeight, aspect: 0.8, tx:0, ty:0, scale:1, containScale:1, stageW:0, stageH:0, onDone };
+      // Meters-per-natural-pixel of THIS loaded image (not of whatever it was cropped from, if
+      // anything) -- dividing the known real-world width by this image's own naturalWidth pixel
+      // count. 1 foot = 1/3.28084 meters.
+      const metersPerNaturalPixel = priorGroundWidthFt ? (priorGroundWidthFt/3.28084)/img.naturalWidth : null;
+      cropCtx = { img, natW: img.naturalWidth, natH: img.naturalHeight, aspect: 0.8, tx:0, ty:0, scale:1, containScale:1, stageW:0, stageH:0, onDone, metersPerNaturalPixel };
       $('cropScreen').hidden = false;
       document.body.style.overflow = 'hidden';
       document.querySelectorAll('.crop-aspects .chip').forEach(c=> c.classList.toggle('active', Math.abs(parseFloat(c.dataset.aspect)-0.8)<0.001));
@@ -4978,6 +5035,10 @@
   function areaToRow(area){
     return {
       name: area.name, photo: area.photo||null, photo_aspect: area.photoAspect||null,
+      // Real-world width, in feet, spanned by the full photo -- only ever set for a
+      // satellite-captured photo (see useSatelliteView()/openCropScreen()), null for a regular
+      // photo. Powers the auto-estimated wire-run/LED-strip length (pathLengthFt()).
+      photo_width_ft: area.photoWidthFt||null,
       darkness: area.darkness!=null?area.darkness:0.6, beam_brightness: area.beamBrightness!=null?area.beamBrightness:1,
       placements: area.placements||[], accessory_qty: area.accessoryQty||{},
       wire_runs: area.wireRuns||[], light_strips: area.lightStrips||[],
@@ -4986,6 +5047,7 @@
   function rowToArea(row){
     return {
       id: row.id, name: row.name, photo: row.photo||null, photoAspect: row.photo_aspect||null,
+      photoWidthFt: row.photo_width_ft||null,
       darkness: row.darkness!=null?row.darkness:0.6, beamBrightness: row.beam_brightness!=null?row.beam_brightness:1,
       placements: row.placements||[], accessoryQty: row.accessory_qty||{},
       wireRuns: row.wire_runs||[], lightStrips: row.light_strips||[],
@@ -5346,12 +5408,18 @@
     });
     $('btnAdjustCrop').addEventListener('click', ()=>{
       const area = currentArea();
-      if(area && area.photo) openCropScreen(area.photo, async (dataUrl,aspect)=>{
+      // Carries the area's existing photoWidthFt through as the "known ground width of the
+      // source image" -- re-cropping a satellite-sourced photo further narrows the field of
+      // view, so this re-derives a smaller, correct groundWidthFt for the new crop rather than
+      // leaving the old (now too-wide) value in place. null for a non-satellite photo, same as
+      // any other photo source.
+      if(area && area.photo) openCropScreen(area.photo, async (dataUrl,aspect,groundWidthFt)=>{
         const url = await uploadAreaPhoto(area, dataUrl);
         if(!url) return;
-        area.photo=url; area.photoAspect=aspect; refreshEditorPhotoState();
+        area.photo=url; area.photoAspect=aspect; area.photoWidthFt = groundWidthFt || null;
+        refreshEditorPhotoState();
         saveAreaRow(area);
-      });
+      }, area && area.photoWidthFt);
     });
 
     $('canvasPhoto').addEventListener('click', handleCanvasClick);
@@ -5882,10 +5950,20 @@
       const dy = outputH/2 + cropCtx.ty*factor - dh/2;
       ctx.drawImage(cropCtx.img, dx, dy, dw, dh);
       const dataUrl = canvas.toDataURL('image/jpeg',0.88);
+      // How many of the SOURCE image's own natural pixels are visible across the full crop
+      // frame width -- purely a function of zoom (cropCtx.scale), not pan position, since
+      // panning changes WHICH natural pixels are visible but not how many. Derived from the
+      // exact same natural-px -> stage-px -> output-px chain the drawImage call above already
+      // uses (natural px * scale = stage px, stage px * factor = output px), simplified: at
+      // scale=containScale (no zoom-in yet) this equals natW exactly, i.e. "the whole image is
+      // visible" -- verified algebraically, not just by inspection.
+      const groundWidthFt = cropCtx.metersPerNaturalPixel
+        ? (cropCtx.stageW/cropCtx.scale) * cropCtx.metersPerNaturalPixel * 3.28084
+        : null;
       const cb = cropCtx.onDone;
       const aspect = cropCtx.aspect;
       closeCropScreen();
-      cb(dataUrl, aspect);
+      cb(dataUrl, aspect, groundWidthFt);
     });
 
     renderProjectList();

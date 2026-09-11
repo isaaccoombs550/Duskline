@@ -503,6 +503,12 @@
     box-shadow:0 0 0 3px rgba(226,104,92,.25);transform:translate(-50%,-50%);
     cursor:pointer;z-index:4;}
 
+  /* Transient markers for the two points clicked while "Set scale" is active -- cleared the
+     moment the calibration modal saves/cancels, not a persistent design element. */
+  .scale-cal-dot{position:absolute;left:0;top:0;width:10px;height:10px;border-radius:50%;
+    background:var(--amber-soft);border:2px solid #fff;box-shadow:0 0 0 2px rgba(0,0,0,.4);
+    transform:translate(-50%,-50%);z-index:5;pointer-events:none;}
+
   .beam-handle{position:absolute;width:16px;height:16px;border-radius:50%;background:rgba(255,255,255,.18);
     border:2px solid var(--amber-soft);transform:translate(-50%,-50%);cursor:grab;touch-action:none;
     z-index:3;pointer-events:auto;box-shadow:0 0 8px rgba(0,0,0,.5);}
@@ -1180,6 +1186,7 @@
         <button class="chip" id="btnResetZoom">Reset zoom <span class="mono zoom-pct" id="zoomBadge" hidden></span></button>
         <button class="chip" id="btnDrawWire">Draw wire run</button>
         <button class="chip" id="btnPlaceTransformer">Place transformer</button>
+        <button class="chip" id="btnSetScale">Set scale</button>
         <button class="chip" id="btnExportWiringPlan">Export wiring plan</button>
         <button class="chip chip-danger" id="btnClearDesign">Clear design</button>
       </div>
@@ -1299,6 +1306,24 @@
       <button class="btn btn-danger" id="transformerDelete">Delete</button>
       <button class="btn btn-ghost" id="transformerCancel">Cancel</button>
       <button class="btn btn-primary" id="transformerSave">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== SET SCALE MODAL ===================== -->
+<div class="edit-sheet" id="scaleModal" hidden>
+  <div class="edit-backdrop" id="scaleBackdrop"></div>
+  <div class="edit-panel">
+    <div class="edit-title">Set scale</div>
+    <div class="modal-form-body">
+      <div class="field"><label>Real-world distance between the two points (ft)</label>
+        <input id="scaleDistanceInput" type="number" step="0.5" min="0" placeholder="e.g. 40">
+      </div>
+      <div class="fx-desc">This sets the photo's real-world scale, powering auto-estimated wire/strip lengths and the wiring plan's scale bar. Works on any photo, including an imported CAD drawing.</div>
+    </div>
+    <div class="edit-actions">
+      <button class="btn btn-ghost" id="scaleCancel">Cancel</button>
+      <button class="btn btn-primary" id="scaleSave">Save</button>
     </div>
   </div>
 </div>
@@ -1603,6 +1628,7 @@
       drawingStripFixtureId: null,
       currentStripPath: null,
       placingTransformer: false,
+      settingScale: false,
       activeProfile: null,
     };
   }
@@ -1616,6 +1642,7 @@
   let pendingStripPath = null;
   let editingStripId = null;
   let editingTransformerId = null;
+  let scaleCalPoints = null; // [{xPct,yPct}] while state.settingScale is active -- see "Set scale"
   let suppressNextCanvasClick = false;
   let view = {zoom:1, panX:0, panY:0}; // canvas pan/zoom for precise placement (desktop ctrl+scroll)
 
@@ -2124,6 +2151,8 @@
       </div>`;
     }).join('') + (area.transformers||[]).map(t=>
       `<div class="transformer-marker" data-id="${t.id}" style="left:${t.xPct}%;top:${t.yPct}%;" title="${escapeHtml(t.name)} · ${t.capacityW}W"></div>`
+    ).join('') + (scaleCalPoints||[]).map(pt=>
+      `<div class="scale-cal-dot" style="left:${pt.xPct}%;top:${pt.yPct}%;"></div>`
     ).join('');
     wrap.querySelectorAll('.transformer-marker').forEach(el=>{
       el.addEventListener('click', e=>{ e.stopPropagation(); openTransformerEdit(el.dataset.id); });
@@ -2408,6 +2437,48 @@
     renderOverlays();
   }
 
+  // ---------------- manual scale calibration ----------------
+  function updateSetScaleBtn(){
+    const btn = $('btnSetScale'); if(!btn) return;
+    btn.classList.toggle('is-active', state.settingScale);
+    btn.textContent = state.settingScale ? (scaleCalPoints&&scaleCalPoints.length ? 'Click 2nd point…' : 'Click 1st point…') : 'Set scale';
+  }
+  function openScaleCalibrationModal(){
+    $('scaleDistanceInput').value = '';
+    $('scaleModal').hidden = false;
+  }
+  function closeScaleCalibrationModal(){
+    $('scaleModal').hidden = true;
+    state.settingScale = false;
+    scaleCalPoints = null;
+    updateSetScaleBtn();
+    updatePlacementBanner();
+    renderOverlays();
+  }
+  function saveScaleCalibrationModal(){
+    const area = currentArea(); if(!area || !scaleCalPoints || scaleCalPoints.length<2) return;
+    const knownFt = parseFloat($('scaleDistanceInput').value);
+    if(!knownFt || knownFt<=0){ alert('Enter the real-world distance between the two points.'); return; }
+    const [a,b] = scaleCalPoints;
+    const aspect = area.photoAspect||0.8;
+    // Solve for the photo's real width (photoWidthFt) given two points a known real distance
+    // apart -- the same "one number describes the whole photo's scale, x and y derived from
+    // aspect" model area.photoWidthFt already uses everywhere else (pathLengthFt, the wiring-
+    // plan PDF's scale bar). dx/dy here are fractions of the photo's real width/height; solving
+    // knownFt = W * sqrt(dxFrac^2 + (dyFrac/aspect)^2) for W.
+    const dxFrac = (b.xPct-a.xPct)/100, dyFrac = (b.yPct-a.yPct)/100;
+    const denom = Math.sqrt(dxFrac*dxFrac + (dyFrac/aspect)*(dyFrac/aspect));
+    if(denom<=0){ alert('Those two points are too close together -- pick two points further apart.'); return; }
+    area.photoWidthFt = knownFt/denom;
+    saveAreaRow(area);
+    $('scaleModal').hidden = true;
+    state.settingScale = false;
+    scaleCalPoints = null;
+    updateSetScaleBtn();
+    updatePlacementBanner();
+    renderOverlays();
+  }
+
   // ---------------- wiring plan PDF export ----------------
   // Voltage-drop estimate, calibrated against a real reference: landscape-lighting transformers
   // commonly have multiple voltage taps (12/13/14/15V) specifically so a long or heavy run can
@@ -2442,7 +2513,14 @@
     for(const s of niceSteps){ if(s<=target) unit=s; else break; }
     return unit;
   }
-  function buildWiringPlanPdfBlob(pr, area){
+  // photoDataUrl/photoFormat: the area's own photo, pre-fetched and converted to a data: URL by
+  // exportWiringPlan() (this function itself stays synchronous, matching buildPoPdfBlob's
+  // convention -- the async fetch happens in the caller). Drawn faded behind the schematic so
+  // the vector overlay (dots/lines/transformer symbols) stays legible on top of it, the same
+  // "muted background, vivid overlay" look a real site plan uses. Optional -- an area with no
+  // photo (shouldn't normally happen, but harmless) just gets a blank drawing box, exactly the
+  // prior behavior before this was added.
+  function buildWiringPlanPdfBlob(pr, area, photoDataUrl, photoFormat){
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF({ unit:'pt', format:'letter', orientation:'landscape' });
     const pageW = doc.internal.pageSize.getWidth(), pageH = doc.internal.pageSize.getHeight();
@@ -2471,6 +2549,16 @@
     let drawW = drawBoxW, drawH = drawBoxW/aspect;
     if(drawH > drawBoxH){ drawH = drawBoxH; drawW = drawBoxH*aspect; }
     const drawX = drawBoxX + (drawBoxW-drawW)/2, drawY = drawBoxY + (drawBoxH-drawH)/2;
+    if(photoDataUrl){
+      // Faded, not full-strength -- a vivid photo behind vivid schematic colors would fight the
+      // fixture-dot/wire-run colors for attention. GState/opacity is a real jsPDF core API
+      // (verified against this exact pinned version before shipping), not a plugin.
+      try{
+        doc.setGState(new doc.GState({opacity:0.4}));
+        doc.addImage(photoDataUrl, photoFormat||'JPEG', drawX, drawY, drawW, drawH);
+        doc.setGState(new doc.GState({opacity:1}));
+      }catch(err){ console.warn('Duskline: wiring plan background image failed.', err); }
+    }
     doc.setDrawColor(180,180,180); doc.setLineWidth(1);
     doc.rect(drawX, drawY, drawW, drawH);
     const toPt = p=> ({ x: drawX+(p.xPct/100)*drawW, y: drawY+(p.yPct/100)*drawH });
@@ -2557,6 +2645,31 @@
       doc.text('Wire run', drawX+14, legY);
     }
 
+    // ---- fixture schedule (qty x fixture, grouped by actual product -- not just type) ----
+    // Sits beside the compact color-key legend rather than replacing it: the legend explains
+    // what a dot's COLOR means on the drawing, this explains what's actually being installed and
+    // how many of each, matching the reference site-plan's own symbol-legend-with-counts idea.
+    const scheduleMap = new Map();
+    (area.placements||[]).forEach(p=>{
+      const f = findFixture(p.fixtureId); if(!f) return;
+      if(!scheduleMap.has(f.id)) scheduleMap.set(f.id, {f, count:0});
+      scheduleMap.get(f.id).count++;
+    });
+    if(scheduleMap.size){
+      const scheduleX = drawX+150, scheduleW = Math.max(120, drawW-150);
+      doc.setFont('helvetica','bold'); doc.setFontSize(9); doc.setTextColor(0,0,0);
+      doc.text('FIXTURE SCHEDULE', scheduleX, barY+22);
+      doc.autoTable({
+        startY: barY+30,
+        margin: { left: scheduleX, right: pageW-scheduleX-scheduleW },
+        tableWidth: scheduleW,
+        head: [['Qty','Fixture','Type','W']],
+        body: [...scheduleMap.values()].map(({f,count})=> [String(count), f.name, fixtureTypeMeta(f).label, String(f.watt||0)]),
+        styles: { fontSize: 7, cellPadding: 3 },
+        headStyles: { fillColor: [20,23,28] },
+      });
+    }
+
     // ---- per-transformer load/run tables (right column) ----
     let tableY = drawBoxY;
     const gaugeFor = w => WIRE_GAUGES.find(g=>g.awg===(w.gaugeAwg||12)) || WIRE_GAUGES[0];
@@ -2631,15 +2744,48 @@
 
     return doc.output('blob');
   }
-  function exportWiringPlan(){
+  // Fetches area.photo (a Storage https:// URL) and converts it to a data: URL jsPDF's
+  // addImage() can embed directly -- same fetch+FileReader pattern useSatelliteView() already
+  // uses for the same reason (jsPDF, unlike an <img> tag, can't just be pointed at a remote URL).
+  // Returns {dataUrl, format} or null on any failure, so a background-image problem degrades to
+  // "no background" rather than blocking the whole export -- the schematic is the part that
+  // actually has to work.
+  async function fetchPhotoForPdf(area){
+    if(!area.photo) return null;
+    try{
+      const resp = await fetch(area.photo);
+      if(!resp.ok) throw new Error('fetch failed ('+resp.status+')');
+      const blob = await resp.blob();
+      const format = blob.type==='image/png' ? 'PNG' : 'JPEG';
+      const dataUrl = await new Promise((resolve, reject)=>{
+        const reader = new FileReader();
+        reader.onload = ()=> resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+      return { dataUrl, format };
+    }catch(err){
+      console.warn('Duskline: wiring plan photo fetch failed.', err);
+      return null;
+    }
+  }
+  async function exportWiringPlan(){
     const pr = currentProject(); const area = currentArea();
     if(!pr || !area) return;
-    const blob = buildWiringPlanPdfBlob(pr, area);
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = `wiring-plan-${area.name.replace(/[^a-z0-9]+/gi,'-')}.pdf`;
-    document.body.appendChild(a); a.click(); document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    const btn = $('btnExportWiringPlan');
+    const origText = btn.textContent;
+    btn.disabled = true; btn.textContent = 'Preparing…';
+    try{
+      const photo = await fetchPhotoForPdf(area);
+      const blob = buildWiringPlanPdfBlob(pr, area, photo&&photo.dataUrl, photo&&photo.format);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `wiring-plan-${area.name.replace(/[^a-z0-9]+/gi,'-')}.pdf`;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } finally {
+      btn.disabled = false; btn.textContent = origText;
+    }
   }
 
   function updatePlacementBeam(p,f,rect){
@@ -2776,6 +2922,21 @@
     let xPct = Math.min(96, Math.max(4, loc.xPct));
     let yPct = Math.min(96, Math.max(4, loc.yPct));
 
+    // "Set scale": two clicks mark two points, then a modal asks the real-world distance
+    // between them -- works on ANY photo (a regular ground photo, an imported CAD/site-plan
+    // drawing, or to manually override a satellite photo's automatic scale), not just satellite
+    // captures. This is the only other way (besides useSatelliteView()) to populate
+    // area.photoWidthFt, which powers the auto-estimated wire/strip length and the wiring-plan
+    // PDF's scale bar.
+    if(state.settingScale){
+      scaleCalPoints.push({xPct,yPct});
+      if(scaleCalPoints.length<2){
+        renderOverlays(); updatePlacementBanner();
+      } else {
+        openScaleCalibrationModal();
+      }
+      return;
+    }
     // Placing a transformer is a single click, like arming/placing a fixture (state.armed)
     // below -- not a drag gesture like wire runs/strips, since a transformer has no shape to
     // draw, just a position. Opens straight into the edit modal so its name/capacity can be
@@ -2887,10 +3048,17 @@
       $('btnBannerAction').textContent = 'Cancel';
       $('btnBannerAction').onclick = ()=>{ state.placingTransformer=false; updatePlaceTransformerBtn(); updatePlacementBanner(); };
       banner.hidden = false;
+    } else if(state.settingScale){
+      $('placementText').textContent = (scaleCalPoints&&scaleCalPoints.length)
+        ? 'Tap a second point a known distance away'
+        : 'Tap a point you know the real-world distance from';
+      $('btnBannerAction').textContent = 'Cancel';
+      $('btnBannerAction').onclick = ()=>{ state.settingScale=false; scaleCalPoints=null; updateSetScaleBtn(); updatePlacementBanner(); renderOverlays(); };
+      banner.hidden = false;
     } else {
       banner.hidden = true;
     }
-    if(cp) cp.classList.toggle('is-armed', !!state.armed || !!state.drawingWire || !!state.drawingStripFixtureId || !!state.placingTransformer);
+    if(cp) cp.classList.toggle('is-armed', !!state.armed || !!state.drawingWire || !!state.drawingStripFixtureId || !!state.placingTransformer || !!state.settingScale);
   }
 
   // ---------------- fixture picker (inside area editor) ----------------
@@ -2960,15 +3128,15 @@
     $('sheetList').querySelectorAll('[data-arm]').forEach(b=>b.addEventListener('click', e=>{
       const id = e.currentTarget.dataset.arm;
       state.armed = state.armed===id ? null : id;
-      state.drawingWire = false; state.drawingStripFixtureId = null; state.placingTransformer = false;
-      state.selected = null; closeInfoSheet(); updatePlaceTransformerBtn();
+      state.drawingWire = false; state.drawingStripFixtureId = null; state.placingTransformer = false; state.settingScale = false; scaleCalPoints = null;
+      state.selected = null; closeInfoSheet(); updatePlaceTransformerBtn(); updateSetScaleBtn();
       renderSheetList(); updatePlacementBanner(); renderOverlays();
     }));
     $('sheetList').querySelectorAll('[data-arm-strip]').forEach(b=>b.addEventListener('click', e=>{
       const id = e.currentTarget.dataset.armStrip;
       state.drawingStripFixtureId = state.drawingStripFixtureId===id ? null : id;
-      state.armed = null; state.drawingWire = false; state.placingTransformer = false;
-      state.selected = null; closeInfoSheet(); updatePlaceTransformerBtn();
+      state.armed = null; state.drawingWire = false; state.placingTransformer = false; state.settingScale = false; scaleCalPoints = null;
+      state.selected = null; closeInfoSheet(); updatePlaceTransformerBtn(); updateSetScaleBtn();
       renderSheetList(); updatePlacementBanner(); renderOverlays();
     }));
     $('sheetList').querySelectorAll('[data-inc]').forEach(b=>b.addEventListener('click', e=>{
@@ -3683,7 +3851,8 @@
     if(!area.lightStrips) area.lightStrips = [];
     if(!area.transformers) area.transformers = [];
     state.armed=null; state.selected=null; state.drawingWire=false; state.currentWirePath=null;
-    state.drawingStripFixtureId=null; state.currentStripPath=null; state.placingTransformer=false; closeInfoSheet();
+    state.drawingStripFixtureId=null; state.currentStripPath=null; state.placingTransformer=false;
+    state.settingScale=false; scaleCalPoints=null; closeInfoSheet();
     state.sheetSearch=''; state.sheetTypeFilter='all';
     $('sheetSearchInput').value=''; $('sheetTypeFilter').value='all';
     undoStack = []; redoStack = []; updateUndoRedoButtons();
@@ -3698,6 +3867,7 @@
     resetView();
     updateDrawWireBtn();
     updatePlaceTransformerBtn();
+    updateSetScaleBtn();
     refreshEditorPhotoState();
     renderSheetList();
     updatePlacementBanner();
@@ -3708,6 +3878,7 @@
     flushCurrentEdits();
     state.drawingWire=false; state.currentWirePath=null;
     state.drawingStripFixtureId=null; state.currentStripPath=null; state.placingTransformer=false;
+    state.settingScale=false; scaleCalPoints=null;
     $('editorScreen').hidden = true;
     document.body.style.overflow = '';
     renderProjectDetail();
@@ -5863,7 +6034,7 @@
     $('btnDrawWire').addEventListener('click', ()=>{
       const area = currentArea(); if(!area || !area.photo) return;
       state.drawingWire = !state.drawingWire;
-      if(state.drawingWire){ state.armed=null; state.selected=null; state.placingTransformer=false; closeInfoSheet(); renderSheetList(); updatePlaceTransformerBtn(); }
+      if(state.drawingWire){ state.armed=null; state.selected=null; state.placingTransformer=false; state.settingScale=false; scaleCalPoints=null; closeInfoSheet(); renderSheetList(); updatePlaceTransformerBtn(); updateSetScaleBtn(); }
       state.currentWirePath = null;
       updateDrawWireBtn();
       updatePlacementBanner();
@@ -6020,12 +6191,27 @@
       const area = currentArea(); if(!area || !area.photo) return;
       state.placingTransformer = !state.placingTransformer;
       if(state.placingTransformer){
-        state.armed=null; state.drawingWire=false; state.drawingStripFixtureId=null;
-        state.selected=null; closeInfoSheet(); renderSheetList(); updateDrawWireBtn();
+        state.armed=null; state.drawingWire=false; state.drawingStripFixtureId=null; state.settingScale=false; scaleCalPoints=null;
+        state.selected=null; closeInfoSheet(); renderSheetList(); updateDrawWireBtn(); updateSetScaleBtn();
       }
       updatePlaceTransformerBtn();
       updatePlacementBanner();
     });
+    $('btnSetScale').addEventListener('click', ()=>{
+      const area = currentArea(); if(!area || !area.photo) return;
+      state.settingScale = !state.settingScale;
+      scaleCalPoints = state.settingScale ? [] : null;
+      if(state.settingScale){
+        state.armed=null; state.drawingWire=false; state.drawingStripFixtureId=null; state.placingTransformer=false;
+        state.selected=null; closeInfoSheet(); renderSheetList(); updateDrawWireBtn(); updatePlaceTransformerBtn();
+      }
+      updateSetScaleBtn();
+      updatePlacementBanner();
+      renderOverlays();
+    });
+    $('scaleCancel').addEventListener('click', closeScaleCalibrationModal);
+    $('scaleBackdrop').addEventListener('click', closeScaleCalibrationModal);
+    $('scaleSave').addEventListener('click', saveScaleCalibrationModal);
     $('btnExportWiringPlan').addEventListener('click', exportWiringPlan);
     $('toggleExportWires').addEventListener('change', e=>{
       document.body.classList.toggle('export-wires', e.target.checked);

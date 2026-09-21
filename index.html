@@ -4858,7 +4858,12 @@
       if(!partNumber && !descRaw) continue;
       const name = partNumber || descRaw;
       const catRaw = (row[0]||'').toString().trim().toLowerCase();
-      const cat = catRaw.startsWith('access') ? 'accessory' : catRaw.startsWith('transf') ? 'transformer' : catRaw.startsWith('strip') ? 'strip' : 'fixture';
+      let cat = catRaw.startsWith('access') ? 'accessory' : catRaw.startsWith('transf') ? 'transformer' : catRaw.startsWith('strip') ? 'strip' : 'fixture';
+      // A distributor sheet (or the pre-transformer template) often files transformers under
+      // "Accessory" or some other category word, so a row that isn't explicitly a Fixture/Strip but
+      // says "transformer" in its category, type, part number or description is still treated as one.
+      // A row labelled Fixture is left alone (a fixture description could mention "transformer").
+      if(cat!=='transformer' && cat!=='strip' && !catRaw.startsWith('fixture') && /transformer/i.test([catRaw, row[1], partNumber, descRaw].join(' '))) cat = 'transformer';
       // Fixture Type only applies to cat==='fixture' rows -- matched against the same
       // FIXTURE_TYPES keys used everywhere else, so this stays in sync automatically if that
       // set ever changes. Anything blank/unrecognized falls back to 'other', same as a
@@ -4894,7 +4899,8 @@
       let extra = {};
       if(cat==='transformer'){
         const taps = (row[13]||'').toString().split(/[^0-9.]+/).map(x=>parseFloat(x)).filter(x=>x>0);
-        extra = {capacityW: parseFloat(row[12]) || watt, taps: taps.length ? taps : [12,13,14,15]};
+        const nameW = /(\d{2,4})\s*w\b/i.exec(partNumber+' '+descRaw); // e.g. "300W Transformer"
+        extra = {capacityW: parseFloat(row[12]) || watt || (nameW ? +nameW[1] : 0), taps: taps.length ? taps : [12,13,14,15]};
       }
       results.push({name, cat, type, desc, beam, kelvin, lumens, watt:cat==='transformer'?0:watt, installTime, cost, price, rot:0, vendorId, ...extra});
     }

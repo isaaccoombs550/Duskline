@@ -358,6 +358,10 @@
     border-bottom:1px solid var(--line);background:var(--surface);flex-shrink:0;}
   .editor-title{font-family:var(--font-display);font-weight:600;font-size:13px;color:var(--fog);
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;text-align:center;}
+  /* the area editor's title doubles as a "rename this area" button */
+  #editorAreaTitle{cursor:pointer;}
+  #editorAreaTitle::after{content:" ✎";opacity:.55;font-size:.95em;}
+  #editorAreaTitle:hover{color:var(--amber);}
   /* Quick day/night preview toggle below the Darkness slider -- jumps between a bright-day
      and a dark-night preset so a contractor can eyeball both looks without dragging the slider
      back and forth. The slider itself still gives fine control; this is just a shortcut. Sized
@@ -1215,7 +1219,7 @@
     <button class="icon-btn" id="btnEditorBack" aria-label="Back">←</button>
     <button class="icon-btn" id="btnUndo" aria-label="Undo" title="Undo (Ctrl+Z)" disabled>↶</button>
     <button class="icon-btn" id="btnRedo" aria-label="Redo" title="Redo (Ctrl+Shift+Z)" disabled>↷</button>
-    <div class="editor-title" id="editorAreaTitle">Area</div>
+    <div class="editor-title" id="editorAreaTitle" role="button" tabindex="0" title="Rename this area">Area</div>
     <button class="btn btn-primary btn-sm" id="btnEditorSave">Save design</button>
   </div>
 
@@ -1608,7 +1612,7 @@
 <div class="edit-sheet" id="areaNameModal" hidden>
   <div class="edit-backdrop" id="areaNameBackdrop"></div>
   <div class="edit-panel">
-    <div class="edit-title">New area</div>
+    <div class="edit-title" id="areaNameTitle">New area</div>
     <div class="modal-form-body">
       <div class="field"><label>Area name</label><input id="areaNameInput" placeholder="Front Yard"></div>
     </div>
@@ -3578,6 +3582,18 @@
   // pull it down further if portrait photos still leave a big gap, or up if capped photos read
   // too small on the page.
   const PRINT_PHOTO_CAP_H = 5.5;
+  // One dialog for both "New area" and "Rename area": areaRenameId is null when creating.
+  let areaRenameId = null;
+  function openAreaNameModal(renameId){
+    const pr = currentProject(); if(!pr) return;
+    const area = renameId ? pr.areas.find(a=>a.id===renameId) : null;
+    areaRenameId = area ? area.id : null;
+    $('areaNameTitle').textContent = area ? 'Rename area' : 'New area';
+    $('areaNameCreate').textContent = area ? 'Save' : 'Create';
+    $('areaNameInput').value = area ? area.name : 'Area '+(pr.areas.length+1);
+    $('areaNameModal').hidden = false;
+    setTimeout(()=>{ $('areaNameInput').focus(); $('areaNameInput').select(); }, 0);
+  }
   function renderAreaList(pr){
     const showTech = state.quoteMode==='cost';
     const allPlacements = pr.areas.flatMap(a=>a.placements);
@@ -3617,13 +3633,18 @@
             <div class="area-card-stat">${a.placements.length} fixture${a.placements.length!==1?'s':''} · ${money(total)}${showTech?' · '+w+'W':''}</div>
             ${a.notes && a.notes.trim() ? `<div class="area-card-notes">${escapeHtml(a.notes)}</div>` : ''}
           </div>
-          <button class="btn btn-ghost btn-sm">Edit</button>
+          <div style="display:flex;gap:6px;flex-shrink:0;">
+            <button class="btn btn-ghost btn-sm" data-rename="${a.id}">Rename</button>
+            <button class="btn btn-ghost btn-sm">Edit</button>
+          </div>
         </div>
       </div>`;
     }).join('');
     $('areaList').querySelectorAll('.area-card').forEach(el=>{
       el.addEventListener('click', e=>{
         if(e.target.closest('[data-del]')) return;
+        const rn = e.target.closest('[data-rename]');
+        if(rn){ e.stopPropagation(); openAreaNameModal(rn.dataset.rename); return; }
         openAreaEditor(el.dataset.id);
       });
     });
@@ -7874,13 +7895,28 @@
 
     $('btnAddArea').addEventListener('click', ()=>{
       const pr = currentProject(); if(!pr) return;
-      $('areaNameInput').value = 'Area '+(pr.areas.length+1);
-      $('areaNameModal').hidden=false;
+      openAreaNameModal(null);
     });
+    $('editorAreaTitle').addEventListener('click', ()=>{ const a = currentArea(); if(a) openAreaNameModal(a.id); });
+    $('editorAreaTitle').addEventListener('keydown', e=>{ if(e.key==='Enter' || e.key===' '){ e.preventDefault(); const a = currentArea(); if(a) openAreaNameModal(a.id); } });
+    $('areaNameInput').addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); $('areaNameCreate').click(); } });
     $('areaNameCancel').addEventListener('click', ()=> $('areaNameModal').hidden=true);
     $('areaNameBackdrop').addEventListener('click', ()=> $('areaNameModal').hidden=true);
     $('areaNameCreate').addEventListener('click', async ()=>{
       const pr = currentProject(); if(!pr) return;
+      if(areaRenameId){
+        // Rename an existing area: only the name changes, saved right away (an explicit one-off
+        // action, so it doesn't wait for the autosave tick). A blank name keeps the old one.
+        const area = pr.areas.find(a=>a.id===areaRenameId);
+        const newName = $('areaNameInput').value.trim();
+        areaRenameId = null; $('areaNameModal').hidden = true;
+        if(!area || !newName || newName===area.name) return;
+        area.name = newName;
+        if(!$('editorScreen').hidden) $('editorAreaTitle').textContent = newName;
+        renderProjectDetail();
+        saveAreaRow(area);
+        return;
+      }
       const name = $('areaNameInput').value.trim() || ('Area '+(pr.areas.length+1));
       const btn = $('areaNameCreate'); btn.disabled = true;
       const { data: row, error } = await sb.from('areas')

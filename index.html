@@ -5911,9 +5911,9 @@
   // ==========================================================================================
   const CAD_SHEET = {w:792, h:612};   // letter landscape in "sheet units" (= pt); tabloid just scales this
   const CAD_PANEL_W = 170;            // left schedule column width on the sheet
-  const CAD_GAUGE_COLORS = {16:'#7c3aed', 14:'#0f8b8d', 12:'#d62828', 10:'#1d4ed8', 8:'#111827'};
+  const CAD_GAUGE_COLORS = {18:'#a16207', 16:'#7c3aed', 14:'#0f8b8d', 12:'#d62828', 10:'#1d4ed8', 8:'#111827'};
   // Standard published copper resistance (ohms per 1000 ft, one conductor). Editable in Settings.
-  const CAD_DEFAULT_GAUGES = [{awg:12, r:1.588}, {awg:10, r:0.999}, {awg:8, r:0.628}]; // 12/10 like the reference sheet; add 14/16 in Settings
+  const CAD_DEFAULT_GAUGES = [{awg:12, r:1.588}, {awg:14, r:2.525}, {awg:16, r:4.016}, {awg:18, r:6.385}]; // 12/14/16/18 (10 and 8 removed); editable in Settings
   const CAD_DEFAULT_MODELS = [
     {id:'tm150',  name:'150W Transformer',  capacityW:150,  taps:[12,13,14,15]},
     {id:'tm300',  name:'300W Transformer',  capacityW:300,  taps:[12,13,14,15]},
@@ -5969,14 +5969,14 @@
   let cadSchemaMissing = false;
 
   function cadDefaultSettings(){
-    return { symbolScale:1, minLampV:10.5, gauges:CAD_DEFAULT_GAUGES.map(g=>({...g})), models:CAD_DEFAULT_MODELS.map(m=>({...m, taps:[...m.taps]})),
+    return { symbolScale:1, minLampV:10.5, gaugesVersion:2, gauges:CAD_DEFAULT_GAUGES.map(g=>({...g})), models:CAD_DEFAULT_MODELS.map(m=>({...m, taps:[...m.taps]})),
       fixtureSymbol:{}, customSymbols:[] };
   }
   function cadNormalizeSettings(data){
     const d = cadDefaultSettings(); if(!data || typeof data!=='object') return d;
     if(typeof data.symbolScale==='number') d.symbolScale = Math.min(3, Math.max(0.4, data.symbolScale));
     if(typeof data.minLampV==='number') d.minLampV = data.minLampV;
-    if(Array.isArray(data.gauges) && data.gauges.length) d.gauges = data.gauges.filter(g=>g && g.awg>0 && g.r>0).map(g=>({awg:+g.awg, r:+g.r}));
+    if(data.gaugesVersion===2 && Array.isArray(data.gauges) && data.gauges.length) d.gauges = data.gauges.filter(g=>g && g.awg>0 && g.r>0).map(g=>({awg:+g.awg, r:+g.r}));
     if(Array.isArray(data.models) && data.models.length) d.models = data.models.filter(m=>m && m.id && m.capacityW>0).map(m=>({id:String(m.id), name:String(m.name||'Transformer'), capacityW:+m.capacityW, taps:(Array.isArray(m.taps)&&m.taps.length?m.taps.map(Number).filter(n=>n>0):[12,13,14,15])}));
     if(data.fixtureSymbol && typeof data.fixtureSymbol==='object') d.fixtureSymbol = {...data.fixtureSymbol};
     if(Array.isArray(data.customSymbols)) d.customSymbols = data.customSymbols;
@@ -6053,12 +6053,45 @@
     const drop = tapV - minV; if(drop<=0) return 0;
     return drop / (2 * (gauge.r/1000) * (va/tapV));
   }
-  function cadRunPoints(scene, run){
-    const pts = [];
+  // A run is: transformer -> fixtures in click order. run.bends["fromId|toId"] = [{x,y},...] are the
+  // waypoints between two consecutive nodes (so a wire can follow a curved sidewalk); keying by the
+  // node pair keeps a bend attached to its stretch of wire when fixtures are reordered.
+  function cadRunNodes(scene, run){
+    const nodes = [];
     const t = scene.transformers.find(x=>x.id===run.transformerId);
-    if(t) pts.push({x:t.x, y:t.y});
-    run.fixtureIds.forEach(id=>{ const f = scene.fixtures.find(x=>x.id===id); if(f) pts.push({x:f.x, y:f.y}); });
-    return pts;
+    if(t) nodes.push({id:t.id, x:t.x, y:t.y});
+    run.fixtureIds.forEach(id=>{ const f = scene.fixtures.find(x=>x.id===id); if(f) nodes.push({id:f.id, x:f.x, y:f.y}); });
+    return nodes;
+  }
+  function cadRawPath(nodes, bends){
+    const raw = [];
+    nodes.forEach((n,i)=>{
+      if(i>0){ const key = nodes[i-1].id+'|'+n.id; ((bends && bends[key]) || []).forEach((b,bi)=> raw.push({x:b.x, y:b.y, bend:true, key, bi})); }
+      raw.push({x:n.x, y:n.y, id:n.id});
+    });
+    return raw;
+  }
+  // Catmull-Rom through every node and bend (passes exactly through them), sampled into a polyline.
+  function cadSmoothPath(raw){
+    if(raw.length<3) return raw.map(p=>({x:p.x, y:p.y}));
+    const out = [], P = i=> raw[Math.max(0, Math.min(raw.length-1, i))];
+    for(let i=0;i<raw.length-1;i++){
+      const p0 = P(i-1), p1 = P(i), p2 = P(i+1), p3 = P(i+2);
+      for(let s=0;s<10;s++){
+        const t = s/10, t2 = t*t, t3 = t2*t;
+        out.push({
+          x:0.5*((2*p1.x) + (-p0.x+p2.x)*t + (2*p0.x-5*p1.x+4*p2.x-p3.x)*t2 + (-p0.x+3*p1.x-3*p2.x+p3.x)*t3),
+          y:0.5*((2*p1.y) + (-p0.y+p2.y)*t + (2*p0.y-5*p1.y+4*p2.y-p3.y)*t2 + (-p0.y+3*p1.y-3*p2.y+p3.y)*t3),
+        });
+      }
+    }
+    out.push({x:raw[raw.length-1].x, y:raw[raw.length-1].y});
+    return out;
+  }
+  // The actual wire path: what gets drawn AND what the drawn length / callout position come from.
+  function cadRunPoints(scene, run){
+    const raw = cadRawPath(cadRunNodes(scene, run), run.bends);
+    return run.smooth ? cadSmoothPath(raw) : raw.map(p=>({x:p.x, y:p.y}));
   }
   function cadPathLen(pts){ let d=0; for(let i=1;i<pts.length;i++) d += Math.hypot(pts[i].x-pts[i-1].x, pts[i].y-pts[i-1].y); return d; }
   function cadCalc(plan){
@@ -6130,7 +6163,7 @@
     return items.map(it=>{
       const o = {...it};
       if(it.k==='line'){ o.x1=ox+it.x1*k; o.y1=oy+it.y1*k; o.x2=ox+it.x2*k; o.y2=oy+it.y2*k; o.w=(it.w||1)*k; if(it.dash) o.dash=it.dash.map(d=>d*k); }
-      else if(it.k==='poly'){ o.pts=it.pts.map(p=>[ox+p[0]*k, oy+p[1]*k]); o.w=(it.w||1)*k; }
+      else if(it.k==='poly'){ o.pts=it.pts.map(p=>[ox+p[0]*k, oy+p[1]*k]); o.w=(it.w||1)*k; if(it.dash) o.dash=it.dash.map(d=>d*k); }
       else if(it.k==='circle'){ o.x=ox+it.x*k; o.y=oy+it.y*k; o.r=it.r*k; o.w=(it.w||1)*k; }
       else if(it.k==='rect'){ o.x=ox+it.x*k; o.y=oy+it.y*k; o.w=it.w*k; o.h=it.h*k; o.lw=(it.lw||1)*k; }
       else if(it.k==='text'){ o.x=ox+it.x*k; o.y=oy+it.y*k; o.size=it.size*k; if(it.pad) o.pad=it.pad*k; }
@@ -6140,6 +6173,7 @@
   }
 
   // Callout geometry is shared by the renderer AND the editor's hit-testing/dragging.
+  // run.calloutScale (default 1) is the size the user set by dragging the callout's corner.
   function cadCalloutInfo(plan, calc, u){
     const out = {};
     calc.runs.forEach(r=>{
@@ -6156,7 +6190,8 @@
         `ESTIMATED @ ${r.lenFt!=null ? '~'+Math.round(r.lenFt)+"'" : '—'}`,
       ];
       if(r.over) lines.push('EXCEEDS MAX RUN LENGTH');
-      const size = 4.8*u, lh = 5.9*u, pad = 2.6*u;
+      const rs = r.run.calloutScale || 1;
+      const size = 4.8*u*rs, lh = 5.9*u*rs, pad = 2.6*u*rs;
       const w = Math.max(...lines.map(l=>cadTW(l,size,false))) + pad*2, h = lines.length*lh + pad*2;
       let dx, dy;
       if(r.run.calloutOff){ dx = r.run.calloutOff.dx; dy = r.run.calloutOff.dy; }
@@ -6169,20 +6204,48 @@
     });
     return out;
   }
+  // Free text notes placed anywhere on the plan (scene.notes). x/y is the box centre; size scales the
+  // whole note (text, padding, wrap width) so corner-dragging resizes it proportionally.
+  function cadNoteInfo(note, u){
+    const sc = note.size || 1, size = 6*u*sc, lh = size*1.25, pad = size*0.45, maxW = size*15;
+    const lines = cadWrap(note.text || '', size, maxW, false);
+    const w = Math.max(size*2, ...lines.map(l=>cadTW(l,size,false))) + pad*2, h = lines.length*lh + pad*2;
+    return {lines, size, lh, pad, w, h};
+  }
+  // Where a note's arrow points: the linked fixture's live position (so the arrow follows it when
+  // the fixture is moved), or a free point.
+  function cadNoteTip(scene, note){
+    if(!note.arrow) return null;
+    if(note.arrow.fixtureId){ const f = scene.fixtures.find(x=>x.id===note.arrow.fixtureId); if(f) return {x:f.x, y:f.y, fixture:true}; }
+    return {x:note.arrow.x, y:note.arrow.y, fixture:false};
+  }
+
+  // Arrow geometry for a note: shaft from the note box's edge to the tip (stopping short of a
+  // fixture symbol), plus where the drag handle lives -- mid-shaft for an arrow attached to a
+  // fixture (so the handle never sits on top of the fixture and blocks dragging it), at the tip
+  // for a free arrow.
+  function cadNoteArrowGeom(scene, n, ni, u, sScale){
+    const tip = cadNoteTip(scene, n); if(!tip) return null;
+    const dx = tip.x-n.x, dy = tip.y-n.y, d = Math.hypot(dx,dy) || 1;
+    const tx = Math.abs(dx)>1e-6 ? (ni.w/2)/Math.abs(dx) : Infinity, ty = Math.abs(dy)>1e-6 ? (ni.h/2)/Math.abs(dy) : Infinity, t = Math.min(tx,ty);
+    const ux = dx/d, uy = dy/d, stop = tip.fixture ? 10*sScale + 1.5*u : 0;
+    const ex = tip.x - ux*stop, ey = tip.y - uy*stop, sx = n.x + dx*t, sy = n.y + dy*t;
+    const ok = Math.hypot(ex-n.x, ey-n.y) > Math.hypot(sx-n.x, sy-n.y);
+    return {tip, ux, uy, sx, sy, ex, ey, ok, hx:(tip.fixture && ok) ? (sx+ex)/2 : tip.x, hy:(tip.fixture && ok) ? (sy+ey)/2 : tip.y};
+  }
 
   // The site drawing (everything in plan pixels, sizes in plan px via u). Used by the live editor
   // (interactive:true adds selection/draft overlays), the schedule sheet, and the PDF.
   function cadSiteItems(plan, calc, o){
     o = o || {};
     const items = [], sc = plan.scene, u = plan.bgW/520, sScale = 0.42*u*cadSettings.symbolScale;
-    const sel = o.sel || {fixtures:new Set(), transformers:new Set(), run:null};
+    const sel = o.sel || {fixtures:new Set(), transformers:new Set(), run:null, note:null};
     calc.runs.forEach(r=>{
       const pts = cadRunPoints(sc, r.run); if(pts.length<2) return;
       const col = r.over ? '#e11d48' : (CAD_GAUGE_COLORS[r.gauge.awg] || '#1d4ed8');
-      if(o.interactive && sel.run===r.run.id){
-        for(let i=1;i<pts.length;i++) items.push({k:'line', x1:pts[i-1].x, y1:pts[i-1].y, x2:pts[i].x, y2:pts[i].y, c:'#f0a84e', w:3.4*u, alpha:0.5});
-      }
-      for(let i=1;i<pts.length;i++) items.push({k:'line', x1:pts[i-1].x, y1:pts[i-1].y, x2:pts[i].x, y2:pts[i].y, c:col, w:0.95*u, dash:[3.6*u,2.6*u]});
+      const arr = pts.map(p=>[p.x,p.y]);
+      if(o.interactive && sel.run===r.run.id) items.push({k:'poly', pts:arr, closed:false, fill:null, stroke:'#f0a84e', w:3.4*u, alpha:0.5});
+      items.push({k:'poly', pts:arr, closed:false, fill:null, stroke:col, w:0.95*u, dash:[3.6*u,2.6*u]});
     });
     calc.transformers.forEach(tr=>{
       const t = tr.t, w = 15*u, h = 9*u;
@@ -6211,16 +6274,37 @@
         items.push({k:'line', x1:c.mp.x, y1:c.mp.y, x2:ex, y2:ey, c:col, w:0.6*u});
         items.push({k:'rect', x:c.cx-c.w/2, y:c.cy-c.h/2, w:c.w, h:c.h, fill:'#ffffff', stroke:col, lw:0.6*u, alpha:0.92});
         c.lines.forEach((l,i)=> items.push({k:'text', x:c.cx-c.w/2+c.pad, y:c.cy-c.h/2+c.pad+c.lh*(i+0.5), s:l, size:c.size, c:(c.r.over&&i===c.lines.length-1)?'#e11d48':'#111111', bold:i===0, align:'left'}));
+        if(o.interactive && sel.run===c.r.run.id) items.push({k:'rect', x:c.cx+c.w/2-2.6*u, y:c.cy+c.h/2-2.6*u, w:5.2*u, h:5.2*u, fill:'#f0a84e', stroke:'#ffffff', lw:0.7*u});
       });
     }
-    if(o.interactive){
-      if(o.draft){
-        const t = sc.transformers.find(x=>x.id===o.draft.transformerId);
-        const pts = []; if(t) pts.push({x:t.x,y:t.y});
-        o.draft.fixtureIds.forEach(id=>{ const f = sc.fixtures.find(x=>x.id===id); if(f) pts.push({x:f.x,y:f.y}); });
-        if(o.cursor) pts.push(o.cursor);
-        for(let i=1;i<pts.length;i++) items.push({k:'line', x1:pts[i-1].x, y1:pts[i-1].y, x2:pts[i].x, y2:pts[i].y, c:'#f0a84e', w:1.4*u, dash:[3*u,2*u]});
+    // free text notes (+ optional arrow to a fixture)
+    (sc.notes||[]).forEach(n=>{
+      const ni = cadNoteInfo(n, u), ns = n.size || 1, g = cadNoteArrowGeom(sc, n, ni, u, sScale);
+      if(g && g.ok){
+        const head = 4.6*u*ns, nx = -g.uy, ny = g.ux;
+        items.push({k:'line', x1:g.sx, y1:g.sy, x2:g.ex - g.ux*head*0.6, y2:g.ey - g.uy*head*0.6, c:'#111111', w:0.85*u*Math.max(0.7,ns)});
+        items.push({k:'poly', pts:[[g.ex,g.ey],[g.ex-g.ux*head+nx*head*0.42, g.ey-g.uy*head+ny*head*0.42],[g.ex-g.ux*head-nx*head*0.42, g.ey-g.uy*head-ny*head*0.42]], closed:true, fill:'#111111', stroke:'#111111', w:0.3*u});
       }
+      if(n.bg!==false) items.push({k:'rect', x:n.x-ni.w/2, y:n.y-ni.h/2, w:ni.w, h:ni.h, fill:'#ffffff', stroke:'#111111', lw:0.6*u*ns, alpha:0.94});
+      ni.lines.forEach((l,i)=> items.push({k:'text', x:n.x-ni.w/2+ni.pad, y:n.y-ni.h/2+ni.pad+ni.lh*(i+0.5), s:l, size:ni.size, c:'#111111', align:'left', bg:n.bg===false?'#ffffff':null, pad:n.bg===false?0.6*u:0}));
+      if(o.interactive && sel.note===n.id){
+        items.push({k:'rect', x:n.x-ni.w/2-1.6*u, y:n.y-ni.h/2-1.6*u, w:ni.w+3.2*u, h:ni.h+3.2*u, fill:null, stroke:'#f0a84e', lw:1.2*u});
+        items.push({k:'rect', x:n.x+ni.w/2-2.6*u, y:n.y+ni.h/2-2.6*u, w:5.2*u, h:5.2*u, fill:'#f0a84e', stroke:'#ffffff', lw:0.7*u});
+        if(g) items.push({k:'circle', x:g.hx, y:g.hy, r:2.8*u, fill:'#f0a84e', stroke:'#ffffff', w:0.8*u});
+      }
+    });
+    if(o.interactive){
+      // bend handles of the selected run
+      if(sel.run){
+        const run = sc.runs.find(r=>r.id===sel.run);
+        if(run) cadRawPath(cadRunNodes(sc, run), run.bends).filter(b=>b.bend).forEach(b=>items.push({k:'rect', x:b.x-2.6*u, y:b.y-2.6*u, w:5.2*u, h:5.2*u, fill:'#f0a84e', stroke:'#ffffff', lw:0.7*u}));
+      }
+      if(o.draft){
+        const raw = cadRawPath(cadRunNodes(sc, {transformerId:o.draft.transformerId, fixtureIds:o.draft.fixtureIds}), o.draft.bends);
+        if(raw.length>1) items.push({k:'poly', pts:raw.map(p=>[p.x,p.y]), closed:false, fill:null, stroke:'#f0a84e', w:1.4*u, dash:[3*u,2*u]});
+      }
+      if(o.pendingPath && o.pendingPath.length>1) items.push({k:'poly', pts:o.pendingPath.map(p=>[p.x,p.y]), closed:false, fill:null, stroke:'#f0a84e', w:1.4*u, dash:[1.6*u,1.6*u]});
+      (o.pendingDots||[]).forEach(p=>items.push({k:'circle', x:p.x, y:p.y, r:2*u, fill:'#f0a84e', stroke:'#ffffff', w:0.6*u}));
       if(o.snap) items.push({k:'circle', x:o.snap.x, y:o.snap.y, r:o.snapR||10*u, fill:null, stroke:'#22c55e', w:1.3*u});
       if(o.marquee) items.push({k:'rect', x:Math.min(o.marquee.x1,o.marquee.x2), y:Math.min(o.marquee.y1,o.marquee.y2), w:Math.abs(o.marquee.x2-o.marquee.x1), h:Math.abs(o.marquee.y2-o.marquee.y1), fill:'#f0a84e', stroke:'#f0a84e', lw:1*u, alpha:0.15});
       (o.scalePts||[]).forEach(p=>items.push({k:'circle', x:p.x, y:p.y, r:4*u, fill:'#22c55e', stroke:'#ffffff', w:1.2*u}));
@@ -6403,7 +6487,7 @@
       } else if(it.k==='poly'){
         ctx.beginPath(); it.pts.forEach((p,i)=> i?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1])); if(it.closed!==false) ctx.closePath();
         if(it.fill){ ctx.fillStyle = it.fill; ctx.fill(); }
-        if(it.stroke){ ctx.strokeStyle = it.stroke; ctx.lineWidth = it.w||1; ctx.stroke(); }
+        if(it.stroke){ ctx.strokeStyle = it.stroke; ctx.lineWidth = it.w||1; ctx.setLineDash(it.dash||[]); ctx.lineJoin = 'round'; ctx.stroke(); }
       } else if(it.k==='circle'){
         ctx.beginPath(); ctx.arc(it.x,it.y,it.r,0,Math.PI*2);
         if(it.fill){ ctx.fillStyle = it.fill; ctx.fill(); }
@@ -6448,7 +6532,9 @@
         if(it.fill){ const c = cadRgb(it.fill); doc.setFillColor(c[0],c[1],c[2]); }
         if(it.stroke){ const c = cadRgb(it.stroke); doc.setDrawColor(c[0],c[1],c[2]); doc.setLineWidth((it.w||1)*k); }
         const p = it.pts, rel = []; for(let i=1;i<p.length;i++) rel.push([(p[i][0]-p[i-1][0])*k, (p[i][1]-p[i-1][1])*k]);
+        if(it.dash && doc.setLineDashPattern) doc.setLineDashPattern(it.dash.map(d=>d*k), 0);
         doc.lines(rel, p[0][0]*k, p[0][1]*k, [1,1], style, it.closed!==false);
+        if(it.dash && doc.setLineDashPattern) doc.setLineDashPattern([], 0);
       } else if(it.k==='circle'){
         const style = it.fill && it.stroke ? 'FD' : (it.fill ? 'F' : 'S');
         if(it.fill){ const c = cadRgb(it.fill); doc.setFillColor(c[0],c[1],c[2]); }
@@ -6483,7 +6569,7 @@
   // ---------------- persistence ----------------
   function cadNormalizeScene(s){
     s = (s && typeof s==='object') ? s : {};
-    return {fixtures:Array.isArray(s.fixtures)?s.fixtures:[], transformers:Array.isArray(s.transformers)?s.transformers:[], runs:Array.isArray(s.runs)?s.runs:[]};
+    return {fixtures:Array.isArray(s.fixtures)?s.fixtures:[], transformers:Array.isArray(s.transformers)?s.transformers:[], runs:Array.isArray(s.runs)?s.runs:[], notes:Array.isArray(s.notes)?s.notes:[]};
   }
   function cadRowToPlan(row){
     return {id:row.id, projectId:row.project_id, name:row.name||'Untitled plan', background:row.background||null, bgW:row.bg_width||1000, bgH:row.bg_height||700,
@@ -6521,7 +6607,8 @@
   let cadTool = 'select';
   let cadSel = {fixtures:new Set(), transformers:new Set(), run:null};
   let cadDraft = null, cadExtendRunId = null, cadCursor = null, cadMarquee = null, cadSnap = null, cadScalePts = null;
-  let cadPalette = {fixtureId:null, modelId:null, search:''};
+  let cadPalette = {fixtureId:null, accessoryId:null, modelId:null, search:'', type:'all'};
+  let cadExtendPending = [];
   let cadUndoStack = [], cadRedoStack = [], cadDrag = null, cadPan = null, cadSpace = false;
   let cadDirty = false, cadSaveTimer = null, cadSideTimer = null, cadCanvasSize = {w:0, h:0, dpr:1};
   const cadUid = ()=> 'x'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
@@ -6542,6 +6629,7 @@
   }
   function cadOpenPlan(id, opts){
     const plan = cadPlans.find(p=>p.id===id); if(!plan) return;
+    plan.scene = cadNormalizeScene(plan.scene);
     cadPlan = plan; cadImg = null; cadDataUrl = null; cadLastCalc = null;
     cadUndoStack = []; cadRedoStack = []; cadDirty = false;
     cadSel = {fixtures:new Set(), transformers:new Set(), run:null}; cadDraft = null; cadExtendRunId = null; cadScalePts = null; cadSnap = null;
@@ -6594,7 +6682,8 @@
     if(cadImg) ctx.drawImage(cadImg, 0, 0, cadPlan.bgW, cadPlan.bgH);
     else { ctx.fillStyle = '#20252c'; ctx.fillRect(0,0,cadPlan.bgW,cadPlan.bgH); }
     cadLastCalc = cadCalc(cadPlan);
-    cadDrawItemsCanvas(ctx, cadSiteItems(cadPlan, cadLastCalc, {interactive:true, sel:cadSel, draft:cadDraft, cursor:cadCursor, marquee:cadMarquee, snap:cadSnap, scalePts:cadScalePts, snapR:11/cadView.zoom}), null);
+    const pend = cadDraft ? cadDraft.pending : (cadExtendRunId ? cadExtendPending : []);
+    cadDrawItemsCanvas(ctx, cadSiteItems(cadPlan, cadLastCalc, {interactive:true, sel:cadSel, draft:cadDraft, pendingPath:cadPendingPath(), pendingDots:pend, cursor:cadCursor, marquee:cadMarquee, snap:cadSnap, scalePts:cadScalePts, snapR:11/cadView.zoom}), null);
   }
   function cadRefreshAll(){ cadRender(); cadRenderTools(); cadRefreshSide(); cadUpdateHint(); }
   function cadRefreshSide(){ clearTimeout(cadSideTimer); if(!cadPlan) return; cadRefreshInspector(); cadRenderLive(); }
@@ -6616,10 +6705,12 @@
     let t = '';
     if(cadTool==='scale') t = cadScalePts && cadScalePts.length===1 ? 'Click the second point.' : 'Scale: click two points a known distance apart.';
     else if(cadTool==='fixture') t = cadPalette.fixtureId ? 'Click the plan to place the selected fixture.' : 'Pick a fixture from the list on the left, then click the plan.';
+    else if(cadTool==='accessory') t = cadPalette.accessoryId ? 'Click the plan to place the selected accessory.' : 'Pick an accessory from the list on the left, then click the plan.';
     else if(cadTool==='transformer') t = 'Click the plan to place a transformer.';
-    else if(cadTool==='run') t = cadExtendRunId ? 'Click fixtures to add them to this run. Esc when done.' : (cadDraft ? 'Click fixtures in wiring order. Double-click or Esc to finish the run.' : 'Click a transformer to start a run.');
+    else if(cadTool==='note') t = 'Click the plan where the note should go.';
+    else if(cadTool==='run') t = cadExtendRunId ? 'Click fixtures to add them to this run (click empty space to add a bend). Esc when done.' : (cadDraft ? 'Click fixtures in wiring order; click empty space to bend the wire around things. Double-click, Enter or Esc to finish.' : 'Click a transformer to start a run.');
     else if(cadTool==='pan') t = 'Drag to pan. Scroll to zoom.';
-    else t = 'Click to select · drag to move · drag empty space to box-select · scroll to zoom · Space+drag to pan.';
+    else t = 'Click to select · drag to move · drag empty space to box-select · double-click a wire to add a bend · scroll to zoom · Space+drag to pan.';
     if(!cadPlan.pxPerFt && cadTool!=='scale') t = 'Scale not set — use the Scale tool first. ' + t;
     el.textContent = t;
   }
@@ -6630,12 +6721,29 @@
     let t = l2 ? ((px-a.x)*dx+(py-a.y)*dy)/l2 : 0; t = Math.max(0, Math.min(1, t));
     return Math.hypot(px-(a.x+t*dx), py-(a.y+t*dy));
   }
+  function cadEmptySel(){ return {fixtures:new Set(), transformers:new Set(), run:null, note:null}; }
   function cadHit(p){
-    const sc = cadPlan.scene, u = cadPlan.bgW/520, z = cadView.zoom;
+    const sc = cadPlan.scene, u = cadPlan.bgW/520, z = cadView.zoom, hs = 9/z;
+    const calc = cadLastCalc || cadCalc(cadPlan);
+    // handles belonging to the current selection win over whatever is underneath them
+    if(cadSel.note){
+      const n = sc.notes.find(x=>x.id===cadSel.note);
+      if(n){
+        const ni = cadNoteInfo(n, u), g = cadNoteArrowGeom(sc, n, ni, u, 0.42*u*cadSettings.symbolScale);
+        if(g && Math.hypot(p.x-g.hx, p.y-g.hy) <= hs) return {type:'note-tip', id:n.id};
+        if(Math.abs(p.x-(n.x+ni.w/2)) <= hs && Math.abs(p.y-(n.y+ni.h/2)) <= hs) return {type:'note-resize', id:n.id};
+      }
+    }
+    if(cadSel.run){
+      const run = sc.runs.find(r=>r.id===cadSel.run);
+      if(run) for(const b of cadRawPath(cadRunNodes(sc, run), run.bends).filter(x=>x.bend)) if(Math.hypot(p.x-b.x, p.y-b.y) <= hs) return {type:'bend', runId:run.id, key:b.key, bi:b.bi};
+    }
     const fr = Math.max(4.4*u*cadSettings.symbolScale, 9/z);
     for(let i=sc.fixtures.length-1;i>=0;i--){ const f = sc.fixtures[i]; if(Math.hypot(p.x-f.x,p.y-f.y) <= fr) return {type:'fixture', id:f.id}; }
     for(let i=sc.transformers.length-1;i>=0;i--){ const t = sc.transformers[i]; if(Math.abs(p.x-t.x) <= 7.5*u+4/z && Math.abs(p.y-t.y) <= 4.5*u+4/z) return {type:'transformer', id:t.id}; }
-    const calc = cadLastCalc || cadCalc(cadPlan), info = cadCalloutInfo(cadPlan, calc, u);
+    for(let i=sc.notes.length-1;i>=0;i--){ const n = sc.notes[i], ni = cadNoteInfo(n, u); if(Math.abs(p.x-n.x) <= ni.w/2 && Math.abs(p.y-n.y) <= ni.h/2) return {type:'note', id:n.id}; }
+    const info = cadCalloutInfo(cadPlan, calc, u);
+    for(const id of Object.keys(info)){ const c = info[id]; if(Math.abs(p.x-(c.cx+c.w/2)) <= hs && Math.abs(p.y-(c.cy+c.h/2)) <= hs) return {type:'callout-resize', id}; }
     for(const id of Object.keys(info)){ const c = info[id]; if(Math.abs(p.x-c.cx) <= c.w/2 && Math.abs(p.y-c.cy) <= c.h/2) return {type:'callout', id}; }
     for(const run of sc.runs){ const pts = cadRunPoints(sc, run); for(let i=1;i<pts.length;i++) if(cadDistSeg(p.x,p.y,pts[i-1],pts[i]) <= 6/z) return {type:'run', id:run.id}; }
     return null;
@@ -6649,44 +6757,59 @@
 
   // ---------------- editing operations ----------------
   function cadSelectOnly(kind, id){
-    cadSel = {fixtures:new Set(), transformers:new Set(), run:null};
-    if(kind==='fixture') cadSel.fixtures.add(id); else if(kind==='transformer') cadSel.transformers.add(id); else if(kind==='run') cadSel.run = id;
+    cadSel = cadEmptySel();
+    if(kind==='fixture') cadSel.fixtures.add(id); else if(kind==='transformer') cadSel.transformers.add(id);
+    else if(kind==='run') cadSel.run = id; else if(kind==='note') cadSel.note = id;
   }
   function cadDeleteSelection(){
     const sc = cadPlan.scene;
-    if(!cadSel.fixtures.size && !cadSel.transformers.size && !cadSel.run) return;
+    if(!cadSel.fixtures.size && !cadSel.transformers.size && !cadSel.run && !cadSel.note) return;
     cadPush();
+    if(cadSel.note) sc.notes = sc.notes.filter(n=>n.id!==cadSel.note);
     if(cadSel.run) sc.runs = sc.runs.filter(r=>r.id!==cadSel.run);
     if(cadSel.fixtures.size){
       sc.fixtures = sc.fixtures.filter(f=>!cadSel.fixtures.has(f.id));
       sc.runs.forEach(r=>{ r.fixtureIds = r.fixtureIds.filter(id=>!cadSel.fixtures.has(id)); });
       sc.runs = sc.runs.filter(r=>r.fixtureIds.length);
+      sc.notes.forEach(n=>{ if(n.arrow && cadSel.fixtures.has(n.arrow.fixtureId)){ n.arrow = {x:n.arrow.x, y:n.arrow.y}; } });
     }
     if(cadSel.transformers.size){
       sc.transformers = sc.transformers.filter(t=>!cadSel.transformers.has(t.id));
       sc.runs.forEach(r=>{ if(cadSel.transformers.has(r.transformerId)) r.transformerId = null; });
     }
-    cadSel = {fixtures:new Set(), transformers:new Set(), run:null};
+    cadSel = cadEmptySel();
     cadMarkDirty(); cadRefreshAll();
   }
   function cadCommitDraft(){
     if(cadDraft && cadDraft.fixtureIds.length){
       cadPush();
-      const run = {id:cadUid(), transformerId:cadDraft.transformerId, fixtureIds:[...cadDraft.fixtureIds], gaugeAwg:null, zone:1, calloutOff:null};
+      const run = {id:cadUid(), transformerId:cadDraft.transformerId, fixtureIds:[...cadDraft.fixtureIds], gaugeAwg:null, zone:1, calloutOff:null, bends:cadDraft.bends||{}, smooth:false};
       cadPlan.scene.runs.push(run); cadSelectOnly('run', run.id); cadMarkDirty();
     }
     cadDraft = null; cadSnap = null; cadRefreshAll();
   }
   function cadSetTool(t){
     if(cadDraft) cadCommitDraft();
-    cadExtendRunId = null; cadTool = t; cadScalePts = null; cadSnap = null; cadMarquee = null;
+    cadExtendRunId = null; cadExtendPending = []; cadTool = t; cadScalePts = null; cadSnap = null; cadMarquee = null;
     cadRefreshAll();
+  }
+  // The dashed "in progress" path: from the last wired node through any bend points clicked so far to the cursor.
+  function cadPendingPath(){
+    const sc = cadPlan.scene; let lastId = null, pend = null;
+    if(cadDraft){ lastId = cadDraft.fixtureIds.length ? cadDraft.fixtureIds[cadDraft.fixtureIds.length-1] : cadDraft.transformerId; pend = cadDraft.pending; }
+    else if(cadExtendRunId){
+      const run = sc.runs.find(r=>r.id===cadExtendRunId); if(!run) return null;
+      lastId = run.fixtureIds.length ? run.fixtureIds[run.fixtureIds.length-1] : run.transformerId; pend = cadExtendPending;
+    } else return null;
+    const n = sc.fixtures.find(x=>x.id===lastId) || sc.transformers.find(x=>x.id===lastId); if(!n) return null;
+    const pts = [{x:n.x, y:n.y}, ...pend]; if(cadCursor) pts.push(cadCursor);
+    return pts;
   }
 
   // ---------------- pointer / keyboard ----------------
   function cadOnDown(e){
     if(!cadPlan || e.button===2) return;
-    const p = cadPt(e), sc = cadPlan.scene;
+    const p = cadPt(e), sc = cadPlan.scene, u = cadPlan.bgW/520;
     try{ $('planCanvas').setPointerCapture(e.pointerId); }catch(err){}
     if(e.button===1 || cadSpace || cadTool==='pan'){ cadPan = {sx:p.sx, sy:p.sy, ox:cadView.ox, oy:cadView.oy}; return; }
     if(cadTool==='scale'){
@@ -6694,8 +6817,9 @@
       if(cadScalePts.length===2){ $('planScaleInput').value = ''; $('planScaleModal').hidden = false; $('planScaleInput').focus(); }
       cadRender(); cadUpdateHint(); return;
     }
-    if(cadTool==='fixture'){
-      const f = cadPalette.fixtureId && findFixture(cadPalette.fixtureId); if(!f){ cadUpdateHint(); return; }
+    if(cadTool==='fixture' || cadTool==='accessory'){
+      const id = cadTool==='fixture' ? cadPalette.fixtureId : cadPalette.accessoryId;
+      const f = id && findFixture(id); if(!f){ cadUpdateHint(); return; }
       cadPush(); const pf = {id:cadUid(), fixtureId:f.id, x:p.x, y:p.y, rot:null};
       sc.fixtures.push(pf); cadSelectOnly('fixture', pf.id); cadMarkDirty(); cadRefreshAll(); return;
     }
@@ -6704,69 +6828,118 @@
       cadPush(); const t = {id:cadUid(), modelId:m.id, name:'Trans #'+(sc.transformers.length+1), x:p.x, y:p.y, tapV:Math.max(...m.taps)};
       sc.transformers.push(t); cadSelectOnly('transformer', t.id); cadMarkDirty(); cadRefreshAll(); return;
     }
+    if(cadTool==='note'){
+      cadPush(); const n = {id:cadUid(), text:'Note', x:p.x, y:p.y, size:1, bg:true, arrow:null};
+      sc.notes.push(n); cadSelectOnly('note', n.id); cadTool = 'select'; cadMarkDirty(); cadRefreshAll();
+      setTimeout(()=>{ const ta = $('planNoteText'); if(ta){ ta.focus(); ta.select(); } }, 30);
+      return;
+    }
     if(cadTool==='run'){
       if(cadExtendRunId){
         const run = sc.runs.find(r=>r.id===cadExtendRunId), n = cadNearestNode(p, ['fixture']);
-        if(run && n && !run.fixtureIds.includes(n.id)){ cadPush(); run.fixtureIds.push(n.id); cadMarkDirty(); cadRefreshAll(); }
+        if(!run) return;
+        if(n){
+          if(!run.fixtureIds.includes(n.id)){
+            cadPush(); const last = run.fixtureIds.length ? run.fixtureIds[run.fixtureIds.length-1] : run.transformerId;
+            if(cadExtendPending.length){ run.bends = run.bends || {}; run.bends[last+'|'+n.id] = cadExtendPending; }
+            cadExtendPending = []; run.fixtureIds.push(n.id); cadMarkDirty(); cadRefreshAll();
+          }
+        } else { cadExtendPending.push({x:p.x, y:p.y}); cadRender(); }
         return;
       }
       if(!cadDraft){
         const n = cadNearestNode(p, ['transformer']);
-        if(n){ cadDraft = {transformerId:n.id, fixtureIds:[]}; cadUpdateHint(); cadRender(); }
+        if(n){ cadDraft = {transformerId:n.id, fixtureIds:[], bends:{}, pending:[]}; cadUpdateHint(); cadRender(); }
         return;
       }
       const n = cadNearestNode(p, ['fixture']);
-      if(n && !cadDraft.fixtureIds.includes(n.id)){ cadDraft.fixtureIds.push(n.id); cadRender(); cadRefreshSideSoon(); }
+      if(n){
+        if(!cadDraft.fixtureIds.includes(n.id)){
+          const last = cadDraft.fixtureIds.length ? cadDraft.fixtureIds[cadDraft.fixtureIds.length-1] : cadDraft.transformerId;
+          if(cadDraft.pending.length) cadDraft.bends[last+'|'+n.id] = cadDraft.pending;
+          cadDraft.pending = []; cadDraft.fixtureIds.push(n.id); cadRender(); cadRefreshSideSoon();
+        }
+      } else { cadDraft.pending.push({x:p.x, y:p.y}); cadRender(); }
       return;
     }
-    // select tool
+    // ---- select tool ----
     const hit = cadHit(p);
+    const start = {sx:p.sx, sy:p.sy, x:p.x, y:p.y, moved:false};
+    if(hit && hit.type==='note-tip'){ cadDrag = {type:'note-tip', note:sc.notes.find(n=>n.id===hit.id), ...start}; return; }
+    if(hit && hit.type==='note-resize'){ const n = sc.notes.find(x=>x.id===hit.id), ni = cadNoteInfo(n, u); cadDrag = {type:'note-resize', note:n, size0:n.size||1, half0:Math.hypot(ni.w/2, ni.h/2), ...start}; return; }
+    if(hit && hit.type==='bend'){ cadDrag = {type:'bend', run:sc.runs.find(r=>r.id===hit.runId), key:hit.key, bi:hit.bi, ...start}; return; }
     if(hit && (hit.type==='fixture' || hit.type==='transformer')){
       const set = hit.type==='fixture' ? cadSel.fixtures : cadSel.transformers;
-      if(e.shiftKey){ if(set.has(hit.id)) set.delete(hit.id); else set.add(hit.id); cadSel.run = null; }
+      if(e.shiftKey){ if(set.has(hit.id)) set.delete(hit.id); else set.add(hit.id); cadSel.run = null; cadSel.note = null; }
       else if(!set.has(hit.id)) cadSelectOnly(hit.type, hit.id);
       const origs = [];
-      cadSel.fixtures.forEach(id=>{ const f = sc.fixtures.find(x=>x.id===id); if(f) origs.push({list:sc.fixtures, obj:f, x:f.x, y:f.y}); });
-      cadSel.transformers.forEach(id=>{ const t = sc.transformers.find(x=>x.id===id); if(t) origs.push({list:sc.transformers, obj:t, x:t.x, y:t.y}); });
-      cadDrag = {type:'move', sx:p.sx, sy:p.sy, x:p.x, y:p.y, origs, moved:false};
+      cadSel.fixtures.forEach(id=>{ const f = sc.fixtures.find(x=>x.id===id); if(f) origs.push({obj:f, x:f.x, y:f.y}); });
+      cadSel.transformers.forEach(id=>{ const t = sc.transformers.find(x=>x.id===id); if(t) origs.push({obj:t, x:t.x, y:t.y}); });
+      cadDrag = {type:'move', origs, ...start};
       cadRefreshAll(); return;
     }
-    if(hit && hit.type==='callout'){
-      const run = sc.runs.find(r=>r.id===hit.id), info = cadCalloutInfo(cadPlan, cadLastCalc||cadCalc(cadPlan), cadPlan.bgW/520)[hit.id];
+    if(hit && hit.type==='note'){ const n = sc.notes.find(x=>x.id===hit.id); cadSelectOnly('note', n.id); cadDrag = {type:'note', note:n, ox:n.x, oy:n.y, ...start}; cadRefreshAll(); return; }
+    if(hit && (hit.type==='callout' || hit.type==='callout-resize')){
+      const run = sc.runs.find(r=>r.id===hit.id), info = cadCalloutInfo(cadPlan, cadLastCalc||cadCalc(cadPlan), u)[hit.id];
       cadSelectOnly('run', hit.id);
-      cadDrag = {type:'callout', run, info, sx:p.sx, sy:p.sy, x:p.x, y:p.y, moved:false};
+      cadDrag = hit.type==='callout'
+        ? {type:'callout', run, info, ...start}
+        : {type:'callout-resize', run, info, rs0:run.calloutScale||1, half0:Math.hypot(info.w/2, info.h/2), ...start};
       cadRefreshAll(); return;
     }
     if(hit && hit.type==='run'){ cadSelectOnly('run', hit.id); cadRefreshAll(); return; }
-    if(!e.shiftKey) cadSel = {fixtures:new Set(), transformers:new Set(), run:null};
+    if(!e.shiftKey) cadSel = cadEmptySel();
     cadMarquee = {x1:p.x, y1:p.y, x2:p.x, y2:p.y, sx:p.sx, sy:p.sy, shift:e.shiftKey};
     cadRefreshAll();
   }
   function cadOnMove(e){
     if(!cadPlan) return;
-    const p = cadPt(e);
+    const p = cadPt(e), u = cadPlan.bgW/520;
     if(cadPan){ cadView.ox = cadPan.ox + (p.sx-cadPan.sx); cadView.oy = cadPan.oy + (p.sy-cadPan.sy); cadRender(); return; }
     cadCursor = {x:p.x, y:p.y};
     if(cadDrag){
-      if(!cadDrag.moved && Math.hypot(p.sx-cadDrag.sx, p.sy-cadDrag.sy) < 3) return;
-      if(!cadDrag.moved){ cadPush(); cadDrag.moved = true; }
-      if(cadDrag.type==='move'){ cadDrag.origs.forEach(o=>{ o.obj.x = o.x + (p.x-cadDrag.x); o.obj.y = o.y + (p.y-cadDrag.y); }); }
-      else if(cadDrag.type==='callout'){
-        const i = cadDrag.info; cadDrag.run.calloutOff = {dx:(i.cx-i.mp.x) + (p.x-cadDrag.x), dy:(i.cy-i.mp.y) + (p.y-cadDrag.y)};
+      const d = cadDrag;
+      if(!d.moved && Math.hypot(p.sx-d.sx, p.sy-d.sy) < 3) return;
+      if(!d.moved){
+        cadPush(); d.moved = true;
+        if(d.type==='callout-resize' && !d.run.calloutOff) d.run.calloutOff = {dx:d.info.cx-d.info.mp.x, dy:d.info.cy-d.info.mp.y};
+        if(d.type==='note-tip' && d.note.arrow) d.note.arrow = {x:p.x, y:p.y};
       }
+      if(d.type==='move'){ d.origs.forEach(o=>{ o.obj.x = o.x + (p.x-d.x); o.obj.y = o.y + (p.y-d.y); }); }
+      else if(d.type==='callout'){ d.run.calloutOff = {dx:(d.info.cx-d.info.mp.x) + (p.x-d.x), dy:(d.info.cy-d.info.mp.y) + (p.y-d.y)}; }
+      else if(d.type==='callout-resize'){ d.run.calloutScale = Math.min(4, Math.max(0.5, d.rs0 * Math.hypot(p.x-d.info.cx, p.y-d.info.cy)/d.half0)); }
+      else if(d.type==='bend'){ if(d.run.bends && d.run.bends[d.key]) d.run.bends[d.key][d.bi] = {x:p.x, y:p.y}; }
+      else if(d.type==='note'){ d.note.x = d.ox + (p.x-d.x); d.note.y = d.oy + (p.y-d.y); }
+      else if(d.type==='note-resize'){ d.note.size = Math.min(5, Math.max(0.4, d.size0 * Math.hypot(p.x-d.note.x, p.y-d.note.y)/d.half0)); }
+      else if(d.type==='note-tip'){ d.note.arrow = {x:p.x, y:p.y}; }
       cadRender(); cadRefreshSideSoon(); return;
     }
     if(cadMarquee){ cadMarquee.x2 = p.x; cadMarquee.y2 = p.y; cadRender(); return; }
     if(cadTool==='run'){
-      const kinds = cadExtendRunId ? ['fixture'] : (cadDraft ? ['fixture'] : ['transformer']);
+      const kinds = (cadExtendRunId || cadDraft) ? ['fixture'] : ['transformer'];
       const n = cadNearestNode(p, kinds); cadSnap = n ? {x:n.x, y:n.y} : null;
-      if(cadDraft || cadSnap) cadRender();
+      if(cadDraft || cadExtendRunId || cadSnap) cadRender();
+      return;
     }
+    if(cadTool==='select'){
+      const h = cadHit(p);
+      $('planCanvas').style.cursor = !h ? 'crosshair' : (({'note-resize':'nwse-resize','callout-resize':'nwse-resize','note-tip':'move','bend':'move','note':'move','callout':'move','fixture':'pointer','transformer':'pointer','run':'pointer'})[h.type] || 'default');
+    } else $('planCanvas').style.cursor = cadTool==='pan' ? 'grab' : 'crosshair';
   }
   function cadOnUp(e){
     try{ $('planCanvas').releasePointerCapture(e.pointerId); }catch(err){}
     if(cadPan){ cadPan = null; return; }
-    if(cadDrag){ const moved = cadDrag.moved; cadDrag = null; if(moved) cadMarkDirty(); cadRefreshAll(); return; }
+    if(cadDrag){
+      const d = cadDrag; cadDrag = null;
+      if(d.moved){
+        if(d.type==='note-tip' && d.note.arrow){
+          const nf = cadNearestNode({x:d.note.arrow.x, y:d.note.arrow.y}, ['fixture']);
+          if(nf) d.note.arrow = {fixtureId:nf.id, x:nf.x, y:nf.y};
+        }
+        cadMarkDirty();
+      }
+      cadRefreshAll(); return;
+    }
     if(cadMarquee){
       const m = cadMarquee; cadMarquee = null;
       if(Math.hypot(m.x2-m.x1, m.y2-m.y1)*cadView.zoom > 4){
@@ -6775,6 +6948,32 @@
         cadPlan.scene.transformers.forEach(t=>{ if(t.x>=x0 && t.x<=x1 && t.y>=y0 && t.y<=y1) cadSel.transformers.add(t.id); });
       }
       cadRefreshAll();
+    }
+  }
+  // Double-click: finish a run being drawn; otherwise (select tool) remove a bend handle or add a
+  // bend point where you double-click a wire.
+  function cadOnDbl(e){
+    if(!cadPlan) return;
+    if(cadTool==='run'){ if(cadDraft) cadCommitDraft(); return; }
+    if(cadTool!=='select') return;
+    const p = cadPt(e), sc = cadPlan.scene, hit = cadHit(p);
+    if(hit && hit.type==='bend'){
+      const run = sc.runs.find(r=>r.id===hit.runId);
+      if(run && run.bends && run.bends[hit.key]){ cadPush(); run.bends[hit.key].splice(hit.bi, 1); if(!run.bends[hit.key].length) delete run.bends[hit.key]; cadMarkDirty(); cadRefreshAll(); }
+      return;
+    }
+    for(const run of sc.runs){
+      const raw = cadRawPath(cadRunNodes(sc, run), run.bends);
+      for(let i=1;i<raw.length;i++){
+        if(cadDistSeg(p.x, p.y, raw[i-1], raw[i]) > 6/cadView.zoom) continue;
+        let a = i-1; while(a>0 && raw[a].id===undefined) a--;
+        let b = i; while(b<raw.length-1 && raw[b].id===undefined) b++;
+        if(raw[a].id===undefined || raw[b].id===undefined) continue;
+        cadPush(); run.bends = run.bends || {};
+        const key = raw[a].id+'|'+raw[b].id, arr = run.bends[key] = run.bends[key] || [];
+        arr.splice(i-1-a, 0, {x:p.x, y:p.y});
+        cadSelectOnly('run', run.id); cadMarkDirty(); cadRefreshAll(); return;
+      }
     }
   }
   function cadOnWheel(e){
@@ -6793,29 +6992,37 @@
     if(e.key===' '){ cadSpace = true; e.preventDefault(); return; }
     if(e.key==='Escape' || e.key==='Enter'){
       if(cadDraft){ cadCommitDraft(); e.preventDefault(); return; }
-      if(cadExtendRunId){ cadExtendRunId = null; cadRefreshAll(); return; }
-      if(e.key==='Escape'){ if(cadTool!=='select') cadSetTool('select'); else { cadSel = {fixtures:new Set(), transformers:new Set(), run:null}; cadRefreshAll(); } }
+      if(cadExtendRunId){ cadExtendRunId = null; cadExtendPending = []; cadRefreshAll(); return; }
+      if(e.key==='Escape'){ if(cadTool!=='select') cadSetTool('select'); else { cadSel = cadEmptySel(); cadRefreshAll(); } }
       return;
     }
-    if(e.key==='Delete' || e.key==='Backspace'){ e.preventDefault(); cadDeleteSelection(); return; }
-    const map = {v:'select', h:'pan', f:'fixture', t:'transformer', r:'run', s:'scale'};
+    if(e.key==='Delete' || e.key==='Backspace'){
+      e.preventDefault();
+      if(cadDraft){ if(cadDraft.pending.length) cadDraft.pending.pop(); else if(cadDraft.fixtureIds.length){ const id = cadDraft.fixtureIds.pop(); const prev = cadDraft.fixtureIds.length ? cadDraft.fixtureIds[cadDraft.fixtureIds.length-1] : cadDraft.transformerId; delete cadDraft.bends[prev+'|'+id]; } cadRender(); return; }
+      cadDeleteSelection(); return;
+    }
+    const map = {v:'select', h:'pan', f:'fixture', a:'accessory', t:'transformer', r:'run', n:'note', s:'scale'};
     if(map[e.key.toLowerCase()] && !e.ctrlKey && !e.metaKey){ cadSetTool(map[e.key.toLowerCase()]); }
   }
 
   // ---------------- left rail (tools + palette) ----------------
   function cadRenderTools(){
     const el = $('planTools'); if(!el || !cadPlan) return;
-    const tools = [['select','Select','V'],['pan','Pan','H'],['fixture','Fixture','F'],['transformer','Transformer','T'],['run','Wire run','R'],['scale','Scale','S']];
+    const tools = [['select','Select','V'],['pan','Pan','H'],['fixture','Fixture','F'],['accessory','Accessory','A'],['transformer','Transformer','T'],['run','Wire run','R'],['note','Text note','N'],['scale','Scale','S']];
     let html = `<div class="plan-tool-grid">${tools.map(([id,label,key])=>`<button class="plan-tool ${cadTool===id?'is-active':''}" data-tool="${id}" title="${label} (${key})">${label}<span>${key}</span></button>`).join('')}</div>`;
-    if(cadTool==='fixture'){
-      const q = (cadPalette.search||'').toLowerCase();
-      const list = allFixtures().filter(f=> (f.cat==='fixture' || (f.cat==='accessory' && !/transformer|cable/i.test(f.name))) && (!q || (f.name||'').toLowerCase().includes(q) || (f.type||'').includes(q)));
-      html += `<input class="plan-search" id="planPalSearch" placeholder="Search fixtures…" value="${escapeHtml(cadPalette.search||'')}">`;
-      html += `<div class="plan-pal">${list.map(f=>`<button class="plan-pal-item ${cadPalette.fixtureId===f.id?'is-active':''}" data-pal-fx="${escapeHtml(f.id)}">${cadSymbolSvg(cadSymbolById(cadSymbolIdFor(f)), 22)}<span><b>${escapeHtml(f.name)}</b><em>${f.cat==='accessory'?'Accessory':(f.watt||0)+'W'}</em></span></button>`).join('') || '<div class="fx-desc">No fixtures in your catalog yet.</div>'}</div>`;
+    if(cadTool==='fixture' || cadTool==='accessory'){
+      const isAcc = cadTool==='accessory', q = (cadPalette.search||'').toLowerCase();
+      let list = allFixtures().filter(f=> isAcc ? (f.cat==='accessory' && !/transformer|cable/i.test(f.name)) : f.cat==='fixture');
+      if(!isAcc && cadPalette.type!=='all') list = list.filter(f=>(f.type||'other')===cadPalette.type);
+      if(q) list = list.filter(f=> (f.name||'').toLowerCase().includes(q) || (f.desc||'').toLowerCase().includes(q));
+      html += `<input class="plan-search" id="planPalSearch" placeholder="${isAcc?'Search accessories…':'Search fixtures…'}" value="${escapeHtml(cadPalette.search||'')}">`;
+      if(!isAcc) html += `<select class="plan-search" id="planPalType"><option value="all">All types</option>${FIXTURE_TYPE_ORDER.map(t=>`<option value="${t}" ${cadPalette.type===t?'selected':''}>${escapeHtml(FIXTURE_TYPES[t].label)}</option>`).join('')}</select>`;
+      const selId = isAcc ? cadPalette.accessoryId : cadPalette.fixtureId, attr = isAcc ? 'data-pal-ac' : 'data-pal-fx';
+      html += `<div class="plan-pal">${list.map(f=>`<button class="plan-pal-item ${selId===f.id?'is-active':''}" ${attr}="${escapeHtml(f.id)}">${cadSymbolSvg(cadSymbolById(cadSymbolIdFor(f)), 22)}<span><b>${escapeHtml(f.name)}</b><em>${isAcc?'Accessory':(f.watt||0)+'W · '+escapeHtml((FIXTURE_TYPES[f.type]||FIXTURE_TYPES.other).label)}</em></span></button>`).join('') || `<div class="fx-desc">${isAcc?'No accessories match.':'No fixtures match.'}</div>`}</div>`;
     } else if(cadTool==='transformer'){
       html += `<div class="plan-pal">${cadSettings.models.map(m=>`<button class="plan-pal-item ${(cadPalette.modelId||cadSettings.models[0].id)===m.id?'is-active':''}" data-pal-tm="${escapeHtml(m.id)}"><span class="plan-tm-icon"></span><span><b>${escapeHtml(m.name)}</b><em>${m.capacityW}W · ${m.taps.join('/')}V taps</em></span></button>`).join('')}</div>`;
     } else {
-      html += `<div class="fx-desc" style="margin-top:12px;">Tools: <b>Fixture</b> and <b>Transformer</b> place items on the plan. <b>Wire run</b>: click a transformer, then fixtures in wiring order. <b>Scale</b> sets feet-per-pixel from two points.</div>`;
+      html += `<div class="fx-desc" style="margin-top:12px;"><b>Fixture</b> / <b>Accessory</b> / <b>Transformer</b> place items. <b>Wire run</b>: click a transformer, then fixtures in wiring order — click empty space between them to add bends. <b>Text note</b>: click anywhere to drop a note. <b>Scale</b> sets feet-per-pixel from two points.</div>`;
     }
     el.innerHTML = html;
   }
@@ -6823,21 +7030,35 @@
   // ---------------- right panel: inspector ----------------
   function cadRefreshInspector(){
     const el = $('planInspector'); if(!el || !cadPlan) return;
-    const sc = cadPlan.scene, calc = cadLastCalc = cadCalc(cadPlan);
+    const sc = cadPlan.scene, calc = cadLastCalc = cadCalc(cadPlan), u = cadPlan.bgW/520;
     const fmtFt = n => n==null ? '—' : Math.round(n)+"'";
     let html = '';
-    if(cadSel.run){
+    if(cadSel.note){
+      const n = sc.notes.find(x=>x.id===cadSel.note);
+      if(n) html += `<h4>Text note</h4>
+        <label>Text<textarea id="planNoteText" rows="4" data-act="note-text">${escapeHtml(n.text||'')}</textarea></label>
+        <label>Size (${Math.round((n.size||1)*100)}%)<input type="range" min="0.4" max="4" step="0.1" value="${n.size||1}" data-act="note-size"></label>
+        <label class="plan-check"><input type="checkbox" data-act="note-bg" ${n.bg!==false?'checked':''}> Background box</label>
+        <div class="plan-btn-row"><button class="btn btn-ghost btn-sm" data-act="note-arrow">${n.arrow?'Remove arrow':'+ Add arrow'}</button><button class="btn btn-danger btn-sm" data-act="sel-del">Delete note</button></div>
+        <div class="fx-desc" style="margin-top:8px;">Drag the corner to resize. ${n.arrow?'Drag the amber dot to re-aim the arrow at a fixture — it sticks to the fixture and follows it.':''}</div>`;
+    } else if(cadSel.run){
       const r = calc.runs.find(x=>x.run.id===cadSel.run);
       if(r){
+        const nb = Object.values(r.run.bends||{}).reduce((s,a)=>s+a.length, 0);
         html += `<h4>Run ${r.idx}</h4>
           <label>Transformer<select data-act="run-tf"><option value="">Unassigned</option>${sc.transformers.map((t,i)=>`<option value="${t.id}" ${t.id===r.run.transformerId?'selected':''}>${escapeHtml(t.name)}</option>`).join('')}</select></label>
           <label>Cable gauge<select data-act="run-gauge"><option value="">Auto${r.auto?` (${r.auto.awg}/2)`:''}</option>${cadSettings.gauges.slice().sort((a,b)=>b.awg-a.awg).map(g=>`<option value="${g.awg}" ${r.run.gaugeAwg===g.awg?'selected':''}>${g.awg}/2</option>`).join('')}</select></label>
           <label>Zone<input type="number" min="1" step="1" data-act="run-zone" value="${r.zone}"></label>
           <div class="plan-stats"><div><span>Load</span><b>${cadFmt(r.load)} VA</b></div><div><span>Drawn</span><b>${fmtFt(r.lenFt)}</b></div><div><span>Max (${r.gauge.awg}/2)</span><b class="${r.over?'is-bad':''}">${fmtFt(r.maxFt)}</b></div></div>
           ${r.over?'<div class="plan-flag">Drawn length exceeds this gauge’s max run length — pick a heavier gauge, split the run, or add a transformer.</div>':''}
+          <div class="plan-list-title">Path</div>
+          <label class="plan-check"><input type="checkbox" data-act="run-smooth" ${r.run.smooth?'checked':''}> Curve the path smoothly</label>
+          <div class="fx-desc">${nb} bend point${nb===1?'':'s'}. Double-click the wire to add a bend, drag the squares to shape it, double-click a square to remove it.</div>
+          ${nb?'<div class="plan-btn-row"><button class="btn btn-ghost btn-sm" data-act="run-clearbends">Straighten (clear bends)</button></div>':''}
           <div class="plan-list-title">Wiring order</div>
           <div class="plan-order">${r.run.fixtureIds.map((id,i)=>{ const pf = sc.fixtures.find(x=>x.id===id); const f = pf && findFixture(pf.fixtureId); return `<div class="plan-order-row"><span>${i+1}. ${escapeHtml(f?f.name:'(missing)')}</span><span><button data-act="run-up" data-i="${i}" ${i===0?'disabled':''}>↑</button><button data-act="run-down" data-i="${i}" ${i===r.run.fixtureIds.length-1?'disabled':''}>↓</button><button data-act="run-rm" data-i="${i}">✕</button></span></div>`; }).join('')}</div>
-          <div class="plan-btn-row"><button class="btn btn-ghost btn-sm" data-act="run-extend">${cadExtendRunId===r.run.id?'Done adding':'+ Add fixtures'}</button><button class="btn btn-danger btn-sm" data-act="run-del">Delete run</button></div>`;
+          <div class="plan-btn-row"><button class="btn btn-ghost btn-sm" data-act="run-extend">${cadExtendRunId===r.run.id?'Done adding':'+ Add fixtures'}</button><button class="btn btn-danger btn-sm" data-act="run-del">Delete run</button></div>
+          <div class="fx-desc" style="margin-top:8px;">Drag the info box to move it; drag its corner to resize it.</div>`;
       }
     } else if(cadSel.transformers.size===1 && !cadSel.fixtures.size){
       const id = [...cadSel.transformers][0], tr = calc.transformers.find(x=>x.t.id===id);
@@ -6852,7 +7073,7 @@
       }
     } else if(cadSel.fixtures.size){
       const ids = [...cadSel.fixtures], pf = sc.fixtures.find(x=>x.id===ids[0]), f = pf && findFixture(pf.fixtureId);
-      html += `<h4>${ids.length>1 ? ids.length+' fixtures' : escapeHtml(f?f.name:'Fixture')}</h4>`;
+      html += `<h4>${ids.length>1 ? ids.length+' items' : escapeHtml(f?f.name:'Fixture')}</h4>`;
       if(ids.length===1 && f){
         const cur = cadSymbolIdFor(f);
         html += `<div class="plan-stats"><div><span>Load</span><b>${f.watt||0} VA</b></div><div><span>Type</span><b>${escapeHtml(f.cat==='accessory'?'Accessory':(FIXTURE_TYPES[f.type]?FIXTURE_TYPES[f.type].label:'Other'))}</b></div></div>
@@ -6870,27 +7091,48 @@
     }
     el.innerHTML = html;
   }
+  let cadSizeUndoPushed = false;
+  function cadInspectorInput(e){
+    const t = e.target.closest('[data-act]'); if(!t || !cadPlan || t.dataset.act!=='note-size') return;
+    const n = cadPlan.scene.notes.find(x=>x.id===cadSel.note); if(!n) return;
+    if(!cadSizeUndoPushed){ cadPush(); cadSizeUndoPushed = true; }
+    n.size = Number(t.value) || 1; cadMarkDirty(); cadRender();
+    const lab = t.closest('label'); if(lab && lab.firstChild) lab.firstChild.textContent = `Size (${Math.round(n.size*100)}%)`;
+  }
   function cadInspectorAct(e){
     const t = e.target.closest('[data-act]'); if(!t || !cadPlan) return;
     const act = t.dataset.act, isChange = e.type==='change', isClick = e.type==='click';
-    const sc = cadPlan.scene, run = cadSel.run && sc.runs.find(r=>r.id===cadSel.run);
+    const sc = cadPlan.scene, u = cadPlan.bgW/520, run = cadSel.run && sc.runs.find(r=>r.id===cadSel.run);
     const single = (arr)=> arr.size===1 ? [...arr][0] : null;
     const mut = fn=>{ cadPush(); fn(); cadMarkDirty(); cadRefreshAll(); };
     if(isClick){
       if(act==='run-up' && run){ const i = +t.dataset.i; mut(()=>{ [run.fixtureIds[i-1], run.fixtureIds[i]] = [run.fixtureIds[i], run.fixtureIds[i-1]]; }); }
       else if(act==='run-down' && run){ const i = +t.dataset.i; mut(()=>{ [run.fixtureIds[i+1], run.fixtureIds[i]] = [run.fixtureIds[i], run.fixtureIds[i+1]]; }); }
       else if(act==='run-rm' && run){ const i = +t.dataset.i; mut(()=>{ run.fixtureIds.splice(i,1); if(!run.fixtureIds.length){ sc.runs = sc.runs.filter(r=>r!==run); cadSel.run = null; } }); }
-      else if(act==='run-extend' && run){ if(cadExtendRunId===run.id){ cadExtendRunId = null; cadRefreshAll(); } else { cadExtendRunId = run.id; cadTool = 'run'; cadDraft = null; cadRefreshAll(); } }
+      else if(act==='run-extend' && run){ if(cadExtendRunId===run.id){ cadExtendRunId = null; cadExtendPending = []; cadRefreshAll(); } else { cadExtendRunId = run.id; cadExtendPending = []; cadTool = 'run'; cadDraft = null; cadRefreshAll(); } }
+      else if(act==='run-clearbends' && run){ mut(()=>{ run.bends = {}; }); }
       else if(act==='run-del' || act==='sel-del'){ cadDeleteSelection(); }
+      else if(act==='note-arrow'){
+        const n = sc.notes.find(x=>x.id===cadSel.note); if(!n) return;
+        mut(()=>{
+          if(n.arrow){ n.arrow = null; return; }
+          let best = null, bd = Infinity; sc.fixtures.forEach(f=>{ const d = Math.hypot(f.x-n.x, f.y-n.y); if(d<bd){ bd = d; best = f; } });
+          n.arrow = best ? {fixtureId:best.id, x:best.x, y:best.y} : {x:n.x-60*u, y:n.y+40*u};
+        });
+      }
       else if(act==='set-scale'){ cadSetTool('scale'); }
       else if(act==='sheet-meta'){ cadOpenMetaModal(); }
       return;
     }
     if(!isChange) return;
     const v = t.type==='checkbox' ? t.checked : t.value;
+    if(act==='note-size'){ cadSizeUndoPushed = false; cadRefreshAll(); return; }
     if(act==='run-tf' && run) mut(()=>{ run.transformerId = v || null; });
     else if(act==='run-gauge' && run) mut(()=>{ run.gaugeAwg = v==='' ? null : Number(v); });
     else if(act==='run-zone' && run) mut(()=>{ run.zone = Math.max(1, parseInt(v,10)||1); });
+    else if(act==='run-smooth' && run) mut(()=>{ run.smooth = !!v; });
+    else if(act==='note-text'){ const n = sc.notes.find(x=>x.id===cadSel.note); if(n) mut(()=>{ n.text = String(v); }); }
+    else if(act==='note-bg'){ const n = sc.notes.find(x=>x.id===cadSel.note); if(n) mut(()=>{ n.bg = !!v; }); }
     else if(act==='tf-name'){ const id = single(cadSel.transformers), tt = sc.transformers.find(x=>x.id===id); if(tt) mut(()=>{ tt.name = String(v).trim() || tt.name; }); }
     else if(act==='tf-model'){ const id = single(cadSel.transformers), tt = sc.transformers.find(x=>x.id===id); const m = cadSettings.models.find(x=>x.id===v); if(tt && m) mut(()=>{ tt.modelId = m.id; if(!m.taps.includes(tt.tapV)) tt.tapV = Math.max(...m.taps); }); }
     else if(act==='tf-tap'){ const id = single(cadSel.transformers), tt = sc.transformers.find(x=>x.id===id); if(tt) mut(()=>{ tt.tapV = Number(v); }); }
@@ -7067,7 +7309,7 @@
       const id = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : ('10000000-1000-4000-8000-'+Date.now().toString(16).padStart(12,'0').slice(-12));
       const url = await uploadToPhotosBucket(`${authProfile.companyId}/plans/${id}.${img.ext}`, img.dataUrl, img.contentType);
       if(!url) return;
-      const plan = {id, projectId, name, background:url, bgW:img.w, bgH:img.h, pxPerFt:null, scene:{fixtures:[],transformers:[],runs:[]}, meta:{notes:'', sheetNo:'LD1.01'}};
+      const plan = {id, projectId, name, background:url, bgW:img.w, bgH:img.h, pxPerFt:null, scene:{fixtures:[],transformers:[],runs:[],notes:[]}, meta:{notes:'', sheetNo:'LD1.01'}};
       const { error } = await sb.from('cad_plans').insert({id, company_id:authProfile.companyId, ...cadPlanToRow(plan)});
       if(error){ console.warn('Duskline: plan create failed.', error); alert('Could not create the plan. If this is the first time using Plans, the CAD database update (see supabase/schema.sql) may not have been run yet.'); return; }
       cadPlans.unshift(plan); $('planCreateModal').hidden = true; renderPlansTab(); cadOpenPlan(id, {startScale:true});
@@ -7103,7 +7345,7 @@
     const cv = $('planCanvas');
     cv.addEventListener('pointerdown', cadOnDown); cv.addEventListener('pointermove', cadOnMove); cv.addEventListener('pointerup', cadOnUp);
     cv.addEventListener('pointercancel', cadOnUp); cv.addEventListener('wheel', cadOnWheel, {passive:false});
-    cv.addEventListener('dblclick', ()=>{ if(cadTool==='run' && cadDraft) cadCommitDraft(); });
+    cv.addEventListener('dblclick', cadOnDbl);
     cv.addEventListener('contextmenu', e=>{ e.preventDefault(); if(cadDraft){ cadDraft = null; cadSnap = null; cadRefreshAll(); } });
     document.addEventListener('keydown', cadOnKey);
     document.addEventListener('keyup', e=>{ if(e.key===' ') cadSpace = false; });
@@ -7111,10 +7353,12 @@
     $('planTools').addEventListener('click', e=>{
       const tool = e.target.closest('[data-tool]'); if(tool){ cadSetTool(tool.dataset.tool); return; }
       const fx = e.target.closest('[data-pal-fx]'); if(fx){ cadPalette.fixtureId = fx.dataset.palFx; cadRenderTools(); cadUpdateHint(); return; }
+      const ac = e.target.closest('[data-pal-ac]'); if(ac){ cadPalette.accessoryId = ac.dataset.palAc; cadRenderTools(); cadUpdateHint(); return; }
       const tm = e.target.closest('[data-pal-tm]'); if(tm){ cadPalette.modelId = tm.dataset.palTm; cadRenderTools(); }
     });
+    $('planTools').addEventListener('change', e=>{ if(e.target.id==='planPalType'){ cadPalette.type = e.target.value; cadRenderTools(); } });
     $('planTools').addEventListener('input', e=>{ if(e.target.id==='planPalSearch'){ cadPalette.search = e.target.value; const pos = e.target.selectionStart; cadRenderTools(); const s = $('planPalSearch'); if(s){ s.focus(); s.setSelectionRange(pos,pos); } } });
-    $('planInspector').addEventListener('click', cadInspectorAct); $('planInspector').addEventListener('change', cadInspectorAct);
+    $('planInspector').addEventListener('click', cadInspectorAct); $('planInspector').addEventListener('change', cadInspectorAct); $('planInspector').addEventListener('input', cadInspectorInput);
     $('planScaleSave').addEventListener('click', cadSaveScale); $('planScaleCancel').addEventListener('click', cadCancelScale); $('planScaleBackdrop').addEventListener('click', cadCancelScale);
     $('planMetaSave').addEventListener('click', cadSaveMeta); $('planMetaCancel').addEventListener('click', ()=>{ $('planMetaModal').hidden = true; }); $('planMetaBackdrop').addEventListener('click', ()=>{ $('planMetaModal').hidden = true; });
     $('planSettingsClose').addEventListener('click', ()=>{ $('planSettingsModal').hidden = true; }); $('planSettingsBackdrop').addEventListener('click', ()=>{ $('planSettingsModal').hidden = true; });

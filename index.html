@@ -1253,7 +1253,6 @@
         <div class="empty-actions">
           <button class="btn btn-primary" id="btnTakePhoto">Take photo</button>
           <button class="btn btn-ghost" id="btnChoosePhoto">Choose photo</button>
-          <button class="btn btn-ghost" id="btnSatellitePhoto">Satellite view</button>
         </div>
       </div>
 
@@ -1285,7 +1284,6 @@
 
       <div class="canvas-toolbar" id="canvasToolbar" hidden>
         <button class="chip" id="btnChangePhoto">Change photo</button>
-        <button class="chip" id="btnChangeSatellite">Satellite view</button>
         <button class="chip" id="btnAdjustCrop">Adjust crop</button>
         <button class="chip" id="btnResetZoom">Reset zoom <span class="mono zoom-pct" id="zoomBadge" hidden></span></button>
         <button class="chip" id="btnDrawWire">Draw wire run</button>
@@ -1428,7 +1426,10 @@
       <div class="field"><label>Project</label><select id="planCreateProject"></select></div>
       <div class="field"><label>Plan name</label><input id="planCreateName" placeholder="e.g. Front yard lighting plan"></div>
       <div class="field"><label>Site image (survey, site plan, or drawing)</label><input id="planCreateFile" type="file" accept="image/*,.heic,.heif"></div>
-      <div class="fx-desc">Next you’ll set the scale by clicking two points a known distance apart.</div>
+      <div class="field"><label>…or use a satellite view of the property</label>
+        <div class="plan-btn-row"><button class="btn btn-ghost btn-sm" id="planCreateSatellite" type="button">Satellite view</button><span class="fx-desc" id="planCreateSatNote"></span></div>
+      </div>
+      <div class="fx-desc" id="planCreateScaleNote">Next you’ll set the scale by clicking two points a known distance apart.</div>
     </div>
     <div class="edit-actions">
       <button class="btn btn-ghost" id="planCreateCancel">Cancel</button>
@@ -3863,10 +3864,16 @@
     });
     return googleMapsLoadPromise;
   }
-  let satelliteCtx = null; // {map, geocoder, onDone} while the screen is open, else null
-  async function openSatelliteScreen(onDone){
+  // Satellite view is now only used when creating a CAD plan (it was removed from the photo
+  // editor). opts: {direct} hands the raw capture + its ground width straight to onDone (no crop
+  // screen -- a plan wants the whole square so its scale stays exact), {address} pre-fills the
+  // search, {onCancel} runs if the screen closes without a capture.
+  let satelliteCtx = null; // {map, geocoder, onDone, direct, onCancel} while the screen is open, else null
+  async function openSatelliteScreen(onDone, opts){
+    opts = opts || {};
     if(!GOOGLE_MAPS_API_KEY || GOOGLE_MAPS_API_KEY==='YOUR_GOOGLE_MAPS_API_KEY'){
       alert('Satellite view needs a Google Maps API key set up first — see GOOGLE_MAPS_API_KEY near the top of the script.');
+      if(opts.onCancel) opts.onCancel();
       return;
     }
     $('satelliteScreen').hidden = false;
@@ -3878,6 +3885,7 @@
       console.warn('Duskline: Google Maps failed to load.', err);
       alert('Could not load Google Maps. Check your connection and try again.');
       closeSatelliteScreen();
+      if(opts.onCancel) opts.onCancel();
       return;
     }
     const map = new google.maps.Map($('satelliteStage'), {
@@ -3889,9 +3897,9 @@
       fullscreenControl: false,
       mapTypeControl: false,
     });
-    satelliteCtx = { map, geocoder: new google.maps.Geocoder(), onDone };
+    satelliteCtx = { map, geocoder: new google.maps.Geocoder(), onDone, direct: !!opts.direct, onCancel: opts.onCancel };
     const pr = currentProject();
-    const startAddress = (pr && pr.customer && pr.customer.address) || '';
+    const startAddress = opts.address !== undefined ? opts.address : ((pr && pr.customer && pr.customer.address) || '');
     $('satelliteAddress').value = startAddress;
     if(startAddress) geocodeAndCenter(startAddress);
   }
@@ -3943,9 +3951,10 @@
         reader.onerror = reject;
         reader.readAsDataURL(blob);
       });
-      const onDone = satelliteCtx.onDone;
+      const onDone = satelliteCtx.onDone, direct = satelliteCtx.direct;
       closeSatelliteScreen();
-      openCropScreen(dataUrl, onDone, captureGroundWidthFt);
+      if(direct) onDone(dataUrl, captureGroundWidthFt);
+      else openCropScreen(dataUrl, onDone, captureGroundWidthFt);
     }catch(err){
       console.warn('Duskline: satellite capture failed.', err);
       alert('Could not capture that view. Please check your connection and try again.');
@@ -7364,8 +7373,27 @@
     host.innerHTML = html;
     $('plansEmpty').hidden = cadSchemaMissing || cadPlans.length>0;
   }
+  // A satellite capture waiting to become the new plan's background: {dataUrl, groundWidthFt}.
+  let cadSatPending = null;
+  function cadUpdateCreateSat(){
+    $('planCreateSatNote').textContent = cadSatPending ? 'Satellite view captured ✓' : '';
+    $('planCreateSatellite').textContent = cadSatPending ? 'Change satellite view' : 'Satellite view';
+    $('planCreateScaleNote').textContent = cadSatPending
+      ? 'A satellite view comes with its scale already set — you can still re-set it with the Scale tool.'
+      : 'Next you’ll set the scale by clicking two points a known distance apart.';
+  }
+  function cadPickSatellite(){
+    const modal = $('planCreateModal');
+    const pr = state.projects.find(p=>p.id===$('planCreateProject').value);
+    modal.hidden = true; // the satellite screen sits below sheets/modals, so step the modal aside
+    openSatelliteScreen((dataUrl, groundWidthFt)=>{
+      cadSatPending = {dataUrl, groundWidthFt}; $('planCreateFile').value = '';
+      cadUpdateCreateSat(); modal.hidden = false;
+    }, {direct:true, address:(pr && pr.customer && pr.customer.address) || '', onCancel:()=>{ modal.hidden = false; }});
+  }
   function cadOpenCreate(){
     if(!state.projects.length){ alert('Create a project first — CAD plans belong to a project.'); return; }
+    cadSatPending = null; cadUpdateCreateSat();
     $('planCreateProject').innerHTML = state.projects.map(p=>`<option value="${p.id}" ${p.id===state.currentProjectId?'selected':''}>${escapeHtml(p.customer.name)||'Untitled project'}</option>`).join('');
     $('planCreateName').value = ''; $('planCreateFile').value = ''; $('planCreateModal').hidden = false;
   }
@@ -7393,19 +7421,24 @@
   }
   async function cadCreatePlan(){
     const projectId = $('planCreateProject').value, name = $('planCreateName').value.trim() || 'Untitled plan', raw = $('planCreateFile').files[0];
+    const sat = raw ? null : cadSatPending;
     if(!projectId){ alert('Pick a project.'); return; }
-    if(!raw){ alert('Choose a site image (a survey, site plan, or drawing) to draw on.'); return; }
+    if(!raw && !sat){ alert('Choose a site image (a survey, site plan, or drawing) or use a satellite view.'); return; }
     const btn = $('planCreateSave'); btn.disabled = true; const old = btn.textContent; btn.textContent = 'Uploading…';
     try{
-      const file = await convertHeicIfNeeded(raw); if(!file) return;
+      // A satellite capture goes through the same downscale/re-encode as an upload (labelled JPEG so
+      // it isn't kept as a large PNG).
+      const file = sat ? new File([await (await fetch(sat.dataUrl)).blob()], 'satellite.jpg', {type:'image/jpeg'}) : await convertHeicIfNeeded(raw);
+      if(!file) return;
       const img = await cadReadImage(file);
       const id = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : ('10000000-1000-4000-8000-'+Date.now().toString(16).padStart(12,'0').slice(-12));
       const url = await uploadToPhotosBucket(`${authProfile.companyId}/plans/${id}.${img.ext}`, img.dataUrl, img.contentType);
       if(!url) return;
-      const plan = {id, projectId, name, background:url, bgW:img.w, bgH:img.h, pxPerFt:null, scene:{fixtures:[],transformers:[],runs:[],notes:[]}, meta:{notes:'', sheetNo:'LD1.01'}};
+      // The capture's ground width is known, so the plan starts already scaled (px per foot).
+      const plan = {id, projectId, name, background:url, bgW:img.w, bgH:img.h, pxPerFt:(sat && sat.groundWidthFt>0) ? img.w/sat.groundWidthFt : null, scene:{fixtures:[],transformers:[],runs:[],notes:[]}, meta:{notes:'', sheetNo:'LD1.01'}};
       const { error } = await sb.from('cad_plans').insert({id, company_id:authProfile.companyId, ...cadPlanToRow(plan)});
       if(error){ console.warn('Duskline: plan create failed.', error); alert('Could not create the plan. If this is the first time using Plans, the CAD database update (see supabase/schema.sql) may not have been run yet.'); return; }
-      cadPlans.unshift(plan); $('planCreateModal').hidden = true; renderPlansTab(); cadOpenPlan(id, {startScale:true});
+      cadPlans.unshift(plan); cadSatPending = null; $('planCreateModal').hidden = true; renderPlansTab(); cadOpenPlan(id, {startScale:!plan.pxPerFt});
     }catch(err){ console.warn('Duskline: plan create failed.', err); alert(err.message || 'Could not create the plan.'); }
     finally{ btn.disabled = false; btn.textContent = old; }
   }
@@ -7424,6 +7457,8 @@
     $('planCreateCancel').addEventListener('click', ()=>{ $('planCreateModal').hidden = true; });
     $('planCreateBackdrop').addEventListener('click', ()=>{ $('planCreateModal').hidden = true; });
     $('planCreateSave').addEventListener('click', cadCreatePlan);
+    $('planCreateSatellite').addEventListener('click', cadPickSatellite);
+    $('planCreateFile').addEventListener('change', ()=>{ if($('planCreateFile').files.length){ cadSatPending = null; cadUpdateCreateSat(); } });
     $('planList').addEventListener('click', e=>{
       const del = e.target.closest('[data-plan-del]'); if(del){ e.stopPropagation(); cadDeletePlan(del.dataset.planDel); return; }
       const row = e.target.closest('[data-plan]'); if(row) cadOpenPlan(row.dataset.plan);
@@ -7471,9 +7506,7 @@
     $('btnChangePhoto').addEventListener('click', ()=> $('fileInput').click());
     $('fileInput').addEventListener('change', handleFile);
     $('fileInputCamera').addEventListener('change', handleFile);
-    $('btnSatellitePhoto').addEventListener('click', ()=> openSatelliteScreen(finishAreaPhotoCrop));
-    $('btnChangeSatellite').addEventListener('click', ()=> openSatelliteScreen(finishAreaPhotoCrop));
-    $('btnSatelliteCancel').addEventListener('click', closeSatelliteScreen);
+    $('btnSatelliteCancel').addEventListener('click', ()=>{ const c = satelliteCtx; closeSatelliteScreen(); if(c && c.onCancel) c.onCancel(); });
     $('btnSatelliteUse').addEventListener('click', useSatelliteView);
     $('btnSatelliteSearch').addEventListener('click', ()=> geocodeAndCenter($('satelliteAddress').value.trim()));
     $('satelliteAddress').addEventListener('keydown', e=>{

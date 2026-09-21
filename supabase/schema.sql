@@ -1191,3 +1191,40 @@ alter table public.areas add column if not exists notes text;
 -- never use them keep saving even before this is run.
 -- ============================================================================
 alter table public.areas add column if not exists text_boxes jsonb not null default '[]';
+
+
+-- ============================================================================
+-- CAD plans (the "Plans" tab): Kichler/LightPro-style lighting site plans that belong to a
+-- project. `scene` holds the placed fixtures/transformers/wire runs in the uploaded background
+-- image's own pixel space; px_per_ft is the two-click scale calibration. The background lives
+-- in the existing `photos` bucket under {companyId}/plans/. cad_settings is one row per company
+-- (symbol assignments, transformer models, cable gauges/resistances).
+-- ============================================================================
+create table if not exists public.cad_plans (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references public.companies(id) on delete cascade,
+  project_id uuid not null references public.projects(id) on delete cascade,
+  name text not null default 'Untitled plan',
+  background text,
+  bg_width integer,
+  bg_height integer,
+  px_per_ft numeric,
+  scene jsonb not null default '{"fixtures":[],"transformers":[],"runs":[]}',
+  meta jsonb not null default '{}',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create table if not exists public.cad_settings (
+  company_id uuid primary key references public.companies(id) on delete cascade,
+  data jsonb not null default '{}'
+);
+alter table public.cad_plans enable row level security;
+alter table public.cad_settings enable row level security;
+create policy "Company members manage their own CAD plans"
+  on public.cad_plans for all
+  using (company_id = public.current_company_id())
+  with check (company_id = public.current_company_id());
+create policy "Company members manage their own CAD settings"
+  on public.cad_settings for all
+  using (company_id = public.current_company_id())
+  with check (company_id = public.current_company_id());

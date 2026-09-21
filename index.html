@@ -512,14 +512,6 @@
   .marker-dot.just-placed{animation:placedPop .5s ease-out;}
   @keyframes placedPop{0%{transform:translate(-50%,-50%) scale(.2);}60%{transform:translate(-50%,-50%) scale(1.4);}100%{transform:translate(-50%,-50%) scale(1);}}
 
-  /* A square, not a circle -- deliberately distinct from .marker-dot's round fixture markers so
-     a transformer reads as a different kind of object on the canvas at a glance, matching the
-     same distinction the wiring-plan PDF export draws (see buildWiringPlanPdfBlob()). */
-  .transformer-marker{position:absolute;left:0;top:0;width:18px;height:18px;
-    background:var(--surface-2);border:2px solid var(--danger);border-radius:3px;
-    box-shadow:0 0 0 3px rgba(226,104,92,.25);transform:translate(-50%,-50%);
-    cursor:pointer;z-index:4;}
-
   /* Free-text boxes placed directly on the design photo (area.textBoxes). font-size is in cqw
      (container query width units) so the text scales with the photo itself -- the live editor
      (incl. zoom), the small project-page thumbnail and the print/JPG output all read as the same
@@ -538,12 +530,6 @@
      is easy to hit without stealing much of the box's own drag area. */
   .text-box-resize{position:absolute;right:-8px;bottom:-8px;width:22px;height:22px;
     cursor:nwse-resize;touch-action:none;pointer-events:auto;}
-
-  /* Transient markers for the two points clicked while "Set scale" is active -- cleared the
-     moment the calibration modal saves/cancels, not a persistent design element. */
-  .scale-cal-dot{position:absolute;left:0;top:0;width:10px;height:10px;border-radius:50%;
-    background:var(--amber-soft);border:2px solid #fff;box-shadow:0 0 0 2px rgba(0,0,0,.4);
-    transform:translate(-50%,-50%);z-index:5;pointer-events:none;}
 
   .beam-handle{position:absolute;width:16px;height:16px;border-radius:50%;background:rgba(255,255,255,.18);
     border:2px solid var(--amber-soft);transform:translate(-50%,-50%);cursor:grab;touch-action:none;
@@ -803,6 +789,70 @@
   .doc-total-row span:last-child{color:var(--quote-accent, var(--amber));}
   .doc-note{margin-top:28px;padding:12px 16px;background:#fff6e9;border-left:4px solid var(--quote-accent, var(--amber));font-size:12px;color:#222;font-style:italic;}
   .doc-footer{margin-top:36px;padding-top:12px;border-top:1px solid #e3e5e9;display:flex;justify-content:space-between;font-size:10px;color:#999;}
+
+  /* ===== CAD plans (Plans tab + plan editor) ===== */
+  .plan-group{margin-bottom:16px;}
+  .plan-group-name{font-family:var(--font-display);font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:14px 0 6px;}
+  .plans-note{background:var(--surface-2);border:1px solid var(--amber);border-radius:10px;padding:12px 14px;font-size:12.5px;line-height:1.5;margin-bottom:12px;}
+  #planEditorScreen{z-index:55;}
+  .plan-name-input{flex:1;min-width:0;background:transparent;border:1px solid transparent;border-radius:8px;color:var(--fog);
+    font-family:var(--font-display);font-weight:600;font-size:13px;text-align:center;padding:6px 8px;}
+  .plan-name-input:hover,.plan-name-input:focus{border-color:var(--line);outline:none;}
+  .plan-body{display:flex;flex-direction:row;flex:1;min-height:0;}
+  .plan-tools{width:214px;flex:0 0 auto;border-right:1px solid var(--line);background:var(--surface);padding:10px;overflow-y:auto;}
+  .plan-tool-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;}
+  .plan-tool{position:relative;background:var(--surface-2);border:1px solid var(--line);color:var(--fog);border-radius:8px;
+    padding:8px 6px;font-size:12px;cursor:pointer;font-family:inherit;}
+  .plan-tool span{position:absolute;top:2px;right:5px;font-size:9px;color:var(--muted);font-family:var(--font-mono);}
+  .plan-tool.is-active{background:rgba(240,168,78,.18);border-color:var(--amber);color:var(--amber-soft);}
+  .plan-search{width:100%;margin-top:10px;background:var(--surface-2);border:1px solid var(--line);border-radius:8px;color:var(--fog);padding:7px 9px;font-size:12px;}
+  .plan-pal{display:flex;flex-direction:column;gap:5px;margin-top:8px;}
+  .plan-pal-item{display:flex;align-items:center;gap:9px;text-align:left;background:var(--surface-2);border:1px solid var(--line);
+    border-radius:8px;padding:6px 8px;cursor:pointer;color:var(--fog);font-family:inherit;}
+  .plan-pal-item.is-active{border-color:var(--amber);background:rgba(240,168,78,.14);}
+  .plan-pal-item span b{display:block;font-size:11.5px;font-weight:600;}
+  .plan-pal-item span em{display:block;font-size:10px;color:var(--muted);font-style:normal;font-family:var(--font-mono);}
+  .plan-tm-icon{width:22px;height:14px;background:#f6a800;border:1.5px solid #111;border-radius:2px;flex:0 0 auto;}
+  .plan-canvas-wrap{position:relative;flex:1;min-width:0;background:#14171c;overflow:hidden;}
+  #planCanvas{display:block;touch-action:none;cursor:crosshair;user-select:none;}
+  .plan-hint{position:absolute;left:10px;bottom:10px;right:10px;background:rgba(20,23,28,.88);color:#fff;font-size:11.5px;
+    padding:7px 11px;border-radius:8px;pointer-events:none;border:1px solid rgba(255,255,255,.12);}
+  .plan-side{width:320px;flex:0 0 auto;border-left:1px solid var(--line);background:var(--surface);padding:12px;overflow-y:auto;}
+  .plan-insp h4{font-family:var(--font-display);font-size:14px;margin:0 0 6px;}
+  .plan-insp label{display:block;font-size:11px;color:var(--muted);margin-top:8px;}
+  .plan-insp select,.plan-insp input:not([type=checkbox]){display:block;width:100%;margin-top:3px;background:var(--surface-2);border:1px solid var(--line);
+    border-radius:8px;color:var(--fog);padding:7px 9px;font-size:12.5px;font-family:inherit;}
+  .plan-check{display:flex;align-items:center;gap:7px;}
+  .plan-stats{display:flex;gap:8px;margin:10px 0;}
+  .plan-stats div{flex:1;background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:6px 8px;}
+  .plan-stats span{display:block;font-size:9.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;}
+  .plan-stats b{font-family:var(--font-mono);font-size:12.5px;color:var(--amber-soft);}
+  .plan-stats b.is-bad{color:var(--danger);} .plan-stats b.is-warn{color:#f59e0b;}
+  .plan-flag{background:rgba(226,104,92,.14);border:1px solid var(--danger);color:var(--fog);border-radius:8px;padding:7px 9px;font-size:11.5px;margin-top:6px;line-height:1.4;}
+  .plan-flag.is-warn{background:rgba(245,158,11,.12);border-color:#f59e0b;}
+  .plan-ok{font-size:11.5px;color:var(--good);margin-top:6px;}
+  .is-bad{color:var(--danger);}
+  .plan-list-title{font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:12px 0 4px;}
+  .plan-order-row{display:flex;align-items:center;justify-content:space-between;gap:6px;font-size:12px;padding:4px 0;border-bottom:1px solid var(--line);}
+  .plan-order-row button{background:var(--surface-2);border:1px solid var(--line);color:var(--fog);border-radius:6px;width:24px;height:22px;cursor:pointer;margin-left:3px;}
+  .plan-order-row button:disabled{opacity:.35;cursor:default;}
+  .plan-btn-row{display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap;}
+  .plan-scale-row{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12px;margin-bottom:8px;}
+  .plan-live-title{font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:16px 0 6px;}
+  #planLiveCanvas{display:block;border-radius:6px;border:1px solid var(--line);background:#fff;}
+  .plan-sheet-modal{position:fixed;inset:0;z-index:80;background:rgba(6,8,12,.86);display:flex;flex-direction:column;}
+  .plan-sheet-modal[hidden]{display:none;}
+  .plan-sheet-bar{display:flex;gap:8px;align-items:center;justify-content:flex-end;padding:10px 14px;background:var(--surface);border-bottom:1px solid var(--line);}
+  .plan-sheet-bar .grow{flex:1;font-family:var(--font-display);font-weight:600;font-size:13px;}
+  .plan-sheet-scroll{flex:1;overflow:auto;padding:18px;display:flex;flex-direction:column;align-items:center;gap:18px;}
+  .plan-sheet-page{background:#fff;box-shadow:0 6px 30px rgba(0,0,0,.5);max-width:none;}
+  .plan-set-sec{margin-top:16px;padding-top:12px;border-top:1px solid var(--line);}
+  .plan-set-sec h4{font-family:var(--font-display);font-size:13.5px;margin:0 0 6px;}
+  .plan-set-row{display:flex;align-items:center;gap:8px;margin:5px 0;}
+  .plan-set-row .grow{flex:1;min-width:0;font-size:12.5px;}
+  .plan-set-row select,.plan-set-row input{background:var(--surface-2);border:1px solid var(--line);border-radius:7px;color:var(--fog);padding:5px 7px;font-size:12px;font-family:inherit;}
+  .plan-set-row button{background:var(--surface-2);border:1px solid var(--line);color:var(--fog);border-radius:6px;padding:4px 8px;cursor:pointer;}
+  @media (max-width:820px){ .plan-body{flex-direction:column;} .plan-tools{width:auto;max-height:34vh;border-right:0;border-bottom:1px solid var(--line);} .plan-side{width:auto;max-height:36vh;border-left:0;border-top:1px solid var(--line);} }
 </style>
 </head>
 <body>
@@ -877,6 +927,7 @@
       </svg><span class="brand-name">Duskline</span></div>
     <div class="tabs" id="screenTabs">
       <button class="tab active" data-screen="projects" data-role="contractor">Projects</button>
+      <button class="tab" data-screen="plans" data-role="contractor">Plans</button>
       <button class="tab" data-screen="fixtures">Fixtures</button>
       <button class="tab" data-screen="distributor-contractors" data-role="distributor" hidden>Contractors</button>
       <button class="tab" data-screen="company">Company</button>
@@ -965,6 +1016,17 @@
   </main>
 
   <!-- ===================== FIXTURES LIBRARY ===================== -->
+  <!-- ===================== CAD PLANS LIST ===================== -->
+  <main id="screen-plans" class="screen">
+    <div class="section-head">
+      <h2>CAD plans</h2>
+      <button class="btn btn-primary btn-sm" id="btnNewPlan">+ New plan</button>
+    </div>
+    <div class="plans-note" id="plansSchemaNote" hidden>Plans need a one-time database update before they can be used. Run the “CAD plans” SQL at the bottom of <code>supabase/schema.sql</code> in the Supabase SQL Editor, then reload.</div>
+    <div id="planList"></div>
+    <div class="empty-note" id="plansEmpty">No plans yet. A plan is a Kichler-style lighting site plan: upload a site image, set the scale, place fixtures and transformers, and draw wire runs — the load, gauge and max-run tables build themselves.</div>
+  </main>
+
   <main id="screen-fixtures" class="screen">
     <div class="section-head">
       <h2>Fixture library</h2>
@@ -1226,9 +1288,6 @@
         <button class="chip" id="btnAdjustCrop">Adjust crop</button>
         <button class="chip" id="btnResetZoom">Reset zoom <span class="mono zoom-pct" id="zoomBadge" hidden></span></button>
         <button class="chip" id="btnDrawWire">Draw wire run</button>
-        <button class="chip" id="btnPlaceTransformer">Place transformer</button>
-        <button class="chip" id="btnSetScale">Set scale</button>
-        <button class="chip" id="btnExportWiringPlan">Export wiring plan</button>
         <button class="chip" id="btnAddTextBox">Add text</button>
         <button class="chip" id="btnAreaNotes">Notes</button>
         <button class="chip chip-danger" id="btnClearDesign">Clear design</button>
@@ -1298,17 +1357,6 @@
       <div class="field"><label>Distance (ft)</label><input id="wireDistanceInput" type="number" step="1" min="0" placeholder="e.g. 42">
         <div class="fx-desc" id="wireDistanceHint" hidden>Estimated from the satellite view's scale — adjust if needed.</div>
       </div>
-      <!-- Both fields below are optional -- a wire run works fine with neither set, same as
-           before this feature existed. They only matter for the wiring-plan PDF export's
-           per-transformer load/run tables (see buildWiringPlanPdfBlob()), which needs to know
-           which fixtures are actually wired on this run and which transformer feeds it. -->
-      <div class="field"><label>Transformer</label>
-        <select id="wireTransformerSelect"><option value="">Unassigned</option></select>
-      </div>
-      <div class="field"><label>Fixtures on this run</label>
-        <div class="sheet-list" id="wireFixtureList" style="max-height:180px;overflow-y:auto;"></div>
-        <div class="fx-desc" id="wireRunVaTotal"></div>
-      </div>
     </div>
     <div class="edit-actions">
       <button class="btn btn-danger" id="wireDelete" hidden>Delete</button>
@@ -1336,20 +1384,94 @@
   </div>
 </div>
 
-<!-- ===================== TRANSFORMER MODAL ===================== -->
-<div class="edit-sheet" id="transformerModal" hidden>
-  <div class="edit-backdrop" id="transformerBackdrop"></div>
+<!-- ===================== CAD PLAN EDITOR ===================== -->
+<div class="editor-screen" id="planEditorScreen" hidden>
+  <div class="editor-top">
+    <button class="icon-btn" id="planBack" aria-label="Back to plans">←</button>
+    <button class="icon-btn" id="planUndo" aria-label="Undo" title="Undo (Ctrl+Z)" disabled>↶</button>
+    <button class="icon-btn" id="planRedo" aria-label="Redo" title="Redo (Ctrl+Y)" disabled>↷</button>
+    <input class="plan-name-input" id="planNameInput" aria-label="Plan name">
+    <button class="btn btn-ghost btn-sm" id="planBtnFit" title="Fit the plan to the window">Fit</button>
+    <button class="btn btn-ghost btn-sm" id="planBtnSettings">Settings</button>
+    <button class="btn btn-primary btn-sm" id="planBtnSheet">Sheet &amp; export</button>
+  </div>
+  <div class="plan-body">
+    <div class="plan-tools" id="planTools"></div>
+    <div class="plan-canvas-wrap" id="planCanvasWrap">
+      <canvas id="planCanvas"></canvas>
+      <div class="plan-hint" id="planHint"></div>
+    </div>
+    <div class="plan-side" id="planSide">
+      <div class="plan-insp" id="planInspector"></div>
+      <div class="plan-live-title">Live schedule</div>
+      <canvas id="planLiveCanvas"></canvas>
+    </div>
+  </div>
+</div>
+
+<div class="plan-sheet-modal" id="planSheetModal" hidden>
+  <div class="plan-sheet-bar">
+    <div class="grow">Sheet preview</div>
+    <button class="btn btn-ghost btn-sm" id="planPdfLetter">PDF · Letter</button>
+    <button class="btn btn-primary btn-sm" id="planPdfTabloid">PDF · Tabloid 11×17</button>
+    <button class="btn btn-ghost btn-sm" id="planSheetClose">Close</button>
+  </div>
+  <div class="plan-sheet-scroll" id="planSheetPages"></div>
+</div>
+
+<div class="edit-sheet" id="planCreateModal" hidden>
+  <div class="edit-backdrop" id="planCreateBackdrop"></div>
   <div class="edit-panel">
-    <div class="edit-title">Transformer</div>
+    <div class="edit-title">New CAD plan</div>
     <div class="modal-form-body">
-      <div class="field"><label>Name</label><input id="transformerNameInput" placeholder="e.g. Transformer 1"></div>
-      <div class="field"><label>Capacity (W)</label><input id="transformerCapacityInput" type="number" step="1" min="0" placeholder="e.g. 300"></div>
+      <div class="field"><label>Project</label><select id="planCreateProject"></select></div>
+      <div class="field"><label>Plan name</label><input id="planCreateName" placeholder="e.g. Front yard lighting plan"></div>
+      <div class="field"><label>Site image (survey, site plan, or drawing)</label><input id="planCreateFile" type="file" accept="image/*,.heic,.heif"></div>
+      <div class="fx-desc">Next you’ll set the scale by clicking two points a known distance apart.</div>
     </div>
     <div class="edit-actions">
-      <button class="btn btn-danger" id="transformerDelete">Delete</button>
-      <button class="btn btn-ghost" id="transformerCancel">Cancel</button>
-      <button class="btn btn-primary" id="transformerSave">Save</button>
+      <button class="btn btn-ghost" id="planCreateCancel">Cancel</button>
+      <button class="btn btn-primary" id="planCreateSave">Create plan</button>
     </div>
+  </div>
+</div>
+
+<div class="edit-sheet" id="planScaleModal" hidden>
+  <div class="edit-backdrop" id="planScaleBackdrop"></div>
+  <div class="edit-panel">
+    <div class="edit-title">Set scale</div>
+    <div class="modal-form-body">
+      <div class="field"><label>Real-world distance between the two points (ft)</label><input id="planScaleInput" type="number" step="0.5" min="0" placeholder="e.g. 40"></div>
+      <div class="fx-desc">All run lengths, gauges and max-run checks are calculated from this.</div>
+    </div>
+    <div class="edit-actions">
+      <button class="btn btn-ghost" id="planScaleCancel">Cancel</button>
+      <button class="btn btn-primary" id="planScaleSave">Set scale</button>
+    </div>
+  </div>
+</div>
+
+<div class="edit-sheet" id="planMetaModal" hidden>
+  <div class="edit-backdrop" id="planMetaBackdrop"></div>
+  <div class="edit-panel">
+    <div class="edit-title">Sheet notes &amp; title block</div>
+    <div class="modal-form-body">
+      <div class="field"><label>Sheet number</label><input id="planMetaSheet" placeholder="LD1.01"></div>
+      <div class="field"><label>Notes (printed in the NOTES panel)</label><textarea id="planMetaNotes" rows="8" placeholder="e.g. All wiring installed per local electrical code. Verify field conditions before installation."></textarea></div>
+    </div>
+    <div class="edit-actions">
+      <button class="btn btn-ghost" id="planMetaCancel">Cancel</button>
+      <button class="btn btn-primary" id="planMetaSave">Save</button>
+    </div>
+  </div>
+</div>
+
+<div class="edit-sheet" id="planSettingsModal" hidden>
+  <div class="edit-backdrop" id="planSettingsBackdrop"></div>
+  <div class="edit-panel" style="max-width:640px;">
+    <div class="edit-title">Plan settings</div>
+    <div class="modal-form-body" id="planSettingsBody"></div>
+    <div class="edit-actions"><button class="btn btn-primary" id="planSettingsClose">Done</button></div>
   </div>
 </div>
 
@@ -1386,24 +1508,6 @@
     <div class="edit-actions">
       <button class="btn btn-ghost" id="notesCancel">Cancel</button>
       <button class="btn btn-primary" id="notesSave">Save</button>
-    </div>
-  </div>
-</div>
-
-<!-- ===================== SET SCALE MODAL ===================== -->
-<div class="edit-sheet" id="scaleModal" hidden>
-  <div class="edit-backdrop" id="scaleBackdrop"></div>
-  <div class="edit-panel">
-    <div class="edit-title">Set scale</div>
-    <div class="modal-form-body">
-      <div class="field"><label>Real-world distance between the two points (ft)</label>
-        <input id="scaleDistanceInput" type="number" step="0.5" min="0" placeholder="e.g. 40">
-      </div>
-      <div class="fx-desc">This sets the photo's real-world scale, powering auto-estimated wire/strip lengths and the wiring plan's scale bar. Works on any photo, including an imported CAD drawing.</div>
-    </div>
-    <div class="edit-actions">
-      <button class="btn btn-ghost" id="scaleCancel">Cancel</button>
-      <button class="btn btn-primary" id="scaleSave">Save</button>
     </div>
   </div>
 </div>
@@ -1707,8 +1811,6 @@
       selectedWire: null,
       drawingStripFixtureId: null,
       currentStripPath: null,
-      placingTransformer: false,
-      settingScale: false,
       activeProfile: null,
     };
   }
@@ -1721,8 +1823,6 @@
   let editingWireId = null;
   let pendingStripPath = null;
   let editingStripId = null;
-  let editingTransformerId = null;
-  let scaleCalPoints = null; // [{xPct,yPct}] while state.settingScale is active -- see "Set scale"
   let suppressNextCanvasClick = false;
   let view = {zoom:1, panX:0, panY:0}; // canvas pan/zoom for precise placement (desktop ctrl+scroll)
 
@@ -2299,16 +2399,9 @@
         ${widthHandle}
         <div class="marker-dot ${isBar?'is-bar':''} ${selected?'is-selected':''} ${justPlaced?'just-placed':''}" data-uid="${p.uid}" style="border-color:rgb(${tcol});${dotGlow}${barStyle}"></div>
       </div>`;
-    }).join('') + (area.transformers||[]).map(t=>
-      `<div class="transformer-marker" data-id="${t.id}" style="left:${t.xPct}%;top:${t.yPct}%;" title="${escapeHtml(t.name)} · ${t.capacityW}W"></div>`
-    ).join('') + (area.textBoxes||[]).map(t=>
+    }).join('') + (area.textBoxes||[]).map(t=>
       `<div class="text-box" data-id="${t.id}" style="left:${t.xPct}%;top:${t.yPct}%;--tb-size:${t.size||1};">${escapeHtml(t.text)}<span class="text-box-resize" data-id="${t.id}" title="Drag to resize"></span></div>`
-    ).join('') + (scaleCalPoints||[]).map(pt=>
-      `<div class="scale-cal-dot" style="left:${pt.xPct}%;top:${pt.yPct}%;"></div>`
     ).join('');
-    wrap.querySelectorAll('.transformer-marker').forEach(el=>{
-      el.addEventListener('click', e=>{ e.stopPropagation(); openTransformerEdit(el.dataset.id); });
-    });
     wrap.querySelectorAll('.text-box').forEach(el=>{
       const t = (area.textBoxes||[]).find(x=>x.id===el.dataset.id); if(!t) return;
       makeDraggable(el, {
@@ -2475,39 +2568,6 @@
     }
     return ft;
   }
-  // Populates the transformer <select> and fixture checklist shared by both the "new wire run"
-  // and "edit wire run" modal states -- w is the existing run being edited, or null for a fresh
-  // one (nothing pre-selected/checked in that case). Both fields are optional -- see the HTML
-  // comment above #wireTransformerSelect -- so this never blocks saving, it only feeds the
-  // wiring-plan PDF's per-transformer load/run tables when filled in.
-  function renderWireModalFixturePicker(w){
-    const area = currentArea();
-    const sel = $('wireTransformerSelect');
-    sel.innerHTML = '<option value="">Unassigned</option>' +
-      (area.transformers||[]).map(t=>`<option value="${t.id}">${escapeHtml(t.name)} (${t.capacityW}W)</option>`).join('');
-    sel.value = (w && w.transformerId) || '';
-    const checkedUids = new Set(w ? (w.fixtureUids||[]) : []);
-    const list = $('wireFixtureList');
-    list.innerHTML = (area.placements||[]).map(p=>{
-      const f = findFixture(p.fixtureId);
-      if(!f) return '';
-      return `<label class="fx-card" style="cursor:pointer;">
-        <input type="checkbox" data-wire-fixture="${p.uid}" ${checkedUids.has(p.uid)?'checked':''} style="margin-right:10px;">
-        <div class="fx-main"><div class="fx-name">${escapeHtml(f.name)}</div><div class="fx-desc">${f.watt||0}W</div></div>
-      </label>`;
-    }).join('') || '<div class="fx-desc">No fixtures placed in this area yet.</div>';
-    const updateVaTotal = ()=>{
-      const checked = [...list.querySelectorAll('[data-wire-fixture]:checked')].map(cb=>cb.dataset.wireFixture);
-      const va = checked.reduce((s,uid)=>{
-        const p = (area.placements||[]).find(pp=>pp.uid===uid);
-        const f = p && findFixture(p.fixtureId);
-        return s + ((f&&f.watt)?f.watt:0);
-      }, 0);
-      $('wireRunVaTotal').textContent = checked.length ? `Total load: ${Math.round(va)} VA` : '';
-    };
-    list.querySelectorAll('[data-wire-fixture]').forEach(cb=> cb.addEventListener('change', updateVaTotal));
-    updateVaTotal();
-  }
   function openWireDistanceModal(path){
     pendingWirePath = path;
     editingWireId = null;
@@ -2515,7 +2575,6 @@
     $('wireDistanceInput').value = est!=null ? Math.round(est) : '';
     $('wireDistanceHint').hidden = est==null;
     $('wireDelete').hidden = true;
-    renderWireModalFixturePicker(null);
     $('wireModal').hidden = false;
   }
   function openWireEdit(id){
@@ -2527,7 +2586,6 @@
     $('wireDistanceInput').value = w.distanceFt;
     $('wireDistanceHint').hidden = true;
     $('wireDelete').hidden = false;
-    renderWireModalFixturePicker(w);
     $('wireModal').hidden = false;
   }
   function closeWireModal(){
@@ -2539,15 +2597,13 @@
     const area = currentArea(); if(!area) return;
     pushUndoSnapshot();
     const dist = parseFloat($('wireDistanceInput').value)||0;
-    const transformerId = $('wireTransformerSelect').value || null;
-    const fixtureUids = [...$('wireFixtureList').querySelectorAll('[data-wire-fixture]:checked')].map(cb=>cb.dataset.wireFixture);
     if(!area.wireRuns) area.wireRuns = [];
     if(pendingWirePath){
       const id = 'w'+(uidCounter++);
-      area.wireRuns.push({id, points:pendingWirePath, distanceFt:dist, transformerId, fixtureUids});
+      area.wireRuns.push({id, points:pendingWirePath, distanceFt:dist});
     } else if(editingWireId){
       const w = area.wireRuns.find(x=>x.id===editingWireId);
-      if(w){ w.distanceFt = dist; w.transformerId = transformerId; w.fixtureUids = fixtureUids; }
+      if(w){ w.distanceFt = dist; }
     }
     $('wireModal').hidden = true;
     pendingWirePath = null; editingWireId = null;
@@ -2568,96 +2624,6 @@
     const btn = $('btnDrawWire'); if(!btn) return;
     btn.classList.toggle('is-active', state.drawingWire);
     btn.textContent = state.drawingWire ? 'Drawing…' : 'Draw wire run';
-  }
-
-  // ---------------- transformers ----------------
-  // A transformer is a placed object (position + capacity), not a catalog item like a fixture --
-  // it exists purely so a wire run can be assigned to one, which is what makes the wiring-plan
-  // PDF's per-transformer load/run tables possible (see buildWiringPlanPdfBlob()). Rendered live
-  // in the editor (renderOverlays()) so a contractor sees it while designing, not just on export.
-  function updatePlaceTransformerBtn(){
-    const btn = $('btnPlaceTransformer'); if(!btn) return;
-    btn.classList.toggle('is-active', state.placingTransformer);
-    btn.textContent = state.placingTransformer ? 'Click to place…' : 'Place transformer';
-  }
-  function openTransformerEdit(id){
-    const area = currentArea(); if(!area) return;
-    const t = (area.transformers||[]).find(x=>x.id===id);
-    if(!t) return;
-    editingTransformerId = id;
-    $('transformerNameInput').value = t.name;
-    $('transformerCapacityInput').value = t.capacityW;
-    $('transformerModal').hidden = false;
-  }
-  function closeTransformerModal(){
-    $('transformerModal').hidden = true;
-    editingTransformerId = null;
-    renderOverlays();
-  }
-  function saveTransformerModal(){
-    const area = currentArea(); if(!area || !editingTransformerId) return;
-    const t = (area.transformers||[]).find(x=>x.id===editingTransformerId);
-    if(!t) return;
-    pushUndoSnapshot();
-    t.name = $('transformerNameInput').value.trim() || t.name;
-    t.capacityW = parseFloat($('transformerCapacityInput').value) || t.capacityW;
-    $('transformerModal').hidden = true;
-    editingTransformerId = null;
-    renderOverlays();
-  }
-  function deleteTransformerModal(){
-    const area = currentArea(); if(!area || !editingTransformerId) return;
-    pushUndoSnapshot();
-    area.transformers = (area.transformers||[]).filter(x=>x.id!==editingTransformerId);
-    // Any wire run pointed at this transformer falls back to "Unassigned" rather than keeping a
-    // dangling reference -- same "don't leave a stale id behind" principle as the accessory-
-    // fixture-delete/wire-run-fixtureUids cleanup elsewhere in this file.
-    (area.wireRuns||[]).forEach(w=>{ if(w.transformerId===editingTransformerId) w.transformerId=null; });
-    $('transformerModal').hidden = true;
-    editingTransformerId = null;
-    renderOverlays();
-  }
-
-  // ---------------- manual scale calibration ----------------
-  function updateSetScaleBtn(){
-    const btn = $('btnSetScale'); if(!btn) return;
-    btn.classList.toggle('is-active', state.settingScale);
-    btn.textContent = state.settingScale ? (scaleCalPoints&&scaleCalPoints.length ? 'Click 2nd point…' : 'Click 1st point…') : 'Set scale';
-  }
-  function openScaleCalibrationModal(){
-    $('scaleDistanceInput').value = '';
-    $('scaleModal').hidden = false;
-  }
-  function closeScaleCalibrationModal(){
-    $('scaleModal').hidden = true;
-    state.settingScale = false;
-    scaleCalPoints = null;
-    updateSetScaleBtn();
-    updatePlacementBanner();
-    renderOverlays();
-  }
-  function saveScaleCalibrationModal(){
-    const area = currentArea(); if(!area || !scaleCalPoints || scaleCalPoints.length<2) return;
-    const knownFt = parseFloat($('scaleDistanceInput').value);
-    if(!knownFt || knownFt<=0){ alert('Enter the real-world distance between the two points.'); return; }
-    const [a,b] = scaleCalPoints;
-    const aspect = area.photoAspect||0.8;
-    // Solve for the photo's real width (photoWidthFt) given two points a known real distance
-    // apart -- the same "one number describes the whole photo's scale, x and y derived from
-    // aspect" model area.photoWidthFt already uses everywhere else (pathLengthFt, the wiring-
-    // plan PDF's scale bar). dx/dy here are fractions of the photo's real width/height; solving
-    // knownFt = W * sqrt(dxFrac^2 + (dyFrac/aspect)^2) for W.
-    const dxFrac = (b.xPct-a.xPct)/100, dyFrac = (b.yPct-a.yPct)/100;
-    const denom = Math.sqrt(dxFrac*dxFrac + (dyFrac/aspect)*(dyFrac/aspect));
-    if(denom<=0){ alert('Those two points are too close together -- pick two points further apart.'); return; }
-    area.photoWidthFt = knownFt/denom;
-    saveAreaRow(area);
-    $('scaleModal').hidden = true;
-    state.settingScale = false;
-    scaleCalPoints = null;
-    updateSetScaleBtn();
-    updatePlacementBanner();
-    renderOverlays();
   }
 
   // ---------------- text boxes on the photo ----------------
@@ -2724,30 +2690,7 @@
     closeNotesModal();
   }
 
-  // ---------------- wiring plan PDF export ----------------
-  // Voltage-drop estimate, calibrated against a real reference: landscape-lighting transformers
-  // commonly have multiple voltage taps (12/13/14/15V) specifically so a long or heavy run can
-  // be fed from a higher tap to compensate for drop -- a real professional site plan Isaac
-  // shared (Kichler/LightPro software) explicitly labels its own run-length table "USING 15
-  // VOLT TAP". This assumes the same: a 15V tap, allowing the voltage to drop to ~10.5V at the
-  // far end (4.5V of drop) before calling a run "maxed out". V=I*R_roundtrip, R_roundtrip=2*
-  // length_ft*resistance-per-ft, I=VA/15 => length_ft = allowedDropV/(2*resistancePerFt*(VA/15)).
-  // Resistance-per-1000ft figures are standard published copper-wire constants (one-way), not
-  // something specific to this app. Verified against that same reference's own printed numbers
-  // (81.8VA/10AWG->440', 70.8VA/10AWG->480', 90.4VA/10AWG->380') -- this formula reproduces all
-  // three within ~6%, versus a naive "12V nominal, 5% drop" assumption which was off by ~15x
-  // (that assumption was tried first and was WRONG -- don't reintroduce it). Still labeled an
-  // ESTIMATE on the PDF, matching the reference's own hedged language -- splices, connectors,
-  // and whether the installer actually uses a 15V tap can all shift the real number, so this is
-  // a planning aid, not a guarantee.
-  const WIRE_GAUGES = [ {awg:12, label:'12/2', resistancePer1000ft:1.588}, {awg:10, label:'10/2', resistancePer1000ft:0.999} ];
-  function estimateMaxRunFt(va, gauge){
-    if(!va || va<=0) return null;
-    const supplyV = 15, allowedDropV = 4.5;
-    const amps = va/supplyV;
-    const resistancePerFt = gauge.resistancePer1000ft/1000;
-    return allowedDropV / (2 * resistancePerFt * amps);
-  }
+  // ---------------- scale bar helper (used by the CAD plan sheet) ----------------
   // Picks a "nice" round per-segment unit (feet) for the scale bar so a 4-segment bar spans
   // roughly a quarter of the drawing's real-world width -- purely cosmetic rounding, the actual
   // math (ptPerFt) is exact regardless of which unit gets picked.
@@ -2758,281 +2701,6 @@
     for(const s of niceSteps){ if(s<=target) unit=s; else break; }
     return unit;
   }
-  // photoDataUrl/photoFormat: the area's own photo, pre-fetched and converted to a data: URL by
-  // exportWiringPlan() (this function itself stays synchronous, matching buildPoPdfBlob's
-  // convention -- the async fetch happens in the caller). Drawn faded behind the schematic so
-  // the vector overlay (dots/lines/transformer symbols) stays legible on top of it, the same
-  // "muted background, vivid overlay" look a real site plan uses. Optional -- an area with no
-  // photo (shouldn't normally happen, but harmless) just gets a blank drawing box, exactly the
-  // prior behavior before this was added.
-  function buildWiringPlanPdfBlob(pr, area, photoDataUrl, photoFormat){
-    const { jsPDF } = window.jspdf;
-    const doc = new jsPDF({ unit:'pt', format:'letter', orientation:'landscape' });
-    const pageW = doc.internal.pageSize.getWidth(), pageH = doc.internal.pageSize.getHeight();
-    const marginX = 40, marginY = 40;
-    const dateStr = new Date().toLocaleDateString();
-
-    // ---- header ----
-    doc.setFont('helvetica','bold'); doc.setFontSize(18);
-    doc.text('Wiring Plan', marginX, marginY+8);
-    doc.setFont('helvetica','normal'); doc.setFontSize(10);
-    doc.text(dateStr, pageW-marginX, marginY+8, { align:'right' });
-    doc.setFontSize(11);
-    doc.text(`${pr.customer.name||'Untitled project'} — ${area.name}`, marginX, marginY+26);
-    doc.setFontSize(9); doc.setTextColor(120,120,120);
-    doc.text(`Prepared by ${state.company.name||'—'}${authProfile&&authProfile.fullName?' · '+authProfile.fullName:''}`, marginX, marginY+40);
-    doc.setTextColor(0,0,0);
-
-    // ---- layout regions ----
-    const rightColX = pageW-marginX-192, rightColW = 192;
-    const drawBoxX = marginX, drawBoxY = marginY+58, drawBoxW = rightColX-20-marginX, drawBoxH = pageH-marginY-drawBoxY-140;
-
-    // Fit the actual drawing to the area's real aspect ratio inside the box, letterboxed rather
-    // than stretched -- same "don't distort the real layout" principle as PRINT_PHOTO_CAP_H
-    // elsewhere in this app (see CLAUDE.md's print-photo note).
-    const aspect = area.photoAspect || 0.8;
-    let drawW = drawBoxW, drawH = drawBoxW/aspect;
-    if(drawH > drawBoxH){ drawH = drawBoxH; drawW = drawBoxH*aspect; }
-    const drawX = drawBoxX + (drawBoxW-drawW)/2, drawY = drawBoxY + (drawBoxH-drawH)/2;
-    if(photoDataUrl){
-      // Faded, not full-strength -- a vivid photo behind vivid schematic colors would fight the
-      // fixture-dot/wire-run colors for attention. GState/opacity is a real jsPDF core API
-      // (verified against this exact pinned version before shipping), not a plugin.
-      try{
-        doc.setGState(new doc.GState({opacity:0.4}));
-        doc.addImage(photoDataUrl, photoFormat||'JPEG', drawX, drawY, drawW, drawH);
-        doc.setGState(new doc.GState({opacity:1}));
-      }catch(err){ console.warn('Duskline: wiring plan background image failed.', err); }
-    }
-    doc.setDrawColor(180,180,180); doc.setLineWidth(1);
-    doc.rect(drawX, drawY, drawW, drawH);
-    const toPt = p=> ({ x: drawX+(p.xPct/100)*drawW, y: drawY+(p.yPct/100)*drawH });
-
-    // ---- wire runs (drawn first, under the fixture/transformer markers) ----
-    doc.setLineWidth(1.2);
-    doc.setDrawColor(94,200,224);
-    if(doc.setLineDashPattern) doc.setLineDashPattern([3,2], 0);
-    (area.wireRuns||[]).forEach(w=>{
-      for(let i=1;i<w.points.length;i++){
-        const a = toPt(w.points[i-1]), b = toPt(w.points[i]);
-        doc.line(a.x, a.y, b.x, b.y);
-      }
-    });
-    if(doc.setLineDashPattern) doc.setLineDashPattern([], 0);
-
-    // ---- fixture dots ----
-    (area.placements||[]).forEach(p=>{
-      const f = findFixture(p.fixtureId); if(!f) return;
-      const pt = toPt(p);
-      const col = fixtureTypeMeta(f).col.split(',').map(Number);
-      doc.setFillColor(col[0],col[1],col[2]);
-      doc.setDrawColor(255,255,255); doc.setLineWidth(0.75);
-      doc.circle(pt.x, pt.y, 4, 'FD');
-    });
-
-    // ---- transformer symbols ----
-    (area.transformers||[]).forEach(t=>{
-      const pt = toPt(t);
-      doc.setFillColor(226,104,92); doc.setDrawColor(255,255,255); doc.setLineWidth(0.75);
-      doc.rect(pt.x-5, pt.y-5, 10, 10, 'FD');
-      doc.setFont('helvetica','bold'); doc.setFontSize(7); doc.setTextColor(226,104,92);
-      doc.text(t.name, pt.x+8, pt.y+3);
-      doc.setTextColor(0,0,0);
-    });
-
-    // ---- scale bar (only when the area's real-world width is known -- see photoWidthFt) ----
-    const barY = drawY+drawH+22;
-    if(area.photoWidthFt){
-      const ptPerFt = drawW/area.photoWidthFt;
-      const unit = pickScaleBarUnitFt(area.photoWidthFt);
-      doc.setFont('helvetica','normal'); doc.setFontSize(8);
-      let bx = drawX;
-      for(let i=0;i<4;i++){
-        const segW = unit*ptPerFt;
-        doc.setFillColor(i%2===0 ? 20 : 255, i%2===0 ? 20 : 255, i%2===0 ? 20 : 255);
-        doc.setDrawColor(20,20,20); doc.setLineWidth(0.6);
-        doc.rect(bx, barY, segW, 7, 'FD');
-        doc.text(String(i*unit)+"'", bx, barY-3, {align:'center'});
-        bx += segW;
-      }
-      doc.text(String(4*unit)+"'", bx, barY-3, {align:'center'});
-    } else {
-      doc.setFont('helvetica','italic'); doc.setFontSize(8); doc.setTextColor(150,150,150);
-      doc.text('Not to scale', drawX, barY);
-      doc.setTextColor(0,0,0);
-    }
-
-    // ---- legend ----
-    let legY = barY+22;
-    doc.setFont('helvetica','bold'); doc.setFontSize(9);
-    doc.text('LEGEND', drawX, legY);
-    legY += 14;
-    doc.setFont('helvetica','normal'); doc.setFontSize(8);
-    usedFixtureTypes(area.placements).forEach(type=>{
-      const m = FIXTURE_TYPES[type];
-      const col = m.col.split(',').map(Number);
-      doc.setFillColor(col[0],col[1],col[2]); doc.setDrawColor(255,255,255); doc.setLineWidth(0.5);
-      doc.circle(drawX+4, legY-3, 4, 'FD');
-      doc.text(m.label, drawX+14, legY);
-      legY += 13;
-    });
-    if((area.transformers||[]).length){
-      doc.setFillColor(226,104,92); doc.setDrawColor(255,255,255); doc.setLineWidth(0.5);
-      doc.rect(drawX, legY-7, 8, 8, 'FD');
-      doc.text('Transformer', drawX+14, legY);
-      legY += 13;
-    }
-    if((area.wireRuns||[]).length){
-      doc.setDrawColor(94,200,224); doc.setLineWidth(1.2);
-      if(doc.setLineDashPattern) doc.setLineDashPattern([3,2], 0);
-      doc.line(drawX, legY-4, drawX+10, legY-4);
-      if(doc.setLineDashPattern) doc.setLineDashPattern([], 0);
-      doc.text('Wire run', drawX+14, legY);
-    }
-
-    // ---- fixture schedule (qty x fixture, grouped by actual product -- not just type) ----
-    // Sits beside the compact color-key legend rather than replacing it: the legend explains
-    // what a dot's COLOR means on the drawing, this explains what's actually being installed and
-    // how many of each, matching the reference site-plan's own symbol-legend-with-counts idea.
-    const scheduleMap = new Map();
-    (area.placements||[]).forEach(p=>{
-      const f = findFixture(p.fixtureId); if(!f) return;
-      if(!scheduleMap.has(f.id)) scheduleMap.set(f.id, {f, count:0});
-      scheduleMap.get(f.id).count++;
-    });
-    if(scheduleMap.size){
-      const scheduleX = drawX+150, scheduleW = Math.max(120, drawW-150);
-      doc.setFont('helvetica','bold'); doc.setFontSize(9); doc.setTextColor(0,0,0);
-      doc.text('FIXTURE SCHEDULE', scheduleX, barY+22);
-      doc.autoTable({
-        startY: barY+30,
-        margin: { left: scheduleX, right: pageW-scheduleX-scheduleW },
-        tableWidth: scheduleW,
-        head: [['Qty','Fixture','Type','W']],
-        body: [...scheduleMap.values()].map(({f,count})=> [String(count), f.name, fixtureTypeMeta(f).label, String(f.watt||0)]),
-        styles: { fontSize: 7, cellPadding: 3 },
-        headStyles: { fillColor: [20,23,28] },
-      });
-    }
-
-    // ---- per-transformer load/run tables (right column) ----
-    let tableY = drawBoxY;
-    const gaugeFor = w => WIRE_GAUGES.find(g=>g.awg===(w.gaugeAwg||12)) || WIRE_GAUGES[0];
-    const buildRunRows = runs => runs.map((w,i)=>{
-      const va = (w.fixtureUids||[]).reduce((s,uid)=>{
-        const p = (area.placements||[]).find(pp=>pp.uid===uid);
-        const f = p && findFixture(p.fixtureId);
-        return s + ((f&&f.watt)?f.watt:0);
-      }, 0);
-      const gauge = gaugeFor(w);
-      const maxFt = estimateMaxRunFt(va, gauge);
-      return [
-        'Run '+(i+1),
-        Math.round(va)+' VA',
-        gauge.label,
-        maxFt ? '~'+Math.round(maxFt)+"'" : '—',
-        Math.round(w.distanceFt||0)+"'",
-      ];
-    });
-    const allRuns = area.wireRuns||[];
-    (area.transformers||[]).forEach(t=>{
-      const runs = allRuns.filter(w=>w.transformerId===t.id);
-      const totalVa = runs.reduce((s,w)=>{
-        return s + (w.fixtureUids||[]).reduce((s2,uid)=>{
-          const p = (area.placements||[]).find(pp=>pp.uid===uid);
-          const f = p && findFixture(p.fixtureId);
-          return s2 + ((f&&f.watt)?f.watt:0);
-        }, 0);
-      }, 0);
-      doc.setFont('helvetica','bold'); doc.setFontSize(9);
-      doc.text(`${t.name} — ${t.capacityW}W`, rightColX, tableY);
-      tableY += 6;
-      doc.autoTable({
-        startY: tableY,
-        margin: { left: rightColX, right: marginX },
-        tableWidth: rightColW,
-        head: [['Run','VA','Gauge','Max @ 15V tap (est.)','Drawn']],
-        body: runs.length ? buildRunRows(runs) : [['No runs assigned yet','','','','']],
-        styles: { fontSize: 7, cellPadding: 3 },
-        headStyles: { fillColor: [20,23,28] },
-      });
-      tableY = doc.lastAutoTable.finalY + 8;
-      doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(120,120,120);
-      doc.text(`Total: ${Math.round(totalVa)} VA of ${t.capacityW}W capacity`, rightColX, tableY);
-      doc.setTextColor(0,0,0);
-      tableY += 16;
-    });
-    const unassigned = allRuns.filter(w=>!w.transformerId);
-    if(unassigned.length){
-      doc.setFont('helvetica','bold'); doc.setFontSize(9);
-      doc.text('Unassigned runs', rightColX, tableY);
-      tableY += 6;
-      doc.autoTable({
-        startY: tableY,
-        margin: { left: rightColX, right: marginX },
-        tableWidth: rightColW,
-        head: [['Run','VA','Gauge','Max @ 15V tap (est.)','Drawn']],
-        body: buildRunRows(unassigned),
-        styles: { fontSize: 7, cellPadding: 3 },
-        headStyles: { fillColor: [20,23,28] },
-      });
-    }
-    if(!(area.transformers||[]).length && !unassigned.length){
-      doc.setFont('helvetica','italic'); doc.setFontSize(8); doc.setTextColor(150,150,150);
-      doc.text('No transformers placed yet.', rightColX, tableY);
-      doc.setTextColor(0,0,0);
-    }
-
-    doc.setFont('helvetica','italic'); doc.setFontSize(7); doc.setTextColor(150,150,150);
-    doc.text('Max run lengths are estimates assuming a 15V transformer tap -- verify in the field.', marginX, pageH-20);
-    doc.setTextColor(0,0,0);
-
-    return doc.output('blob');
-  }
-  // Fetches area.photo (a Storage https:// URL) and converts it to a data: URL jsPDF's
-  // addImage() can embed directly -- same fetch+FileReader pattern useSatelliteView() already
-  // uses for the same reason (jsPDF, unlike an <img> tag, can't just be pointed at a remote URL).
-  // Returns {dataUrl, format} or null on any failure, so a background-image problem degrades to
-  // "no background" rather than blocking the whole export -- the schematic is the part that
-  // actually has to work.
-  async function fetchPhotoForPdf(area){
-    if(!area.photo) return null;
-    try{
-      const resp = await fetch(area.photo);
-      if(!resp.ok) throw new Error('fetch failed ('+resp.status+')');
-      const blob = await resp.blob();
-      const format = blob.type==='image/png' ? 'PNG' : 'JPEG';
-      const dataUrl = await new Promise((resolve, reject)=>{
-        const reader = new FileReader();
-        reader.onload = ()=> resolve(reader.result);
-        reader.onerror = reject;
-        reader.readAsDataURL(blob);
-      });
-      return { dataUrl, format };
-    }catch(err){
-      console.warn('Duskline: wiring plan photo fetch failed.', err);
-      return null;
-    }
-  }
-  async function exportWiringPlan(){
-    const pr = currentProject(); const area = currentArea();
-    if(!pr || !area) return;
-    const btn = $('btnExportWiringPlan');
-    const origText = btn.textContent;
-    btn.disabled = true; btn.textContent = 'Preparing…';
-    try{
-      const photo = await fetchPhotoForPdf(area);
-      const blob = buildWiringPlanPdfBlob(pr, area, photo&&photo.dataUrl, photo&&photo.format);
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = `wiring-plan-${area.name.replace(/[^a-z0-9]+/gi,'-')}.pdf`;
-      document.body.appendChild(a); a.click(); document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    } finally {
-      btn.disabled = false; btn.textContent = origText;
-    }
-  }
-
   function updatePlacementBeam(p,f,rect){
     const area = currentArea(); if(!area) return;
     const wrapper = document.querySelector(`.placement[data-uid="${p.uid}"]`);
@@ -3165,41 +2833,11 @@
     if(suppressNextCanvasClick){ suppressNextCanvasClick=false; return; }
     const area = currentArea(); if(!area) return;
     if(state.drawingWire || state.drawingStripFixtureId) return;
-    if(e.target.closest('.marker-dot') || e.target.closest('.beam-handle') || e.target.closest('.width-handle') || e.target.closest('.transformer-marker')) return;
+    if(e.target.closest('.marker-dot') || e.target.closest('.beam-handle') || e.target.closest('.width-handle')) return;
     const loc = screenToLocalPct(e.clientX, e.clientY);
     let xPct = Math.min(96, Math.max(4, loc.xPct));
     let yPct = Math.min(96, Math.max(4, loc.yPct));
 
-    // "Set scale": two clicks mark two points, then a modal asks the real-world distance
-    // between them -- works on ANY photo (a regular ground photo, an imported CAD/site-plan
-    // drawing, or to manually override a satellite photo's automatic scale), not just satellite
-    // captures. This is the only other way (besides useSatelliteView()) to populate
-    // area.photoWidthFt, which powers the auto-estimated wire/strip length and the wiring-plan
-    // PDF's scale bar.
-    if(state.settingScale){
-      scaleCalPoints.push({xPct,yPct});
-      if(scaleCalPoints.length<2){
-        renderOverlays(); updatePlacementBanner();
-      } else {
-        openScaleCalibrationModal();
-      }
-      return;
-    }
-    // Placing a transformer is a single click, like arming/placing a fixture (state.armed)
-    // below -- not a drag gesture like wire runs/strips, since a transformer has no shape to
-    // draw, just a position. Opens straight into the edit modal so its name/capacity can be
-    // set immediately, the same "place then configure" flow a wire run already uses.
-    if(state.placingTransformer){
-      pushUndoSnapshot();
-      if(!area.transformers) area.transformers = [];
-      const id = 't'+(uidCounter++);
-      area.transformers.push({id, name:'Transformer '+(area.transformers.length+1), capacityW:300, xPct, yPct});
-      state.placingTransformer = false;
-      updatePlaceTransformerBtn();
-      renderOverlays(); updatePlacementBanner();
-      openTransformerEdit(id);
-      return;
-    }
     if(state.armed){
       pushUndoSnapshot();
       const f = findFixture(state.armed);
@@ -3291,22 +2929,10 @@
       $('btnBannerAction').textContent = 'Done';
       $('btnBannerAction').onclick = ()=>{ state.drawingStripFixtureId=null; renderSheetList(); updatePlacementBanner(); };
       banner.hidden = false;
-    } else if(state.placingTransformer){
-      $('placementText').textContent = 'Tap the photo to place a transformer';
-      $('btnBannerAction').textContent = 'Cancel';
-      $('btnBannerAction').onclick = ()=>{ state.placingTransformer=false; updatePlaceTransformerBtn(); updatePlacementBanner(); };
-      banner.hidden = false;
-    } else if(state.settingScale){
-      $('placementText').textContent = (scaleCalPoints&&scaleCalPoints.length)
-        ? 'Tap a second point a known distance away'
-        : 'Tap a point you know the real-world distance from';
-      $('btnBannerAction').textContent = 'Cancel';
-      $('btnBannerAction').onclick = ()=>{ state.settingScale=false; scaleCalPoints=null; updateSetScaleBtn(); updatePlacementBanner(); renderOverlays(); };
-      banner.hidden = false;
     } else {
       banner.hidden = true;
     }
-    if(cp) cp.classList.toggle('is-armed', !!state.armed || !!state.drawingWire || !!state.drawingStripFixtureId || !!state.placingTransformer || !!state.settingScale);
+    if(cp) cp.classList.toggle('is-armed', !!state.armed || !!state.drawingWire || !!state.drawingStripFixtureId);
   }
 
   // ---------------- fixture picker (inside area editor) ----------------
@@ -3376,15 +3002,15 @@
     $('sheetList').querySelectorAll('[data-arm]').forEach(b=>b.addEventListener('click', e=>{
       const id = e.currentTarget.dataset.arm;
       state.armed = state.armed===id ? null : id;
-      state.drawingWire = false; state.drawingStripFixtureId = null; state.placingTransformer = false; state.settingScale = false; scaleCalPoints = null;
-      state.selected = null; closeInfoSheet(); updatePlaceTransformerBtn(); updateSetScaleBtn();
+      state.drawingWire = false; state.drawingStripFixtureId = null;
+      state.selected = null; closeInfoSheet();
       renderSheetList(); updatePlacementBanner(); renderOverlays();
     }));
     $('sheetList').querySelectorAll('[data-arm-strip]').forEach(b=>b.addEventListener('click', e=>{
       const id = e.currentTarget.dataset.armStrip;
       state.drawingStripFixtureId = state.drawingStripFixtureId===id ? null : id;
-      state.armed = null; state.drawingWire = false; state.placingTransformer = false; state.settingScale = false; scaleCalPoints = null;
-      state.selected = null; closeInfoSheet(); updatePlaceTransformerBtn(); updateSetScaleBtn();
+      state.armed = null; state.drawingWire = false;
+      state.selected = null; closeInfoSheet();
       renderSheetList(); updatePlacementBanner(); renderOverlays();
     }));
     $('sheetList').querySelectorAll('[data-inc]').forEach(b=>b.addEventListener('click', e=>{
@@ -3821,7 +3447,7 @@
 
   // ---------------- top-level screen switching ----------------
   function switchTopScreen(name){
-    ['projects','project-detail','fixtures','distributor-contractors','company','admin'].forEach(n=>{
+    ['projects','project-detail','plans','fixtures','distributor-contractors','company','admin'].forEach(n=>{
       $('screen-'+n).classList.toggle('active', n===name);
     });
     document.querySelectorAll('#screenTabs .tab').forEach(t=>{
@@ -3832,6 +3458,7 @@
     if(name==='distributor-contractors'){ renderBranchList(); renderInviteBranchOptions(); renderInviteList(); renderContractorLinkList(); }
     if(name==='company'){ renderCompanyPreview(); renderDistributorList(); renderDistributorLinksSection(); }
     if(name==='projects') renderProjectList();
+    if(name==='plans') renderPlansTab();
     if(name==='admin') renderAdminDashboard();
   }
   // Distributor accounts get a different tab set (no Projects -- there's no lighting-design
@@ -4101,8 +3728,7 @@
     if(!area.lightStrips) area.lightStrips = [];
     if(!area.transformers) area.transformers = [];
     state.armed=null; state.selected=null; state.drawingWire=false; state.currentWirePath=null;
-    state.drawingStripFixtureId=null; state.currentStripPath=null; state.placingTransformer=false;
-    state.settingScale=false; scaleCalPoints=null; closeInfoSheet();
+    state.drawingStripFixtureId=null; state.currentStripPath=null; closeInfoSheet();
     state.sheetSearch=''; state.sheetTypeFilter='all';
     $('sheetSearchInput').value=''; $('sheetTypeFilter').value='all';
     undoStack = []; redoStack = []; updateUndoRedoButtons();
@@ -4116,8 +3742,6 @@
     $('beamBrightnessVal').textContent = Math.round(area.beamBrightness*100)+'%';
     resetView();
     updateDrawWireBtn();
-    updatePlaceTransformerBtn();
-    updateSetScaleBtn();
     refreshEditorPhotoState();
     renderSheetList();
     updatePlacementBanner();
@@ -4127,8 +3751,7 @@
   function closeAreaEditor(){
     flushCurrentEdits();
     state.drawingWire=false; state.currentWirePath=null;
-    state.drawingStripFixtureId=null; state.currentStripPath=null; state.placingTransformer=false;
-    state.settingScale=false; scaleCalPoints=null;
+    state.drawingStripFixtureId=null; state.currentStripPath=null;
     $('editorScreen').hidden = true;
     document.body.style.overflow = '';
     renderProjectDetail();
@@ -5895,9 +5518,8 @@
       darkness: area.darkness!=null?area.darkness:0.6, beam_brightness: area.beamBrightness!=null?area.beamBrightness:1,
       placements: area.placements||[], accessory_qty: area.accessoryQty||{},
       wire_runs: area.wireRuns||[], light_strips: area.lightStrips||[],
-      // Placed transformer objects ({id,name,capacityW,xPct,yPct}) -- powers the wiring-plan
-      // PDF's per-transformer load/run tables (see buildWiringPlanPdfBlob()). A wire run's own
-      // transformerId/fixtureUids live inside wire_runs' own jsonb, no separate column needed.
+      // LEGACY: transformers used to be placed on the photo editor; that feature moved to CAD
+      // plans (the Plans tab). Existing rows are passed through untouched so nothing is lost.
       transformers: area.transformers||[],
       // Only sent once notes have ever been used on this area (non-empty, or loaded non-empty and
       // possibly just cleared -- _hadNotes): an area that never used notes must keep saving even
@@ -6005,6 +5627,7 @@
       code: row.code, multiplier: row.multiplier, label: row.label, branchId: row.branch_id||null,
       redeemedAt: row.redeemed_at, createdAt: row.created_at,
     }));
+    await cadLoad(companyId);
   }
   async function saveCompanyRow(){
     if(!authUser || !authProfile) return;
@@ -6073,6 +5696,7 @@
       saveCompanyRow(),
       pr ? saveProjectRow(pr) : Promise.resolve(),
       area ? saveAreaRow(area) : Promise.resolve(),
+      cadPlan ? cadSaveNow() : Promise.resolve(),
     ]);
   }
 
@@ -6265,6 +5889,7 @@
     $('accountModal').hidden = true;
   }
   function leaveApp(){
+    cadReset();
     authUser = null;
     authProfile = null;
     Object.assign(state, freshState());
@@ -6272,8 +5897,1235 @@
     showLandingScreen();
   }
 
+  // ==========================================================================================
+  // CAD PLANS -- a separate area (the "Plans" tab) for Kichler/LightPro-style lighting site
+  // plans: an uploaded site image + a two-click scale calibration, fixtures/transformers placed
+  // on it, and wire runs drawn transformer -> fixture -> fixture in click order. Everything
+  // (live editor canvas, live schedule panel, sheet preview, PDF) is ONE scene -> display list
+  // -> backend pipeline:
+  //   scene (plan.scene + plan.pxPerFt) --cadCalc()--> loads/gauges/limits
+  //   cadSiteItems()/cadLeftBlocks()/cadBuildSheet() --> primitive display lists
+  //   cadDrawItemsCanvas() / cadDrawItemsPdf() --> the only two places that touch a real surface
+  // The interactive editor is just cadSiteItems({interactive:true}) plus selection/draft
+  // overlay primitives drawn through the same canvas backend -- not a second renderer.
+  // ==========================================================================================
+  const CAD_SHEET = {w:792, h:612};   // letter landscape in "sheet units" (= pt); tabloid just scales this
+  const CAD_PANEL_W = 170;            // left schedule column width on the sheet
+  const CAD_GAUGE_COLORS = {16:'#7c3aed', 14:'#0f8b8d', 12:'#d62828', 10:'#1d4ed8', 8:'#111827'};
+  // Standard published copper resistance (ohms per 1000 ft, one conductor). Editable in Settings.
+  const CAD_DEFAULT_GAUGES = [{awg:12, r:1.588}, {awg:10, r:0.999}, {awg:8, r:0.628}]; // 12/10 like the reference sheet; add 14/16 in Settings
+  const CAD_DEFAULT_MODELS = [
+    {id:'tm150',  name:'150W Transformer',  capacityW:150,  taps:[12,13,14,15]},
+    {id:'tm300',  name:'300W Transformer',  capacityW:300,  taps:[12,13,14,15]},
+    {id:'tm600',  name:'600W Transformer',  capacityW:600,  taps:[12,13,14,15]},
+    {id:'tm900',  name:'900W Transformer',  capacityW:900,  taps:[12,13,14,15]},
+    {id:'tm1200', name:'1200W Transformer', capacityW:1200, taps:[12,13,14,15]},
+  ];
+  // Symbols are plain data (see cadSymbolItems) so they can be changed without touching code:
+  // built-ins below are modelled on the Kichler/LightPro sheet's legend (color-coded circles with
+  // a centre dot, diamond bracket/connector marks); Settings lets a company reassign which symbol
+  // each catalog fixture uses and add its own via JSON. Shapes live in a +-10 unit box.
+  function cadDotSym(id,label,fill,stroke,dot){
+    const shapes = [{t:'circle', r:9, fill, stroke, sw:1.6}];
+    if(dot) shapes.push({t:'circle', r:2.7, fill:dot, stroke:null});
+    return {id, label, kind:'fixture', shapes};
+  }
+  const CAD_BUILTIN_SYMBOLS = [
+    cadDotSym('accent_yellow','Accent — yellow','#f2d21b','#1a1a1a','#1a1a1a'),
+    cadDotSym('accent_red','Accent — dark red','#b3261e','#1a1a1a','#1a1a1a'),
+    cadDotSym('accent_orange','Accent — orange','#f28c28','#1a1a1a','#1a1a1a'),
+    cadDotSym('accent_purple','Accent — purple','#8e5bd1','#1a1a1a','#1a1a1a'),
+    cadDotSym('accent_green','Accent — green','#3aa757','#1a1a1a','#1a1a1a'),
+    cadDotSym('flood_blue','Flood — blue ring','#ffffff','#1f5fbf','#1f5fbf'),
+    cadDotSym('flood_teal','Flood — teal ring','#ffffff','#14a3a3','#14a3a3'),
+    cadDotSym('path_pink','Path light — pink ring','#ffffff','#d6336c','#d6336c'),
+    cadDotSym('downlight_pink','Downlight — pink','#f7c6d4','#d6336c','#d6336c'),
+    {id:'bollard_grey', label:'Bollard — grey', kind:'fixture', shapes:[
+      {t:'circle', r:9, fill:'#cfcfcf', stroke:'#d6336c', sw:1.6}, {t:'circle', r:4.2, fill:null, stroke:'#d6336c', sw:1.2}]},
+    {id:'well_square', label:'In-ground — square', kind:'fixture', shapes:[
+      {t:'rect', w:16, h:16, fill:'#ffffff', stroke:'#8e5bd1', sw:1.6}, {t:'circle', r:2.7, fill:'#8e5bd1', stroke:null}]},
+    {id:'bar_cyan', label:'Hardscape bar', kind:'fixture', shapes:[
+      {t:'rect', w:20, h:7, fill:'#48c7c2', stroke:'#1a1a1a', sw:1.4}]},
+    cadDotSym('generic_dot','Generic','#dcdcdc','#1a1a1a','#1a1a1a'),
+    {id:'bracket_diamond', label:'Bracket — diamond', kind:'accessory', shapes:[
+      {t:'poly', pts:[[0,-9],[9,0],[0,9],[-9,0]], fill:'#f2d21b', stroke:'#1a1a1a', sw:1.4},
+      {t:'line', x1:-5, y1:0, x2:5, y2:0, stroke:'#1a1a1a', sw:1.2}, {t:'line', x1:0, y1:-5, x2:0, y2:5, stroke:'#1a1a1a', sw:1.2}]},
+    {id:'connector_star', label:'Connector — star', kind:'accessory', shapes:[
+      {t:'poly', pts:[[0,-9],[9,0],[0,9],[-9,0]], fill:'#ffffff', stroke:'#1a1a1a', sw:1.4},
+      {t:'line', x1:-5, y1:-5, x2:5, y2:5, stroke:'#1a1a1a', sw:1}, {t:'line', x1:5, y1:-5, x2:-5, y2:5, stroke:'#1a1a1a', sw:1},
+      {t:'line', x1:-6, y1:0, x2:6, y2:0, stroke:'#1a1a1a', sw:1}, {t:'line', x1:0, y1:-6, x2:0, y2:6, stroke:'#1a1a1a', sw:1}]},
+  ];
+  // Which built-in symbols each catalog fixture TYPE cycles through by default, so two different
+  // accents on one plan get different marks (the reference sheet's yellow vs dark-red accents).
+  const CAD_TYPE_POOL = {
+    accent:['accent_yellow','accent_red','accent_orange','accent_purple'], path:['path_pink','downlight_pink'],
+    inground:['well_square','accent_green'], flood:['flood_blue','flood_teal'], downlight:['downlight_pink','accent_green'],
+    hardscape:['bar_cyan'], other:['generic_dot'],
+  };
+  const CAD_ACCESSORY_POOL = ['bracket_diamond','connector_star'];
+
+  let cadPlans = [];
+  let cadSettings = cadDefaultSettings();
+  let cadSchemaMissing = false;
+
+  function cadDefaultSettings(){
+    return { symbolScale:1, minLampV:10.5, gauges:CAD_DEFAULT_GAUGES.map(g=>({...g})), models:CAD_DEFAULT_MODELS.map(m=>({...m, taps:[...m.taps]})),
+      fixtureSymbol:{}, customSymbols:[] };
+  }
+  function cadNormalizeSettings(data){
+    const d = cadDefaultSettings(); if(!data || typeof data!=='object') return d;
+    if(typeof data.symbolScale==='number') d.symbolScale = Math.min(3, Math.max(0.4, data.symbolScale));
+    if(typeof data.minLampV==='number') d.minLampV = data.minLampV;
+    if(Array.isArray(data.gauges) && data.gauges.length) d.gauges = data.gauges.filter(g=>g && g.awg>0 && g.r>0).map(g=>({awg:+g.awg, r:+g.r}));
+    if(Array.isArray(data.models) && data.models.length) d.models = data.models.filter(m=>m && m.id && m.capacityW>0).map(m=>({id:String(m.id), name:String(m.name||'Transformer'), capacityW:+m.capacityW, taps:(Array.isArray(m.taps)&&m.taps.length?m.taps.map(Number).filter(n=>n>0):[12,13,14,15])}));
+    if(data.fixtureSymbol && typeof data.fixtureSymbol==='object') d.fixtureSymbol = {...data.fixtureSymbol};
+    if(Array.isArray(data.customSymbols)) d.customSymbols = data.customSymbols;
+    return d;
+  }
+  function cadColor(c, fallback){
+    return (typeof c==='string' && /^(#[0-9a-fA-F]{3,8}|[a-zA-Z]{3,20})$/.test(c)) ? c : (fallback||null);
+  }
+  // Custom (user-supplied JSON) symbols are validated down to numbers + safe color strings before
+  // they can ever reach the canvas, the PDF, or an innerHTML SVG string.
+  function cadCleanSymbol(sym){
+    if(!sym || typeof sym!=='object' || typeof sym.id!=='string' || !/^[\w-]{1,40}$/.test(sym.id) || !Array.isArray(sym.shapes)) return null;
+    const num = v=> (typeof v==='number' && isFinite(v)) ? Math.max(-40, Math.min(40, v)) : 0;
+    const shapes = [];
+    sym.shapes.slice(0,24).forEach(sh=>{
+      if(!sh) return;
+      const base = {fill:cadColor(sh.fill,null), stroke:cadColor(sh.stroke,null), sw:Math.max(0, Math.min(6, +sh.sw||1))};
+      if(sh.t==='circle') shapes.push({t:'circle', cx:num(sh.cx), cy:num(sh.cy), r:Math.max(0.2,Math.abs(num(sh.r))), ...base});
+      else if(sh.t==='rect') shapes.push({t:'rect', cx:num(sh.cx), cy:num(sh.cy), w:Math.abs(num(sh.w)), h:Math.abs(num(sh.h)), ...base});
+      else if(sh.t==='line') shapes.push({t:'line', x1:num(sh.x1), y1:num(sh.y1), x2:num(sh.x2), y2:num(sh.y2), stroke:cadColor(sh.stroke,'#1a1a1a'), sw:base.sw});
+      else if(sh.t==='poly' && Array.isArray(sh.pts)) shapes.push({t:'poly', pts:sh.pts.slice(0,32).map(p=>[num(p&&p[0]), num(p&&p[1])]), closed:sh.closed!==false, ...base});
+    });
+    return shapes.length ? {id:sym.id, label:String(sym.label||sym.id).slice(0,60), kind:sym.kind==='accessory'?'accessory':'fixture', shapes} : null;
+  }
+  function cadAllSymbols(){
+    const list = CAD_BUILTIN_SYMBOLS.map(s=>({...s, builtin:true}));
+    ((cadSettings&&cadSettings.customSymbols)||[]).forEach(s=>{ const c = cadCleanSymbol(s); if(c){ const i=list.findIndex(x=>x.id===c.id); if(i>=0) list[i]=c; else list.push(c); } });
+    return list;
+  }
+  function cadSymbolById(id){ return cadAllSymbols().find(s=>s.id===id) || CAD_BUILTIN_SYMBOLS.find(s=>s.id==='generic_dot'); }
+  // Symbol for a catalog item: explicit Settings override, else cycle the type's pool by the item's
+  // position among same-type catalog items (stable because allFixtures() order is stable).
+  function cadSymbolIdFor(f){
+    const ov = cadSettings && cadSettings.fixtureSymbol && cadSettings.fixtureSymbol[f.id];
+    if(ov && cadAllSymbols().some(s=>s.id===ov)) return ov;
+    if(f.cat==='accessory'){
+      const idx = allFixtures().filter(x=>x.cat==='accessory').findIndex(x=>x.id===f.id);
+      return CAD_ACCESSORY_POOL[Math.max(0,idx) % CAD_ACCESSORY_POOL.length];
+    }
+    const pool = CAD_TYPE_POOL[f.type] || CAD_TYPE_POOL.other;
+    const idx = allFixtures().filter(x=>x.cat!=='accessory' && x.cat!=='strip' && (x.type||'other')===(f.type||'other')).findIndex(x=>x.id===f.id);
+    return pool[Math.max(0,idx) % pool.length];
+  }
+  function cadSymbolItems(sym, x, y, s){
+    const items = [];
+    (sym.shapes||[]).forEach(sh=>{
+      const w = (sh.sw||1)*s;
+      if(sh.t==='circle') items.push({k:'circle', x:x+(sh.cx||0)*s, y:y+(sh.cy||0)*s, r:sh.r*s, fill:sh.fill||null, stroke:sh.stroke||null, w});
+      else if(sh.t==='rect') items.push({k:'rect', x:x+((sh.cx||0)-sh.w/2)*s, y:y+((sh.cy||0)-sh.h/2)*s, w:sh.w*s, h:sh.h*s, fill:sh.fill||null, stroke:sh.stroke||null, lw:w});
+      else if(sh.t==='line') items.push({k:'line', x1:x+sh.x1*s, y1:y+sh.y1*s, x2:x+sh.x2*s, y2:y+sh.y2*s, c:sh.stroke||'#1a1a1a', w});
+      else if(sh.t==='poly') items.push({k:'poly', pts:sh.pts.map(p=>[x+p[0]*s, y+p[1]*s]), closed:sh.closed!==false, fill:sh.fill||null, stroke:sh.stroke||null, w});
+    });
+    return items;
+  }
+  function cadSymbolSvg(sym, px){
+    const parts = (sym.shapes||[]).map(sh=>{
+      const f = sh.fill ? sh.fill : 'none', st = sh.stroke ? sh.stroke : 'none', sw = sh.sw||1;
+      if(sh.t==='circle') return `<circle cx="${sh.cx||0}" cy="${sh.cy||0}" r="${sh.r}" fill="${f}" stroke="${st}" stroke-width="${sw}"/>`;
+      if(sh.t==='rect') return `<rect x="${(sh.cx||0)-sh.w/2}" y="${(sh.cy||0)-sh.h/2}" width="${sh.w}" height="${sh.h}" fill="${f}" stroke="${st}" stroke-width="${sw}"/>`;
+      if(sh.t==='line') return `<line x1="${sh.x1}" y1="${sh.y1}" x2="${sh.x2}" y2="${sh.y2}" stroke="${sh.stroke||'#1a1a1a'}" stroke-width="${sw}"/>`;
+      if(sh.t==='poly') return `<polygon points="${sh.pts.map(p=>p.join(',')).join(' ')}" fill="${f}" stroke="${st}" stroke-width="${sw}"/>`;
+      return '';
+    }).join('');
+    return `<svg viewBox="-11 -11 22 22" width="${px}" height="${px}" style="flex:0 0 auto;">${parts}</svg>`;
+  }
+
+  // ---------------- calculations (pure) ----------------
+  function cadModelFor(t){
+    return (cadSettings.models.find(m=>m.id===t.modelId)) || {id:t.modelId||'', name:t.modelName||'Transformer', capacityW:t.capacityW||300, taps:[12,13,14,15]};
+  }
+  function cadFixtureWatt(pf){ const f = findFixture(pf.fixtureId); return (f && f.watt) || 0; }
+  function cadMaxRunFt(va, gauge, tapV, minV){
+    if(!va || va<=0) return null;
+    const drop = tapV - minV; if(drop<=0) return 0;
+    return drop / (2 * (gauge.r/1000) * (va/tapV));
+  }
+  function cadRunPoints(scene, run){
+    const pts = [];
+    const t = scene.transformers.find(x=>x.id===run.transformerId);
+    if(t) pts.push({x:t.x, y:t.y});
+    run.fixtureIds.forEach(id=>{ const f = scene.fixtures.find(x=>x.id===id); if(f) pts.push({x:f.x, y:f.y}); });
+    return pts;
+  }
+  function cadPathLen(pts){ let d=0; for(let i=1;i<pts.length;i++) d += Math.hypot(pts[i].x-pts[i-1].x, pts[i].y-pts[i-1].y); return d; }
+  function cadCalc(plan){
+    const S = cadSettings, sc = plan.scene, ppf = plan.pxPerFt || null;
+    const gaugesSmallFirst = S.gauges.slice().sort((a,b)=>b.awg-a.awg);
+    const runs = sc.runs.map((run,i)=>{
+      const t = sc.transformers.find(x=>x.id===run.transformerId) || null;
+      const tapV = t ? (t.tapV || 15) : 15;
+      const load = run.fixtureIds.reduce((s,id)=>{ const f = sc.fixtures.find(x=>x.id===id); return s + (f?cadFixtureWatt(f):0); }, 0);
+      const px = cadPathLen(cadRunPoints(sc, run));
+      const lenFt = ppf ? px/ppf : null;
+      let auto = null;
+      if(lenFt!=null && load>0) auto = gaugesSmallFirst.find(g=> cadMaxRunFt(load,g,tapV,S.minLampV) >= lenFt) || null;
+      const dflt = gaugesSmallFirst.find(g=>g.awg===12) || gaugesSmallFirst[0];
+      const manual = run.gaugeAwg!=null && S.gauges.some(g=>g.awg===run.gaugeAwg);
+      const gauge = manual ? S.gauges.find(g=>g.awg===run.gaugeAwg)
+        : (auto || (lenFt!=null && load>0 ? gaugesSmallFirst[gaugesSmallFirst.length-1] : dflt));
+      const maxFt = cadMaxRunFt(load, gauge, tapV, S.minLampV);
+      const over = lenFt!=null && maxFt!=null && lenFt > maxFt;
+      return {run, idx:i+1, transformer:t, tapV, load, lenFt, gauge, auto, manual, maxFt, over, zone:run.zone||1};
+    });
+    const transformers = sc.transformers.map((t,i)=>{
+      const model = cadModelFor(t);
+      const tRuns = runs.filter(r=>r.run.transformerId===t.id);
+      const load = tRuns.reduce((s,r)=>s+r.load, 0);
+      const cap = model.capacityW;
+      const pct = cap ? load/cap : 0;
+      return {t, idx:i+1, model, runs:tRuns, load, cap, remaining:cap-load, pct, status: load>cap ? 'over' : (pct>0.8 ? 'warn' : 'ok')};
+    });
+    const counts = new Map();
+    sc.fixtures.forEach(pf=>{ counts.set(pf.fixtureId, (counts.get(pf.fixtureId)||0)+1); });
+    const gaugeFt = {};
+    runs.forEach(r=>{ if(r.lenFt!=null) gaugeFt[r.gauge.awg] = (gaugeFt[r.gauge.awg]||0) + r.lenFt; });
+    const warnings = [];
+    if(!ppf && (sc.runs.length || sc.fixtures.length)) warnings.push('Set the scale so run lengths and gauges can be calculated.');
+    runs.forEach(r=>{
+      if(!r.transformer) warnings.push(`Run ${r.idx} has no transformer.`);
+      if(r.over) warnings.push(`Run ${r.idx} is ${Math.round(r.lenFt)}' but ${r.gauge.awg}/2 cable maxes out at ~${Math.round(r.maxFt)}'.`);
+    });
+    transformers.forEach(tr=>{
+      if(tr.status==='over') warnings.push(`${tr.t.name} is overloaded: ${tr.load.toFixed(1)}W on a ${tr.cap}W transformer.`);
+      else if(tr.status==='warn') warnings.push(`${tr.t.name} is above 80% of capacity (${tr.load.toFixed(1)}W of ${tr.cap}W).`);
+    });
+    const used = {};
+    runs.forEach(r=> r.run.fixtureIds.forEach(id=>{ used[id] = (used[id]||0)+1; }));
+    const multi = Object.keys(used).filter(id=>used[id]>1).length;
+    if(multi) warnings.push(`${multi} fixture${multi>1?'s are':' is'} on more than one run.`);
+    const loose = sc.fixtures.filter(pf=>!used[pf.id] && cadFixtureWatt(pf)>0).length;
+    if(loose) warnings.push(`${loose} fixture${loose>1?'s are':' is'} not on any run yet.`);
+    return {runs, transformers, counts, gaugeFt, warnings, ppf};
+  }
+
+  // ---------------- display-list helpers ----------------
+  const cadFmt = n => (Math.round(n*10)/10).toString();
+  function cadTW(s, size, bold){ return String(s).length * size * (bold ? 0.66 : 0.6); } // generous: mostly UPPERCASE Helvetica
+  function cadWrap(text, size, maxW, bold){
+    const out = [];
+    String(text||'').split('\n').forEach(para=>{
+      let cur = '';
+      para.split(/\s+/).filter(Boolean).forEach(w=>{
+        const t = cur ? cur+' '+w : w;
+        if(cur && cadTW(t,size,bold) > maxW){ out.push(cur); cur = w; } else cur = t;
+      });
+      out.push(cur);
+    });
+    return out;
+  }
+  function cadMapItems(items, k, ox, oy){
+    return items.map(it=>{
+      const o = {...it};
+      if(it.k==='line'){ o.x1=ox+it.x1*k; o.y1=oy+it.y1*k; o.x2=ox+it.x2*k; o.y2=oy+it.y2*k; o.w=(it.w||1)*k; if(it.dash) o.dash=it.dash.map(d=>d*k); }
+      else if(it.k==='poly'){ o.pts=it.pts.map(p=>[ox+p[0]*k, oy+p[1]*k]); o.w=(it.w||1)*k; }
+      else if(it.k==='circle'){ o.x=ox+it.x*k; o.y=oy+it.y*k; o.r=it.r*k; o.w=(it.w||1)*k; }
+      else if(it.k==='rect'){ o.x=ox+it.x*k; o.y=oy+it.y*k; o.w=it.w*k; o.h=it.h*k; o.lw=(it.lw||1)*k; }
+      else if(it.k==='text'){ o.x=ox+it.x*k; o.y=oy+it.y*k; o.size=it.size*k; if(it.pad) o.pad=it.pad*k; }
+      else if(it.k==='image'){ o.x=ox+it.x*k; o.y=oy+it.y*k; o.w=it.w*k; o.h=it.h*k; }
+      return o;
+    });
+  }
+
+  // Callout geometry is shared by the renderer AND the editor's hit-testing/dragging.
+  function cadCalloutInfo(plan, calc, u){
+    const out = {};
+    calc.runs.forEach(r=>{
+      const pts = cadRunPoints(plan.scene, r.run); if(pts.length<2) return;
+      const total = cadPathLen(pts); let acc = 0, mp = pts[0], seg = [pts[0],pts[1]];
+      for(let i=1;i<pts.length;i++){
+        const d = Math.hypot(pts[i].x-pts[i-1].x, pts[i].y-pts[i-1].y);
+        if(acc+d >= total/2){ const t = d ? (total/2-acc)/d : 0; mp = {x:pts[i-1].x+(pts[i].x-pts[i-1].x)*t, y:pts[i-1].y+(pts[i].y-pts[i-1].y)*t}; seg=[pts[i-1],pts[i]]; break; }
+        acc += d;
+      }
+      const lines = [
+        `RUN ${r.idx}: ${cadFmt(r.load)}VA`,
+        `MAX RUN LENGTH ${r.maxFt!=null ? Math.round(r.maxFt)+"'" : '—'} ON ${r.gauge.awg}/2 CABLE`,
+        `ESTIMATED @ ${r.lenFt!=null ? '~'+Math.round(r.lenFt)+"'" : '—'}`,
+      ];
+      if(r.over) lines.push('EXCEEDS MAX RUN LENGTH');
+      const size = 4.8*u, lh = 5.9*u, pad = 2.6*u;
+      const w = Math.max(...lines.map(l=>cadTW(l,size,false))) + pad*2, h = lines.length*lh + pad*2;
+      let dx, dy;
+      if(r.run.calloutOff){ dx = r.run.calloutOff.dx; dy = r.run.calloutOff.dy; }
+      else {
+        const sx = seg[1].x-seg[0].x, sy = seg[1].y-seg[0].y, sl = Math.hypot(sx,sy) || 1;
+        dx = (-sy/sl) * (w/2 + 14*u); dy = (sx/sl) * (h/2 + 14*u);
+        if(dy > 0) { dx = -dx; dy = -dy; } // prefer above the run
+      }
+      out[r.run.id] = {r, lines, size, lh, pad, w, h, cx:mp.x+dx, cy:mp.y+dy, mp};
+    });
+    return out;
+  }
+
+  // The site drawing (everything in plan pixels, sizes in plan px via u). Used by the live editor
+  // (interactive:true adds selection/draft overlays), the schedule sheet, and the PDF.
+  function cadSiteItems(plan, calc, o){
+    o = o || {};
+    const items = [], sc = plan.scene, u = plan.bgW/520, sScale = 0.42*u*cadSettings.symbolScale;
+    const sel = o.sel || {fixtures:new Set(), transformers:new Set(), run:null};
+    calc.runs.forEach(r=>{
+      const pts = cadRunPoints(sc, r.run); if(pts.length<2) return;
+      const col = r.over ? '#e11d48' : (CAD_GAUGE_COLORS[r.gauge.awg] || '#1d4ed8');
+      if(o.interactive && sel.run===r.run.id){
+        for(let i=1;i<pts.length;i++) items.push({k:'line', x1:pts[i-1].x, y1:pts[i-1].y, x2:pts[i].x, y2:pts[i].y, c:'#f0a84e', w:3.4*u, alpha:0.5});
+      }
+      for(let i=1;i<pts.length;i++) items.push({k:'line', x1:pts[i-1].x, y1:pts[i-1].y, x2:pts[i].x, y2:pts[i].y, c:col, w:0.95*u, dash:[3.6*u,2.6*u]});
+    });
+    calc.transformers.forEach(tr=>{
+      const t = tr.t, w = 15*u, h = 9*u;
+      items.push({k:'rect', x:t.x-w/2, y:t.y-h/2, w, h, fill:'#f6a800', stroke:'#111111', lw:0.8*u});
+      items.push({k:'text', x:t.x, y:t.y, s:'T'+tr.idx, size:5.4*u, c:'#111111', bold:true, align:'center'});
+      const col = tr.status==='over' ? '#e11d48' : (tr.status==='warn' ? '#f59e0b' : '#f6a800');
+      items.push({k:'text', x:t.x, y:t.y-h/2-6*u, s:`${cadFmt(tr.load)}VA`, size:5.2*u, c:tr.status==='over'?'#ffffff':'#111111', bold:true, align:'center', bg:col, bgStroke:'#111111', pad:1.8*u});
+      if(o.interactive && sel.transformers.has(t.id)) items.push({k:'rect', x:t.x-w/2-2.5*u, y:t.y-h/2-2.5*u, w:w+5*u, h:h+5*u, fill:null, stroke:'#f0a84e', lw:1.3*u});
+    });
+    sc.fixtures.forEach(pf=>{
+      const f = findFixture(pf.fixtureId);
+      const sym = cadSymbolById(f ? cadSymbolIdFor(f) : 'generic_dot');
+      if(pf.rot!=null){
+        const a = pf.rot*Math.PI/180, len = 15*sScale;
+        items.push({k:'line', x1:pf.x, y1:pf.y, x2:pf.x+Math.sin(a)*len, y2:pf.y-Math.cos(a)*len, c:'#111111', w:1.1*u});
+        items.push({k:'circle', x:pf.x+Math.sin(a)*len, y:pf.y-Math.cos(a)*len, r:1.3*u, fill:'#111111', stroke:null, w:0});
+      }
+      cadSymbolItems(sym, pf.x, pf.y, sScale).forEach(it=>items.push(it));
+      if(o.interactive && sel.fixtures.has(pf.id)) items.push({k:'circle', x:pf.x, y:pf.y, r:12.5*sScale, fill:null, stroke:'#f0a84e', w:1.4*u});
+    });
+    if(!o.hideCallouts){
+      const info = cadCalloutInfo(plan, calc, u);
+      Object.keys(info).forEach(id=>{
+        const c = info[id], col = c.r.over ? '#e11d48' : (CAD_GAUGE_COLORS[c.r.gauge.awg] || '#1d4ed8');
+        const ex = Math.max(c.cx-c.w/2, Math.min(c.cx+c.w/2, c.mp.x)), ey = Math.max(c.cy-c.h/2, Math.min(c.cy+c.h/2, c.mp.y));
+        items.push({k:'line', x1:c.mp.x, y1:c.mp.y, x2:ex, y2:ey, c:col, w:0.6*u});
+        items.push({k:'rect', x:c.cx-c.w/2, y:c.cy-c.h/2, w:c.w, h:c.h, fill:'#ffffff', stroke:col, lw:0.6*u, alpha:0.92});
+        c.lines.forEach((l,i)=> items.push({k:'text', x:c.cx-c.w/2+c.pad, y:c.cy-c.h/2+c.pad+c.lh*(i+0.5), s:l, size:c.size, c:(c.r.over&&i===c.lines.length-1)?'#e11d48':'#111111', bold:i===0, align:'left'}));
+      });
+    }
+    if(o.interactive){
+      if(o.draft){
+        const t = sc.transformers.find(x=>x.id===o.draft.transformerId);
+        const pts = []; if(t) pts.push({x:t.x,y:t.y});
+        o.draft.fixtureIds.forEach(id=>{ const f = sc.fixtures.find(x=>x.id===id); if(f) pts.push({x:f.x,y:f.y}); });
+        if(o.cursor) pts.push(o.cursor);
+        for(let i=1;i<pts.length;i++) items.push({k:'line', x1:pts[i-1].x, y1:pts[i-1].y, x2:pts[i].x, y2:pts[i].y, c:'#f0a84e', w:1.4*u, dash:[3*u,2*u]});
+      }
+      if(o.snap) items.push({k:'circle', x:o.snap.x, y:o.snap.y, r:o.snapR||10*u, fill:null, stroke:'#22c55e', w:1.3*u});
+      if(o.marquee) items.push({k:'rect', x:Math.min(o.marquee.x1,o.marquee.x2), y:Math.min(o.marquee.y1,o.marquee.y2), w:Math.abs(o.marquee.x2-o.marquee.x1), h:Math.abs(o.marquee.y2-o.marquee.y1), fill:'#f0a84e', stroke:'#f0a84e', lw:1*u, alpha:0.15});
+      (o.scalePts||[]).forEach(p=>items.push({k:'circle', x:p.x, y:p.y, r:4*u, fill:'#22c55e', stroke:'#ffffff', w:1.2*u}));
+      if(o.scalePts && o.scalePts.length===2) items.push({k:'line', x1:o.scalePts[0].x, y1:o.scalePts[0].y, x2:o.scalePts[1].x, y2:o.scalePts[1].y, c:'#22c55e', w:1.4*u});
+    }
+    return items;
+  }
+
+  // ---------------- schedule blocks (left column of the sheet, also the live side panel) ----------------
+  function cadTableRows(items, x, y, colW, rows, o){
+    const rh = (o&&o.rowH) || 9.5, fs = (o&&o.size) || 4.7;
+    rows.forEach(r=>{
+      let cx = x;
+      r.cells.forEach((c,i)=>{
+        items.push({k:'rect', x:cx, y, w:colW[i], h:rh, fill:r.fill||null, stroke:'#8a9099', lw:0.4});
+        items.push({k:'text', x:cx+colW[i]/2, y:y+rh/2, s:String(c), size:fs, c:(r.colors&&r.colors[i])||r.color||'#111111', bold:!!r.bold, align:'center'});
+        cx += colW[i];
+      });
+      y += rh;
+    });
+    return y;
+  }
+  function cadBar(items, x, y, w, text){
+    items.push({k:'rect', x, y, w, h:11, fill:'#14171c', stroke:null, lw:0});
+    items.push({k:'text', x:x+4, y:y+5.5, s:text, size:5.6, c:'#ffffff', bold:true, align:'left'});
+    return y+11;
+  }
+  function cadLeftBlocks(plan, calc){
+    const W = CAD_PANEL_W, blocks = [];
+    const meta = plan.meta || {};
+    if(meta.notes && meta.notes.trim()){
+      const items = []; let y = cadBar(items, 0, 0, W, 'NOTES') + 3;
+      cadWrap(meta.notes, 4.6, W-8, false).forEach(l=>{ items.push({k:'text', x:4, y:y+3, s:l, size:4.6, c:'#111111', align:'left'}); y += 6; });
+      blocks.push({h:y+4, items});
+    }
+    const trTable = (title, runs, cap, load, model) => {
+      const items = []; let y = cadBar(items, 0, 0, W, title);
+      const cw1 = [26,26,36,32,50];
+      y = cadTableRows(items, 0, y, cw1, [{cells:['ZONE','RUN #','LOAD','GAUGE','MAX RUN LENGTH'], fill:'#e4e7ea', bold:true, size:4.2}], {size:4.2});
+      const rows = runs.map(r=>({cells:[r.zone, r.idx, cadFmt(r.load), r.gauge.awg, r.maxFt!=null?Math.round(r.maxFt)+"'":'—'], colors:r.over?[null,null,null,'#e11d48','#e11d48']:null}));
+      if(!rows.length) rows.push({cells:['—','','','','No runs yet'], color:'#777777'});
+      y = cadTableRows(items, 0, y, cw1, rows);
+      y = cadTableRows(items, 0, y, [W-36,36], [{cells:['Total', cadFmt(load)], bold:true, fill:'#f3f4f6'}]);
+      if(cap!=null){
+        const cw2 = [26,38,38,68];
+        y = cadTableRows(items, 0, y+3, cw2, [{cells:['SIZE','CAPACITY','LOAD','REMAINING CAPACITY'], fill:'#e4e7ea', bold:true, size:4.2}], {size:4.2});
+        const st = load>cap ? '#e11d48' : (load/cap>0.8 ? '#b45309' : '#111111');
+        y = cadTableRows(items, 0, y, cw2, [{cells:[cap, cap, cadFmt(load), cadFmt(cap-load)], colors:[null,null,st,st], bold:true}]);
+      }
+      return {h:y+6, items};
+    };
+    calc.transformers.forEach(tr=>{
+      blocks.push(trTable(`${tr.t.name.toUpperCase()}   ${tr.model.name.toUpperCase()}   ${tr.cap} WATT   (${tr.t.tapV||15}V TAP)`, tr.runs, tr.cap, tr.load, tr.model));
+    });
+    const loose = calc.runs.filter(r=>!r.transformer);
+    if(loose.length) blocks.push(trTable('UNASSIGNED RUNS', loose, null, loose.reduce((s,r)=>s+r.load,0), null));
+
+    // legend
+    {
+      const items = []; let y = cadBar(items, 0, 0, W, 'SYMBOL LEGEND') + 5;
+      const sub = t=>{ items.push({k:'text', x:2, y:y+3, s:t, size:4.4, c:'#555555', bold:true, align:'left'}); y += 8; };
+      const legendRow = (symItems, text, right) => {
+        const lines = cadWrap(text, 4.6, W-30-(right?26:0), false);
+        symItems.forEach(it=>items.push(it));
+        lines.forEach((l,i)=> items.push({k:'text', x:22, y:y+4+i*6, s:l, size:4.6, c:'#111111', align:'left'}));
+        if(right) items.push({k:'text', x:W-2, y:y+4, s:right, size:4.6, c:'#e11d48', align:'right', bold:true});
+        y += Math.max(11, lines.length*6+3);
+      };
+      const fx = [], ac = [];
+      calc.counts.forEach((n,id)=>{ const f = findFixture(id); if(f) (f.cat==='accessory'?ac:fx).push({f,n}); });
+      if(fx.length){ sub('FIXTURES'); fx.forEach(({f,n})=> legendRow(cadSymbolItems(cadSymbolById(cadSymbolIdFor(f)), 10, y+5, 0.5), `${f.name} — ${n} × ${f.watt||0}VA`)); }
+      if(ac.length){ y += 2; sub('ACCESSORIES'); ac.forEach(({f,n})=> legendRow(cadSymbolItems(cadSymbolById(cadSymbolIdFor(f)), 10, y+5, 0.5), `${f.name} — ${n}`)); }
+      if(calc.transformers.length){
+        y += 2; sub('TRANSFORMER');
+        calc.transformers.forEach(tr=>{
+          const sy = y;
+          legendRow([{k:'rect', x:4, y:sy+1, w:12, h:7.5, fill:'#f6a800', stroke:'#111111', lw:0.6}], `${tr.t.name} — ${tr.model.name}`);
+        });
+      }
+      const gauges = Object.keys(calc.gaugeFt).map(Number).sort((a,b)=>b-a);
+      if(gauges.length){
+        y += 2; sub('WIRE');
+        gauges.forEach(awg=>{
+          const sy = y;
+          legendRow([{k:'line', x1:3, y1:sy+5, x2:17, y2:sy+5, c:CAD_GAUGE_COLORS[awg]||'#1d4ed8', w:0.95, dash:[3.6,2.6]}], `${awg} GAUGE LOW VOLTAGE CABLE`, '~'+Math.round(calc.gaugeFt[awg])+"'");
+        });
+      }
+      if(!fx.length && !ac.length && !calc.transformers.length) { items.push({k:'text', x:4, y:y+3, s:'Place fixtures to build the legend.', size:4.6, c:'#777777', align:'left'}); y += 8; }
+      blocks.push({h:y+4, items});
+    }
+    // voltage-drop reference (one per tap voltage in use, default 15V)
+    {
+      const taps = [...new Set(calc.transformers.map(tr=>tr.t.tapV||15))]; if(!taps.length) taps.push(15);
+      const gs = cadSettings.gauges.slice().sort((a,b)=>b.awg-a.awg);
+      const lens = [50,100,150,200,250,300,350,400,450,500,600,700,800,900,1000];
+      taps.forEach(tap=>{
+        const items = []; let y = cadBar(items, 0, 0, W, `USING ${tap} VOLT TAP — MAX LOAD (VA)`);
+        const cw = [W - gs.length*36, ...gs.map(()=>36)];
+        y = cadTableRows(items, 0, y, cw, [{cells:['FEET', ...gs.map(g=>g.awg+'/2')], fill:'#e4e7ea', bold:true, size:4.2}], {size:4.2, rowH:8});
+        const rows = lens.map(len=>({cells:[len, ...gs.map(g=> Math.round((tap-cadSettings.minLampV)*tap/(2*(g.r/1000)*len)))]}));
+        y = cadTableRows(items, 0, y, cw, rows, {size:4.4, rowH:7.6});
+        blocks.push({h:y+6, items});
+      });
+    }
+    return blocks;
+  }
+
+  // ---------------- full sheet (pages of primitives, in letter-landscape sheet units) ----------------
+  function cadBuildSheet(plan, calc, project){
+    const W = CAD_SHEET.w, H = CAD_SHEET.h;
+    const blocks = cadLeftBlocks(plan, calc);
+    const pages = [];
+    const newPage = ()=>{ const p = {items:[{k:'rect', x:10, y:10, w:W-20, h:H-20, fill:null, stroke:'#111111', lw:0.9}]}; pages.push(p); return p; };
+    let page = newPage();
+    const top = 18, bottom = H-22;
+    const draw = {x:196, y:18, w:578, h:520};
+    // drawing
+    const k = Math.min(draw.w/plan.bgW, draw.h/plan.bgH);
+    const dw = plan.bgW*k, dh = plan.bgH*k, ox = draw.x+(draw.w-dw)/2, oy = draw.y+(draw.h-dh)/2;
+    page.items.push({k:'rect', x:draw.x, y:draw.y, w:draw.w, h:draw.h, fill:null, stroke:'#b8bdc4', lw:0.5});
+    page.items.push({k:'image', src:'bg', x:ox, y:oy, w:dw, h:dh, alpha:0.6});
+    cadMapItems(cadSiteItems(plan, calc, {}), k, ox, oy).forEach(it=>page.items.push(it));
+    // scale bar
+    const barY = draw.y+draw.h+16;
+    if(plan.pxPerFt){
+      const ptPerFt = k*plan.pxPerFt, unit = pickScaleBarUnitFt(draw.w/ptPerFt);
+      let bx = draw.x;
+      for(let i=0;i<4;i++){
+        const sw = unit*ptPerFt;
+        page.items.push({k:'rect', x:bx, y:barY, w:sw, h:6, fill:i%2===0?'#111111':'#ffffff', stroke:'#111111', lw:0.6});
+        page.items.push({k:'text', x:bx, y:barY-4, s:String(i*unit)+"'", size:5.5, c:'#111111', align:'center'});
+        bx += sw;
+      }
+      page.items.push({k:'text', x:bx, y:barY-4, s:String(4*unit)+"'", size:5.5, c:'#111111', align:'center'});
+    } else page.items.push({k:'text', x:draw.x, y:barY, s:'NOT TO SCALE', size:6, c:'#888888', align:'left', bold:true});
+    // left column packing
+    let y = top, col = 0, x = 18;
+    const place = (b)=>{
+      if(y + b.h > bottom && y > top){
+        if(pages.length===1){ page = newPage(); y = top; col = 0; x = 18; }
+        else if(col < 3){ col++; x = 18 + col*(CAD_PANEL_W+14); y = top; }
+        else { page = newPage(); y = top; col = 0; x = 18; }
+      }
+      cadMapItems(b.items, 1, x, y).forEach(it=>page.items.push(it));
+      y += b.h;
+    };
+    blocks.forEach(place);
+    // title block (page 1)
+    const p1 = pages[0], tb = {x:196, y:566, w:578, h:30};
+    const meta = plan.meta || {};
+    const cells = [
+      ['PROJECT', (project && project.customer && project.customer.name) || '—', 140],
+      ['PLAN', plan.name || 'Untitled plan', 124],
+      ['DATE', new Date().toLocaleDateString(), 66],
+      ['SHEET', `${meta.sheetNo||'LD1.01'}  ·  1 of ${pages.length}`, 108],
+      ['DRAWN BY', (authProfile && authProfile.fullName) || (state.company.name||'—'), 140],
+    ];
+    let cx = tb.x;
+    cells.forEach(([lab,val,w])=>{
+      p1.items.push({k:'rect', x:cx, y:tb.y, w, h:tb.h, fill:null, stroke:'#111111', lw:0.7});
+      p1.items.push({k:'text', x:cx+3, y:tb.y+6, s:lab, size:4.2, c:'#777777', align:'left'});
+      p1.items.push({k:'text', x:cx+3, y:tb.y+19, s:String(val).slice(0, Math.floor(w/5.4)), size:7, c:'#111111', bold:true, align:'left'});
+      cx += w;
+    });
+    pages.forEach((pg,i)=>{
+      pg.items.push({k:'text', x:18, y:H-14, s:'Max run lengths are estimates from standard copper resistance — verify in the field.', size:4.4, c:'#888888', align:'left'});
+      if(i>0) pg.items.push({k:'text', x:W-18, y:H-14, s:`${plan.name||'Plan'} — schedules (cont.)   ${meta.sheetNo||'LD1.01'}  ·  ${i+1} of ${pages.length}`, size:5, c:'#555555', align:'right'});
+    });
+    return pages;
+  }
+
+  // ---------------- backends ----------------
+  function cadDrawItemsCanvas(ctx, items, bgImg){
+    items.forEach(it=>{
+      ctx.save();
+      if(it.alpha!=null) ctx.globalAlpha = it.alpha;
+      if(it.k==='line'){
+        ctx.strokeStyle = it.c; ctx.lineWidth = it.w||1; ctx.setLineDash(it.dash||[]); ctx.lineCap = 'butt';
+        ctx.beginPath(); ctx.moveTo(it.x1,it.y1); ctx.lineTo(it.x2,it.y2); ctx.stroke();
+      } else if(it.k==='poly'){
+        ctx.beginPath(); it.pts.forEach((p,i)=> i?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1])); if(it.closed!==false) ctx.closePath();
+        if(it.fill){ ctx.fillStyle = it.fill; ctx.fill(); }
+        if(it.stroke){ ctx.strokeStyle = it.stroke; ctx.lineWidth = it.w||1; ctx.stroke(); }
+      } else if(it.k==='circle'){
+        ctx.beginPath(); ctx.arc(it.x,it.y,it.r,0,Math.PI*2);
+        if(it.fill){ ctx.fillStyle = it.fill; ctx.fill(); }
+        if(it.stroke){ ctx.strokeStyle = it.stroke; ctx.lineWidth = it.w||1; ctx.stroke(); }
+      } else if(it.k==='rect'){
+        if(it.fill){ ctx.fillStyle = it.fill; ctx.fillRect(it.x,it.y,it.w,it.h); }
+        if(it.stroke){ ctx.strokeStyle = it.stroke; ctx.lineWidth = it.lw||1; ctx.strokeRect(it.x,it.y,it.w,it.h); }
+      } else if(it.k==='text'){
+        ctx.font = `${it.bold?'bold ':''}${it.size}px Helvetica, Arial, sans-serif`;
+        ctx.textAlign = it.align||'left'; ctx.textBaseline = 'middle';
+        if(it.bg){
+          const tw = ctx.measureText(it.s).width, pad = it.pad||0;
+          const bx = it.align==='center' ? it.x-tw/2 : (it.align==='right' ? it.x-tw : it.x);
+          ctx.fillStyle = it.bg; ctx.fillRect(bx-pad, it.y-it.size*0.6-pad*0.5, tw+pad*2, it.size*1.2+pad);
+          if(it.bgStroke){ ctx.strokeStyle = it.bgStroke; ctx.lineWidth = it.size*0.08; ctx.strokeRect(bx-pad, it.y-it.size*0.6-pad*0.5, tw+pad*2, it.size*1.2+pad); }
+        }
+        ctx.fillStyle = it.c||'#111111'; ctx.fillText(it.s, it.x, it.y);
+      } else if(it.k==='image' && bgImg){
+        ctx.drawImage(bgImg, it.x, it.y, it.w, it.h);
+      }
+      ctx.restore();
+    });
+  }
+  function cadRgb(c){
+    if(!c) return [0,0,0];
+    if(c[0]==='#'){ let h = c.slice(1); if(h.length===3) h = h.split('').map(x=>x+x).join(''); const n = parseInt(h.slice(0,6),16); return [(n>>16)&255,(n>>8)&255,n&255]; }
+    return ({white:[255,255,255], black:[0,0,0], red:[255,0,0], blue:[0,0,255], green:[0,128,0], yellow:[255,255,0], gray:[128,128,128], grey:[128,128,128]})[c.toLowerCase()] || [0,0,0];
+  }
+  // k: sheet-units -> pt (1 for letter, ~1.545 for tabloid). Colors/dashes/text scale with k.
+  function cadDrawItemsPdf(doc, items, k, bgDataUrl, bgFormat){
+    const setAlpha = a=>{ try{ doc.setGState(new doc.GState({opacity:a, 'stroke-opacity':a})); }catch(e){} };
+    items.forEach(it=>{
+      const alpha = it.alpha!=null ? it.alpha : 1;
+      if(alpha<1) setAlpha(alpha);
+      if(it.k==='line'){
+        const c = cadRgb(it.c); doc.setDrawColor(c[0],c[1],c[2]); doc.setLineWidth((it.w||1)*k);
+        if(doc.setLineDashPattern) doc.setLineDashPattern((it.dash||[]).map(d=>d*k), 0);
+        doc.line(it.x1*k, it.y1*k, it.x2*k, it.y2*k);
+        if(doc.setLineDashPattern) doc.setLineDashPattern([], 0);
+      } else if(it.k==='poly'){
+        const style = it.fill && it.stroke ? 'FD' : (it.fill ? 'F' : 'S');
+        if(it.fill){ const c = cadRgb(it.fill); doc.setFillColor(c[0],c[1],c[2]); }
+        if(it.stroke){ const c = cadRgb(it.stroke); doc.setDrawColor(c[0],c[1],c[2]); doc.setLineWidth((it.w||1)*k); }
+        const p = it.pts, rel = []; for(let i=1;i<p.length;i++) rel.push([(p[i][0]-p[i-1][0])*k, (p[i][1]-p[i-1][1])*k]);
+        doc.lines(rel, p[0][0]*k, p[0][1]*k, [1,1], style, it.closed!==false);
+      } else if(it.k==='circle'){
+        const style = it.fill && it.stroke ? 'FD' : (it.fill ? 'F' : 'S');
+        if(it.fill){ const c = cadRgb(it.fill); doc.setFillColor(c[0],c[1],c[2]); }
+        if(it.stroke){ const c = cadRgb(it.stroke); doc.setDrawColor(c[0],c[1],c[2]); doc.setLineWidth((it.w||1)*k); }
+        doc.circle(it.x*k, it.y*k, it.r*k, style);
+      } else if(it.k==='rect'){
+        const style = it.fill && it.stroke ? 'FD' : (it.fill ? 'F' : (it.stroke ? 'S' : null));
+        if(style){
+          if(it.fill){ const c = cadRgb(it.fill); doc.setFillColor(c[0],c[1],c[2]); }
+          if(it.stroke){ const c = cadRgb(it.stroke); doc.setDrawColor(c[0],c[1],c[2]); doc.setLineWidth((it.lw||1)*k); }
+          doc.rect(it.x*k, it.y*k, it.w*k, it.h*k, style);
+        }
+      } else if(it.k==='text'){
+        doc.setFont('helvetica', it.bold ? 'bold' : 'normal'); doc.setFontSize(it.size*k);
+        if(it.bg){
+          const tw = doc.getTextWidth(it.s), pad = (it.pad||0)*k;
+          const bx = it.align==='center' ? it.x*k-tw/2 : (it.align==='right' ? it.x*k-tw : it.x*k);
+          const c = cadRgb(it.bg); doc.setFillColor(c[0],c[1],c[2]);
+          const by = it.y*k-it.size*k*0.6-pad*0.5, bw = tw+pad*2, bh = it.size*k*1.2+pad;
+          if(it.bgStroke){ const s = cadRgb(it.bgStroke); doc.setDrawColor(s[0],s[1],s[2]); doc.setLineWidth(it.size*k*0.08); doc.rect(bx-pad, by, bw, bh, 'FD'); }
+          else doc.rect(bx-pad, by, bw, bh, 'F');
+        }
+        const c = cadRgb(it.c||'#111111'); doc.setTextColor(c[0],c[1],c[2]);
+        doc.text(String(it.s), it.x*k, it.y*k, {align:it.align||'left', baseline:'middle'});
+      } else if(it.k==='image' && bgDataUrl){
+        try{ doc.addImage(bgDataUrl, bgFormat||'JPEG', it.x*k, it.y*k, it.w*k, it.h*k); }catch(err){ console.warn('Duskline: plan background failed.', err); }
+      }
+      if(alpha<1) setAlpha(1);
+    });
+  }
+
+  // ---------------- persistence ----------------
+  function cadNormalizeScene(s){
+    s = (s && typeof s==='object') ? s : {};
+    return {fixtures:Array.isArray(s.fixtures)?s.fixtures:[], transformers:Array.isArray(s.transformers)?s.transformers:[], runs:Array.isArray(s.runs)?s.runs:[]};
+  }
+  function cadRowToPlan(row){
+    return {id:row.id, projectId:row.project_id, name:row.name||'Untitled plan', background:row.background||null, bgW:row.bg_width||1000, bgH:row.bg_height||700,
+      pxPerFt:row.px_per_ft||null, scene:cadNormalizeScene(row.scene), meta:(row.meta&&typeof row.meta==='object')?row.meta:{}};
+  }
+  function cadPlanToRow(p){
+    return {project_id:p.projectId, name:p.name, background:p.background, bg_width:p.bgW, bg_height:p.bgH, px_per_ft:p.pxPerFt||null,
+      scene:p.scene, meta:p.meta||{}, updated_at:new Date().toISOString()};
+  }
+  async function cadLoad(companyId){
+    cadPlans = []; cadSettings = cadDefaultSettings(); cadSchemaMissing = false;
+    const [pRes, sRes] = await Promise.all([
+      sb.from('cad_plans').select('*').eq('company_id', companyId).order('updated_at', {ascending:false}),
+      sb.from('cad_settings').select('*').eq('company_id', companyId).maybeSingle(),
+    ]);
+    if(pRes.error){ cadSchemaMissing = true; console.warn('Duskline: CAD plans unavailable (run the cad_plans SQL in supabase/schema.sql).', pRes.error); }
+    else cadPlans = (pRes.data||[]).map(cadRowToPlan);
+    if(!sRes.error && sRes.data) cadSettings = cadNormalizeSettings(sRes.data.data);
+  }
+  async function cadSaveNow(){
+    if(!cadPlan || !cadDirty) return;
+    cadDirty = false; clearTimeout(cadSaveTimer);
+    const { error } = await sb.from('cad_plans').update(cadPlanToRow(cadPlan)).eq('id', cadPlan.id);
+    if(error){ cadDirty = true; console.warn('Duskline: plan save failed.', error); }
+  }
+  function cadMarkDirty(){ cadDirty = true; clearTimeout(cadSaveTimer); cadSaveTimer = setTimeout(cadSaveNow, 1500); }
+  async function cadSaveSettings(){
+    const { error } = await sb.from('cad_settings').upsert({company_id:authProfile.companyId, data:cadSettings});
+    if(error){ console.warn('Duskline: CAD settings save failed.', error); alert('Could not save the plan settings. If this keeps happening, the CAD database update may not have been run yet.'); }
+  }
+
+  // ---------------- editor state ----------------
+  let cadPlan = null, cadImg = null, cadDataUrl = null, cadDataFmt = 'JPEG', cadLastCalc = null;
+  let cadView = {zoom:1, ox:0, oy:0};
+  let cadTool = 'select';
+  let cadSel = {fixtures:new Set(), transformers:new Set(), run:null};
+  let cadDraft = null, cadExtendRunId = null, cadCursor = null, cadMarquee = null, cadSnap = null, cadScalePts = null;
+  let cadPalette = {fixtureId:null, modelId:null, search:''};
+  let cadUndoStack = [], cadRedoStack = [], cadDrag = null, cadPan = null, cadSpace = false;
+  let cadDirty = false, cadSaveTimer = null, cadSideTimer = null, cadCanvasSize = {w:0, h:0, dpr:1};
+  const cadUid = ()=> 'x'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+  const cadProject = ()=> cadPlan ? state.projects.find(p=>p.id===cadPlan.projectId) : null;
+
+  function cadSnapshot(){ return JSON.stringify({scene:cadPlan.scene, pxPerFt:cadPlan.pxPerFt}); }
+  function cadPush(){ cadUndoStack.push(cadSnapshot()); if(cadUndoStack.length>80) cadUndoStack.shift(); cadRedoStack = []; cadUpdateUndoBtns(); }
+  function cadApplySnapshot(json){ const d = JSON.parse(json); cadPlan.scene = cadNormalizeScene(d.scene); cadPlan.pxPerFt = d.pxPerFt||null; cadSel = {fixtures:new Set(), transformers:new Set(), run:null}; }
+  function cadUndo(){ if(!cadUndoStack.length) return; cadRedoStack.push(cadSnapshot()); cadApplySnapshot(cadUndoStack.pop()); cadMarkDirty(); cadUpdateUndoBtns(); cadRefreshAll(); }
+  function cadRedo(){ if(!cadRedoStack.length) return; cadUndoStack.push(cadSnapshot()); cadApplySnapshot(cadRedoStack.pop()); cadMarkDirty(); cadUpdateUndoBtns(); cadRefreshAll(); }
+  function cadUpdateUndoBtns(){ $('planUndo').disabled = !cadUndoStack.length; $('planRedo').disabled = !cadRedoStack.length; }
+
+  // ---------------- open / close ----------------
+  function cadFetchDataUrl(url){
+    return fetch(url).then(r=>{ if(!r.ok) throw new Error('fetch failed ('+r.status+')'); return r.blob(); }).then(blob=> new Promise((res,rej)=>{
+      const fr = new FileReader(); fr.onload = ()=>res({dataUrl:fr.result, format: blob.type==='image/png' ? 'PNG' : 'JPEG'}); fr.onerror = rej; fr.readAsDataURL(blob);
+    }));
+  }
+  function cadOpenPlan(id, opts){
+    const plan = cadPlans.find(p=>p.id===id); if(!plan) return;
+    cadPlan = plan; cadImg = null; cadDataUrl = null; cadLastCalc = null;
+    cadUndoStack = []; cadRedoStack = []; cadDirty = false;
+    cadSel = {fixtures:new Set(), transformers:new Set(), run:null}; cadDraft = null; cadExtendRunId = null; cadScalePts = null; cadSnap = null;
+    cadTool = (opts && opts.startScale) ? 'scale' : 'select';
+    $('planNameInput').value = plan.name;
+    $('planEditorScreen').hidden = false;
+    cadUpdateUndoBtns();
+    const img = new Image(); img.crossOrigin = 'anonymous';
+    img.onload = ()=>{ if(cadPlan!==plan) return; cadImg = img; cadFit(); cadRefreshAll(); };
+    img.onerror = ()=>{ cadFit(); cadRefreshAll(); alert('Could not load the plan background image.'); };
+    img.src = plan.background;
+    cadFit(); cadRefreshAll();
+  }
+  async function cadClosePlan(){
+    if(!cadPlan) return;
+    await cadSaveNow();
+    cadPlan = null; cadImg = null; cadDataUrl = null;
+    $('planEditorScreen').hidden = true;
+    renderPlansTab();
+  }
+  function cadReset(){
+    cadPlan = null; cadImg = null; cadDataUrl = null; cadDirty = false; cadPlans = []; cadSettings = cadDefaultSettings();
+    const s = $('planEditorScreen'); if(s) s.hidden = true;
+  }
+
+  // ---------------- canvas plumbing ----------------
+  function cadResizeCanvas(){
+    const wrap = $('planCanvasWrap'), cv = $('planCanvas'); if(!wrap || !cv) return;
+    const w = wrap.clientWidth, h = wrap.clientHeight, dpr = window.devicePixelRatio || 1;
+    cadCanvasSize = {w, h, dpr};
+    cv.style.width = w+'px'; cv.style.height = h+'px';
+    cv.width = Math.max(1, Math.round(w*dpr)); cv.height = Math.max(1, Math.round(h*dpr));
+  }
+  function cadFit(){
+    cadResizeCanvas();
+    if(!cadPlan) return;
+    const {w,h} = cadCanvasSize; if(!w || !h) return;
+    const z = Math.min(w/cadPlan.bgW, h/cadPlan.bgH) * 0.96;
+    cadView = {zoom:z, ox:(w-cadPlan.bgW*z)/2, oy:(h-cadPlan.bgH*z)/2};
+  }
+  function cadPt(e){
+    const r = $('planCanvas').getBoundingClientRect(), sx = e.clientX-r.left, sy = e.clientY-r.top;
+    return {sx, sy, x:(sx-cadView.ox)/cadView.zoom, y:(sy-cadView.oy)/cadView.zoom};
+  }
+  function cadRender(){
+    if(!cadPlan) return;
+    const cv = $('planCanvas'), ctx = cv.getContext('2d'), {dpr} = cadCanvasSize;
+    ctx.setTransform(1,0,0,1,0,0); ctx.fillStyle = '#14171c'; ctx.fillRect(0,0,cv.width,cv.height);
+    ctx.setTransform(dpr*cadView.zoom,0,0,dpr*cadView.zoom,dpr*cadView.ox,dpr*cadView.oy);
+    if(cadImg) ctx.drawImage(cadImg, 0, 0, cadPlan.bgW, cadPlan.bgH);
+    else { ctx.fillStyle = '#20252c'; ctx.fillRect(0,0,cadPlan.bgW,cadPlan.bgH); }
+    cadLastCalc = cadCalc(cadPlan);
+    cadDrawItemsCanvas(ctx, cadSiteItems(cadPlan, cadLastCalc, {interactive:true, sel:cadSel, draft:cadDraft, cursor:cadCursor, marquee:cadMarquee, snap:cadSnap, scalePts:cadScalePts, snapR:11/cadView.zoom}), null);
+  }
+  function cadRefreshAll(){ cadRender(); cadRenderTools(); cadRefreshSide(); cadUpdateHint(); }
+  function cadRefreshSide(){ clearTimeout(cadSideTimer); if(!cadPlan) return; cadRefreshInspector(); cadRenderLive(); }
+  function cadRefreshSideSoon(){ clearTimeout(cadSideTimer); cadSideTimer = setTimeout(cadRefreshSide, 140); }
+  function cadRenderLive(){
+    const cv = $('planLiveCanvas'); if(!cv || !cadPlan) return;
+    const calc = cadCalc(cadPlan), blocks = cadLeftBlocks(cadPlan, calc), gap = 8, dpr = window.devicePixelRatio || 1;
+    const cssW = Math.max(200, ($('planSide').clientWidth||300) - 24), sc = cssW/CAD_PANEL_W;
+    let H = 0; blocks.forEach(b=>{ H += b.h+gap; });
+    cv.style.width = cssW+'px'; cv.style.height = Math.max(20, H*sc)+'px';
+    cv.width = Math.round(cssW*dpr); cv.height = Math.round(Math.max(20,H*sc)*dpr);
+    const ctx = cv.getContext('2d'); ctx.setTransform(1,0,0,1,0,0); ctx.fillStyle = '#ffffff'; ctx.fillRect(0,0,cv.width,cv.height);
+    ctx.setTransform(dpr*sc,0,0,dpr*sc,0,0);
+    let y = 0;
+    blocks.forEach(b=>{ cadDrawItemsCanvas(ctx, cadMapItems(b.items, 1, 0, y), null); y += b.h+gap; });
+  }
+  function cadUpdateHint(){
+    const el = $('planHint'); if(!el || !cadPlan) return;
+    let t = '';
+    if(cadTool==='scale') t = cadScalePts && cadScalePts.length===1 ? 'Click the second point.' : 'Scale: click two points a known distance apart.';
+    else if(cadTool==='fixture') t = cadPalette.fixtureId ? 'Click the plan to place the selected fixture.' : 'Pick a fixture from the list on the left, then click the plan.';
+    else if(cadTool==='transformer') t = 'Click the plan to place a transformer.';
+    else if(cadTool==='run') t = cadExtendRunId ? 'Click fixtures to add them to this run. Esc when done.' : (cadDraft ? 'Click fixtures in wiring order. Double-click or Esc to finish the run.' : 'Click a transformer to start a run.');
+    else if(cadTool==='pan') t = 'Drag to pan. Scroll to zoom.';
+    else t = 'Click to select · drag to move · drag empty space to box-select · scroll to zoom · Space+drag to pan.';
+    if(!cadPlan.pxPerFt && cadTool!=='scale') t = 'Scale not set — use the Scale tool first. ' + t;
+    el.textContent = t;
+  }
+
+  // ---------------- hit testing ----------------
+  function cadDistSeg(px,py,a,b){
+    const dx = b.x-a.x, dy = b.y-a.y, l2 = dx*dx+dy*dy;
+    let t = l2 ? ((px-a.x)*dx+(py-a.y)*dy)/l2 : 0; t = Math.max(0, Math.min(1, t));
+    return Math.hypot(px-(a.x+t*dx), py-(a.y+t*dy));
+  }
+  function cadHit(p){
+    const sc = cadPlan.scene, u = cadPlan.bgW/520, z = cadView.zoom;
+    const fr = Math.max(4.4*u*cadSettings.symbolScale, 9/z);
+    for(let i=sc.fixtures.length-1;i>=0;i--){ const f = sc.fixtures[i]; if(Math.hypot(p.x-f.x,p.y-f.y) <= fr) return {type:'fixture', id:f.id}; }
+    for(let i=sc.transformers.length-1;i>=0;i--){ const t = sc.transformers[i]; if(Math.abs(p.x-t.x) <= 7.5*u+4/z && Math.abs(p.y-t.y) <= 4.5*u+4/z) return {type:'transformer', id:t.id}; }
+    const calc = cadLastCalc || cadCalc(cadPlan), info = cadCalloutInfo(cadPlan, calc, u);
+    for(const id of Object.keys(info)){ const c = info[id]; if(Math.abs(p.x-c.cx) <= c.w/2 && Math.abs(p.y-c.cy) <= c.h/2) return {type:'callout', id}; }
+    for(const run of sc.runs){ const pts = cadRunPoints(sc, run); for(let i=1;i<pts.length;i++) if(cadDistSeg(p.x,p.y,pts[i-1],pts[i]) <= 6/z) return {type:'run', id:run.id}; }
+    return null;
+  }
+  function cadNearestNode(p, kinds){
+    const sc = cadPlan.scene, r = 14/cadView.zoom; let best = null, bd = r;
+    if(kinds.includes('fixture')) sc.fixtures.forEach(f=>{ const d = Math.hypot(p.x-f.x,p.y-f.y); if(d<=bd){ bd = d; best = {type:'fixture', id:f.id, x:f.x, y:f.y}; } });
+    if(kinds.includes('transformer')) sc.transformers.forEach(t=>{ const d = Math.hypot(p.x-t.x,p.y-t.y); if(d<=bd){ bd = d; best = {type:'transformer', id:t.id, x:t.x, y:t.y}; } });
+    return best;
+  }
+
+  // ---------------- editing operations ----------------
+  function cadSelectOnly(kind, id){
+    cadSel = {fixtures:new Set(), transformers:new Set(), run:null};
+    if(kind==='fixture') cadSel.fixtures.add(id); else if(kind==='transformer') cadSel.transformers.add(id); else if(kind==='run') cadSel.run = id;
+  }
+  function cadDeleteSelection(){
+    const sc = cadPlan.scene;
+    if(!cadSel.fixtures.size && !cadSel.transformers.size && !cadSel.run) return;
+    cadPush();
+    if(cadSel.run) sc.runs = sc.runs.filter(r=>r.id!==cadSel.run);
+    if(cadSel.fixtures.size){
+      sc.fixtures = sc.fixtures.filter(f=>!cadSel.fixtures.has(f.id));
+      sc.runs.forEach(r=>{ r.fixtureIds = r.fixtureIds.filter(id=>!cadSel.fixtures.has(id)); });
+      sc.runs = sc.runs.filter(r=>r.fixtureIds.length);
+    }
+    if(cadSel.transformers.size){
+      sc.transformers = sc.transformers.filter(t=>!cadSel.transformers.has(t.id));
+      sc.runs.forEach(r=>{ if(cadSel.transformers.has(r.transformerId)) r.transformerId = null; });
+    }
+    cadSel = {fixtures:new Set(), transformers:new Set(), run:null};
+    cadMarkDirty(); cadRefreshAll();
+  }
+  function cadCommitDraft(){
+    if(cadDraft && cadDraft.fixtureIds.length){
+      cadPush();
+      const run = {id:cadUid(), transformerId:cadDraft.transformerId, fixtureIds:[...cadDraft.fixtureIds], gaugeAwg:null, zone:1, calloutOff:null};
+      cadPlan.scene.runs.push(run); cadSelectOnly('run', run.id); cadMarkDirty();
+    }
+    cadDraft = null; cadSnap = null; cadRefreshAll();
+  }
+  function cadSetTool(t){
+    if(cadDraft) cadCommitDraft();
+    cadExtendRunId = null; cadTool = t; cadScalePts = null; cadSnap = null; cadMarquee = null;
+    cadRefreshAll();
+  }
+
+  // ---------------- pointer / keyboard ----------------
+  function cadOnDown(e){
+    if(!cadPlan || e.button===2) return;
+    const p = cadPt(e), sc = cadPlan.scene;
+    try{ $('planCanvas').setPointerCapture(e.pointerId); }catch(err){}
+    if(e.button===1 || cadSpace || cadTool==='pan'){ cadPan = {sx:p.sx, sy:p.sy, ox:cadView.ox, oy:cadView.oy}; return; }
+    if(cadTool==='scale'){
+      cadScalePts = (cadScalePts||[]).concat([{x:p.x, y:p.y}]);
+      if(cadScalePts.length===2){ $('planScaleInput').value = ''; $('planScaleModal').hidden = false; $('planScaleInput').focus(); }
+      cadRender(); cadUpdateHint(); return;
+    }
+    if(cadTool==='fixture'){
+      const f = cadPalette.fixtureId && findFixture(cadPalette.fixtureId); if(!f){ cadUpdateHint(); return; }
+      cadPush(); const pf = {id:cadUid(), fixtureId:f.id, x:p.x, y:p.y, rot:null};
+      sc.fixtures.push(pf); cadSelectOnly('fixture', pf.id); cadMarkDirty(); cadRefreshAll(); return;
+    }
+    if(cadTool==='transformer'){
+      const models = cadSettings.models, m = models.find(x=>x.id===cadPalette.modelId) || models[0]; if(!m) return;
+      cadPush(); const t = {id:cadUid(), modelId:m.id, name:'Trans #'+(sc.transformers.length+1), x:p.x, y:p.y, tapV:Math.max(...m.taps)};
+      sc.transformers.push(t); cadSelectOnly('transformer', t.id); cadMarkDirty(); cadRefreshAll(); return;
+    }
+    if(cadTool==='run'){
+      if(cadExtendRunId){
+        const run = sc.runs.find(r=>r.id===cadExtendRunId), n = cadNearestNode(p, ['fixture']);
+        if(run && n && !run.fixtureIds.includes(n.id)){ cadPush(); run.fixtureIds.push(n.id); cadMarkDirty(); cadRefreshAll(); }
+        return;
+      }
+      if(!cadDraft){
+        const n = cadNearestNode(p, ['transformer']);
+        if(n){ cadDraft = {transformerId:n.id, fixtureIds:[]}; cadUpdateHint(); cadRender(); }
+        return;
+      }
+      const n = cadNearestNode(p, ['fixture']);
+      if(n && !cadDraft.fixtureIds.includes(n.id)){ cadDraft.fixtureIds.push(n.id); cadRender(); cadRefreshSideSoon(); }
+      return;
+    }
+    // select tool
+    const hit = cadHit(p);
+    if(hit && (hit.type==='fixture' || hit.type==='transformer')){
+      const set = hit.type==='fixture' ? cadSel.fixtures : cadSel.transformers;
+      if(e.shiftKey){ if(set.has(hit.id)) set.delete(hit.id); else set.add(hit.id); cadSel.run = null; }
+      else if(!set.has(hit.id)) cadSelectOnly(hit.type, hit.id);
+      const origs = [];
+      cadSel.fixtures.forEach(id=>{ const f = sc.fixtures.find(x=>x.id===id); if(f) origs.push({list:sc.fixtures, obj:f, x:f.x, y:f.y}); });
+      cadSel.transformers.forEach(id=>{ const t = sc.transformers.find(x=>x.id===id); if(t) origs.push({list:sc.transformers, obj:t, x:t.x, y:t.y}); });
+      cadDrag = {type:'move', sx:p.sx, sy:p.sy, x:p.x, y:p.y, origs, moved:false};
+      cadRefreshAll(); return;
+    }
+    if(hit && hit.type==='callout'){
+      const run = sc.runs.find(r=>r.id===hit.id), info = cadCalloutInfo(cadPlan, cadLastCalc||cadCalc(cadPlan), cadPlan.bgW/520)[hit.id];
+      cadSelectOnly('run', hit.id);
+      cadDrag = {type:'callout', run, info, sx:p.sx, sy:p.sy, x:p.x, y:p.y, moved:false};
+      cadRefreshAll(); return;
+    }
+    if(hit && hit.type==='run'){ cadSelectOnly('run', hit.id); cadRefreshAll(); return; }
+    if(!e.shiftKey) cadSel = {fixtures:new Set(), transformers:new Set(), run:null};
+    cadMarquee = {x1:p.x, y1:p.y, x2:p.x, y2:p.y, sx:p.sx, sy:p.sy, shift:e.shiftKey};
+    cadRefreshAll();
+  }
+  function cadOnMove(e){
+    if(!cadPlan) return;
+    const p = cadPt(e);
+    if(cadPan){ cadView.ox = cadPan.ox + (p.sx-cadPan.sx); cadView.oy = cadPan.oy + (p.sy-cadPan.sy); cadRender(); return; }
+    cadCursor = {x:p.x, y:p.y};
+    if(cadDrag){
+      if(!cadDrag.moved && Math.hypot(p.sx-cadDrag.sx, p.sy-cadDrag.sy) < 3) return;
+      if(!cadDrag.moved){ cadPush(); cadDrag.moved = true; }
+      if(cadDrag.type==='move'){ cadDrag.origs.forEach(o=>{ o.obj.x = o.x + (p.x-cadDrag.x); o.obj.y = o.y + (p.y-cadDrag.y); }); }
+      else if(cadDrag.type==='callout'){
+        const i = cadDrag.info; cadDrag.run.calloutOff = {dx:(i.cx-i.mp.x) + (p.x-cadDrag.x), dy:(i.cy-i.mp.y) + (p.y-cadDrag.y)};
+      }
+      cadRender(); cadRefreshSideSoon(); return;
+    }
+    if(cadMarquee){ cadMarquee.x2 = p.x; cadMarquee.y2 = p.y; cadRender(); return; }
+    if(cadTool==='run'){
+      const kinds = cadExtendRunId ? ['fixture'] : (cadDraft ? ['fixture'] : ['transformer']);
+      const n = cadNearestNode(p, kinds); cadSnap = n ? {x:n.x, y:n.y} : null;
+      if(cadDraft || cadSnap) cadRender();
+    }
+  }
+  function cadOnUp(e){
+    try{ $('planCanvas').releasePointerCapture(e.pointerId); }catch(err){}
+    if(cadPan){ cadPan = null; return; }
+    if(cadDrag){ const moved = cadDrag.moved; cadDrag = null; if(moved) cadMarkDirty(); cadRefreshAll(); return; }
+    if(cadMarquee){
+      const m = cadMarquee; cadMarquee = null;
+      if(Math.hypot(m.x2-m.x1, m.y2-m.y1)*cadView.zoom > 4){
+        const x0 = Math.min(m.x1,m.x2), x1 = Math.max(m.x1,m.x2), y0 = Math.min(m.y1,m.y2), y1 = Math.max(m.y1,m.y2);
+        cadPlan.scene.fixtures.forEach(f=>{ if(f.x>=x0 && f.x<=x1 && f.y>=y0 && f.y<=y1) cadSel.fixtures.add(f.id); });
+        cadPlan.scene.transformers.forEach(t=>{ if(t.x>=x0 && t.x<=x1 && t.y>=y0 && t.y<=y1) cadSel.transformers.add(t.id); });
+      }
+      cadRefreshAll();
+    }
+  }
+  function cadOnWheel(e){
+    if(!cadPlan) return; e.preventDefault();
+    const p = cadPt(e), nz = Math.min(24, Math.max(0.03, cadView.zoom*Math.exp(-e.deltaY*0.0016)));
+    cadView.ox = p.sx - p.x*nz; cadView.oy = p.sy - p.y*nz; cadView.zoom = nz; cadRender();
+  }
+  function cadOnKey(e){
+    if(!cadPlan || $('planEditorScreen').hidden) return;
+    if(!$('planScaleModal').hidden || !$('planSettingsModal').hidden || !$('planMetaModal').hidden || !$('planSheetModal').hidden || !$('planCreateModal').hidden) return;
+    const tag = (e.target && e.target.tagName) || '';
+    const typing = tag==='INPUT' || tag==='TEXTAREA' || tag==='SELECT';
+    if((e.ctrlKey||e.metaKey) && !typing && e.key.toLowerCase()==='z'){ e.preventDefault(); e.shiftKey ? cadRedo() : cadUndo(); return; }
+    if((e.ctrlKey||e.metaKey) && !typing && e.key.toLowerCase()==='y'){ e.preventDefault(); cadRedo(); return; }
+    if(typing) return;
+    if(e.key===' '){ cadSpace = true; e.preventDefault(); return; }
+    if(e.key==='Escape' || e.key==='Enter'){
+      if(cadDraft){ cadCommitDraft(); e.preventDefault(); return; }
+      if(cadExtendRunId){ cadExtendRunId = null; cadRefreshAll(); return; }
+      if(e.key==='Escape'){ if(cadTool!=='select') cadSetTool('select'); else { cadSel = {fixtures:new Set(), transformers:new Set(), run:null}; cadRefreshAll(); } }
+      return;
+    }
+    if(e.key==='Delete' || e.key==='Backspace'){ e.preventDefault(); cadDeleteSelection(); return; }
+    const map = {v:'select', h:'pan', f:'fixture', t:'transformer', r:'run', s:'scale'};
+    if(map[e.key.toLowerCase()] && !e.ctrlKey && !e.metaKey){ cadSetTool(map[e.key.toLowerCase()]); }
+  }
+
+  // ---------------- left rail (tools + palette) ----------------
+  function cadRenderTools(){
+    const el = $('planTools'); if(!el || !cadPlan) return;
+    const tools = [['select','Select','V'],['pan','Pan','H'],['fixture','Fixture','F'],['transformer','Transformer','T'],['run','Wire run','R'],['scale','Scale','S']];
+    let html = `<div class="plan-tool-grid">${tools.map(([id,label,key])=>`<button class="plan-tool ${cadTool===id?'is-active':''}" data-tool="${id}" title="${label} (${key})">${label}<span>${key}</span></button>`).join('')}</div>`;
+    if(cadTool==='fixture'){
+      const q = (cadPalette.search||'').toLowerCase();
+      const list = allFixtures().filter(f=> (f.cat==='fixture' || (f.cat==='accessory' && !/transformer|cable/i.test(f.name))) && (!q || (f.name||'').toLowerCase().includes(q) || (f.type||'').includes(q)));
+      html += `<input class="plan-search" id="planPalSearch" placeholder="Search fixtures…" value="${escapeHtml(cadPalette.search||'')}">`;
+      html += `<div class="plan-pal">${list.map(f=>`<button class="plan-pal-item ${cadPalette.fixtureId===f.id?'is-active':''}" data-pal-fx="${escapeHtml(f.id)}">${cadSymbolSvg(cadSymbolById(cadSymbolIdFor(f)), 22)}<span><b>${escapeHtml(f.name)}</b><em>${f.cat==='accessory'?'Accessory':(f.watt||0)+'W'}</em></span></button>`).join('') || '<div class="fx-desc">No fixtures in your catalog yet.</div>'}</div>`;
+    } else if(cadTool==='transformer'){
+      html += `<div class="plan-pal">${cadSettings.models.map(m=>`<button class="plan-pal-item ${(cadPalette.modelId||cadSettings.models[0].id)===m.id?'is-active':''}" data-pal-tm="${escapeHtml(m.id)}"><span class="plan-tm-icon"></span><span><b>${escapeHtml(m.name)}</b><em>${m.capacityW}W · ${m.taps.join('/')}V taps</em></span></button>`).join('')}</div>`;
+    } else {
+      html += `<div class="fx-desc" style="margin-top:12px;">Tools: <b>Fixture</b> and <b>Transformer</b> place items on the plan. <b>Wire run</b>: click a transformer, then fixtures in wiring order. <b>Scale</b> sets feet-per-pixel from two points.</div>`;
+    }
+    el.innerHTML = html;
+  }
+
+  // ---------------- right panel: inspector ----------------
+  function cadRefreshInspector(){
+    const el = $('planInspector'); if(!el || !cadPlan) return;
+    const sc = cadPlan.scene, calc = cadLastCalc = cadCalc(cadPlan);
+    const fmtFt = n => n==null ? '—' : Math.round(n)+"'";
+    let html = '';
+    if(cadSel.run){
+      const r = calc.runs.find(x=>x.run.id===cadSel.run);
+      if(r){
+        html += `<h4>Run ${r.idx}</h4>
+          <label>Transformer<select data-act="run-tf"><option value="">Unassigned</option>${sc.transformers.map((t,i)=>`<option value="${t.id}" ${t.id===r.run.transformerId?'selected':''}>${escapeHtml(t.name)}</option>`).join('')}</select></label>
+          <label>Cable gauge<select data-act="run-gauge"><option value="">Auto${r.auto?` (${r.auto.awg}/2)`:''}</option>${cadSettings.gauges.slice().sort((a,b)=>b.awg-a.awg).map(g=>`<option value="${g.awg}" ${r.run.gaugeAwg===g.awg?'selected':''}>${g.awg}/2</option>`).join('')}</select></label>
+          <label>Zone<input type="number" min="1" step="1" data-act="run-zone" value="${r.zone}"></label>
+          <div class="plan-stats"><div><span>Load</span><b>${cadFmt(r.load)} VA</b></div><div><span>Drawn</span><b>${fmtFt(r.lenFt)}</b></div><div><span>Max (${r.gauge.awg}/2)</span><b class="${r.over?'is-bad':''}">${fmtFt(r.maxFt)}</b></div></div>
+          ${r.over?'<div class="plan-flag">Drawn length exceeds this gauge’s max run length — pick a heavier gauge, split the run, or add a transformer.</div>':''}
+          <div class="plan-list-title">Wiring order</div>
+          <div class="plan-order">${r.run.fixtureIds.map((id,i)=>{ const pf = sc.fixtures.find(x=>x.id===id); const f = pf && findFixture(pf.fixtureId); return `<div class="plan-order-row"><span>${i+1}. ${escapeHtml(f?f.name:'(missing)')}</span><span><button data-act="run-up" data-i="${i}" ${i===0?'disabled':''}>↑</button><button data-act="run-down" data-i="${i}" ${i===r.run.fixtureIds.length-1?'disabled':''}>↓</button><button data-act="run-rm" data-i="${i}">✕</button></span></div>`; }).join('')}</div>
+          <div class="plan-btn-row"><button class="btn btn-ghost btn-sm" data-act="run-extend">${cadExtendRunId===r.run.id?'Done adding':'+ Add fixtures'}</button><button class="btn btn-danger btn-sm" data-act="run-del">Delete run</button></div>`;
+      }
+    } else if(cadSel.transformers.size===1 && !cadSel.fixtures.size){
+      const id = [...cadSel.transformers][0], tr = calc.transformers.find(x=>x.t.id===id);
+      if(tr){
+        html += `<h4>Transformer</h4>
+          <label>Name<input data-act="tf-name" value="${escapeHtml(tr.t.name)}"></label>
+          <label>Model<select data-act="tf-model">${cadSettings.models.map(m=>`<option value="${escapeHtml(m.id)}" ${m.id===tr.model.id?'selected':''}>${escapeHtml(m.name)}</option>`).join('')}</select></label>
+          <label>Voltage tap<select data-act="tf-tap">${tr.model.taps.map(v=>`<option value="${v}" ${(tr.t.tapV||15)===v?'selected':''}>${v}V</option>`).join('')}</select></label>
+          <div class="plan-stats"><div><span>Load</span><b>${cadFmt(tr.load)}W</b></div><div><span>Capacity</span><b>${tr.cap}W</b></div><div><span>Remaining</span><b class="${tr.status==='over'?'is-bad':(tr.status==='warn'?'is-warn':'')}">${cadFmt(tr.remaining)}W</b></div></div>
+          ${tr.status==='over'?'<div class="plan-flag">Overloaded — load exceeds capacity.</div>':(tr.status==='warn'?'<div class="plan-flag is-warn">Above the recommended 80% of capacity.</div>':'')}
+          <div class="plan-btn-row"><button class="btn btn-danger btn-sm" data-act="sel-del">Delete transformer</button></div>`;
+      }
+    } else if(cadSel.fixtures.size){
+      const ids = [...cadSel.fixtures], pf = sc.fixtures.find(x=>x.id===ids[0]), f = pf && findFixture(pf.fixtureId);
+      html += `<h4>${ids.length>1 ? ids.length+' fixtures' : escapeHtml(f?f.name:'Fixture')}</h4>`;
+      if(ids.length===1 && f){
+        const cur = cadSymbolIdFor(f);
+        html += `<div class="plan-stats"><div><span>Load</span><b>${f.watt||0} VA</b></div><div><span>Type</span><b>${escapeHtml(f.cat==='accessory'?'Accessory':(FIXTURE_TYPES[f.type]?FIXTURE_TYPES[f.type].label:'Other'))}</b></div></div>
+          <label>Symbol (all "${escapeHtml(f.name)}")<select data-act="fx-symbol" data-fid="${escapeHtml(f.id)}">${cadAllSymbols().map(s=>`<option value="${s.id}" ${s.id===cur?'selected':''}>${escapeHtml(s.label)}</option>`).join('')}</select></label>
+          <label class="plan-check"><input type="checkbox" data-act="fx-aim" ${pf.rot!=null?'checked':''}> Show aim direction</label>
+          ${pf.rot!=null?`<label>Aim (degrees, 0 = up)<input type="number" step="5" data-act="fx-rot" value="${Math.round(pf.rot)}"></label>`:''}`;
+      }
+      html += `<div class="plan-btn-row"><button class="btn btn-danger btn-sm" data-act="sel-del">Delete</button></div>`;
+    } else {
+      html += `<h4>Plan</h4>
+        <div class="plan-stats"><div><span>Fixtures</span><b>${sc.fixtures.length}</b></div><div><span>Transformers</span><b>${sc.transformers.length}</b></div><div><span>Runs</span><b>${sc.runs.length}</b></div></div>
+        <div class="plan-scale-row">${cadPlan.pxPerFt ? `Scale set · ${cadPlan.bgW && cadPlan.pxPerFt ? Math.round(cadPlan.bgW/cadPlan.pxPerFt)+"' across" : ''}` : '<b class="is-bad">Scale not set</b>'} <button class="btn btn-ghost btn-sm" data-act="set-scale">${cadPlan.pxPerFt?'Re-set':'Set scale'}</button></div>
+        ${calc.warnings.length ? `<div class="plan-list-title">Checks</div>${calc.warnings.map(w=>`<div class="plan-flag ${/overloaded|maxes out/.test(w)?'':'is-warn'}">${escapeHtml(w)}</div>`).join('')}` : (sc.fixtures.length?'<div class="plan-ok">All checks pass.</div>':'')}
+        <div class="plan-btn-row"><button class="btn btn-ghost btn-sm" data-act="sheet-meta">Sheet notes &amp; title</button></div>`;
+    }
+    el.innerHTML = html;
+  }
+  function cadInspectorAct(e){
+    const t = e.target.closest('[data-act]'); if(!t || !cadPlan) return;
+    const act = t.dataset.act, isChange = e.type==='change', isClick = e.type==='click';
+    const sc = cadPlan.scene, run = cadSel.run && sc.runs.find(r=>r.id===cadSel.run);
+    const single = (arr)=> arr.size===1 ? [...arr][0] : null;
+    const mut = fn=>{ cadPush(); fn(); cadMarkDirty(); cadRefreshAll(); };
+    if(isClick){
+      if(act==='run-up' && run){ const i = +t.dataset.i; mut(()=>{ [run.fixtureIds[i-1], run.fixtureIds[i]] = [run.fixtureIds[i], run.fixtureIds[i-1]]; }); }
+      else if(act==='run-down' && run){ const i = +t.dataset.i; mut(()=>{ [run.fixtureIds[i+1], run.fixtureIds[i]] = [run.fixtureIds[i], run.fixtureIds[i+1]]; }); }
+      else if(act==='run-rm' && run){ const i = +t.dataset.i; mut(()=>{ run.fixtureIds.splice(i,1); if(!run.fixtureIds.length){ sc.runs = sc.runs.filter(r=>r!==run); cadSel.run = null; } }); }
+      else if(act==='run-extend' && run){ if(cadExtendRunId===run.id){ cadExtendRunId = null; cadRefreshAll(); } else { cadExtendRunId = run.id; cadTool = 'run'; cadDraft = null; cadRefreshAll(); } }
+      else if(act==='run-del' || act==='sel-del'){ cadDeleteSelection(); }
+      else if(act==='set-scale'){ cadSetTool('scale'); }
+      else if(act==='sheet-meta'){ cadOpenMetaModal(); }
+      return;
+    }
+    if(!isChange) return;
+    const v = t.type==='checkbox' ? t.checked : t.value;
+    if(act==='run-tf' && run) mut(()=>{ run.transformerId = v || null; });
+    else if(act==='run-gauge' && run) mut(()=>{ run.gaugeAwg = v==='' ? null : Number(v); });
+    else if(act==='run-zone' && run) mut(()=>{ run.zone = Math.max(1, parseInt(v,10)||1); });
+    else if(act==='tf-name'){ const id = single(cadSel.transformers), tt = sc.transformers.find(x=>x.id===id); if(tt) mut(()=>{ tt.name = String(v).trim() || tt.name; }); }
+    else if(act==='tf-model'){ const id = single(cadSel.transformers), tt = sc.transformers.find(x=>x.id===id); const m = cadSettings.models.find(x=>x.id===v); if(tt && m) mut(()=>{ tt.modelId = m.id; if(!m.taps.includes(tt.tapV)) tt.tapV = Math.max(...m.taps); }); }
+    else if(act==='tf-tap'){ const id = single(cadSel.transformers), tt = sc.transformers.find(x=>x.id===id); if(tt) mut(()=>{ tt.tapV = Number(v); }); }
+    else if(act==='fx-symbol'){ cadSettings.fixtureSymbol[t.dataset.fid] = v; cadSaveSettings(); cadRefreshAll(); }
+    else if(act==='fx-aim'){ const pf = sc.fixtures.find(x=>x.id===single(cadSel.fixtures)); if(pf) mut(()=>{ pf.rot = v ? 0 : null; }); }
+    else if(act==='fx-rot'){ const pf = sc.fixtures.find(x=>x.id===single(cadSel.fixtures)); if(pf) mut(()=>{ pf.rot = Number(v)||0; }); }
+  }
+
+  // ---------------- scale / meta / sheet / export ----------------
+  function cadSaveScale(){
+    const ft = parseFloat($('planScaleInput').value);
+    if(!ft || ft<=0){ alert('Enter the real-world distance between the two points, in feet.'); return; }
+    const [a,b] = cadScalePts, px = Math.hypot(b.x-a.x, b.y-a.y);
+    if(px<2){ alert('Those two points are too close together — pick two points further apart.'); return; }
+    cadPush(); cadPlan.pxPerFt = px/ft; $('planScaleModal').hidden = true; cadScalePts = null; cadTool = 'select'; cadMarkDirty(); cadRefreshAll();
+  }
+  function cadCancelScale(){ $('planScaleModal').hidden = true; cadScalePts = null; cadUpdateHint(); cadRender(); }
+  function cadOpenMetaModal(){
+    $('planMetaNotes').value = (cadPlan.meta && cadPlan.meta.notes) || ''; $('planMetaSheet').value = (cadPlan.meta && cadPlan.meta.sheetNo) || 'LD1.01';
+    $('planMetaModal').hidden = false;
+  }
+  function cadSaveMeta(){
+    cadPlan.meta = {...(cadPlan.meta||{}), notes:$('planMetaNotes').value, sheetNo:$('planMetaSheet').value.trim() || 'LD1.01'};
+    $('planMetaModal').hidden = true; cadMarkDirty(); cadRefreshSide();
+  }
+  async function cadOpenSheet(){
+    if(!cadPlan) return;
+    await cadSaveNow();
+    const host = $('planSheetPages'); host.innerHTML = '';
+    const calc = cadCalc(cadPlan), pages = cadBuildSheet(cadPlan, calc, cadProject()), cssW = Math.min(1000, window.innerWidth-60), sc = cssW/CAD_SHEET.w, dpr = window.devicePixelRatio||1;
+    pages.forEach(pg=>{
+      const cv = document.createElement('canvas'); cv.className = 'plan-sheet-page';
+      cv.style.width = cssW+'px'; cv.style.height = (CAD_SHEET.h*sc)+'px'; cv.width = Math.round(cssW*dpr); cv.height = Math.round(CAD_SHEET.h*sc*dpr);
+      const ctx = cv.getContext('2d'); ctx.fillStyle = '#ffffff'; ctx.fillRect(0,0,cv.width,cv.height); ctx.setTransform(dpr*sc,0,0,dpr*sc,0,0);
+      cadDrawItemsCanvas(ctx, pg.items, cadImg); host.appendChild(cv);
+    });
+    $('planSheetModal').hidden = false;
+  }
+  async function cadExportPdf(size){
+    if(!cadPlan) return;
+    const btns = ['planPdfLetter','planPdfTabloid'].map($); btns.forEach(b=>{ b.disabled = true; });
+    const old = btns.map(b=>b.textContent); btns[size==='tabloid'?1:0].textContent = 'Preparing…';
+    try{
+      if(!cadDataUrl){
+        // Re-encode the background as a downscaled JPEG for the PDF (a full-size PNG made an 8MB file).
+        try{
+          if(!cadImg) throw new Error('image not loaded');
+          const sc = Math.min(1, 2400/Math.max(cadPlan.bgW, cadPlan.bgH)), c = document.createElement('canvas');
+          c.width = Math.round(cadPlan.bgW*sc); c.height = Math.round(cadPlan.bgH*sc);
+          const x = c.getContext('2d'); x.fillStyle = '#ffffff'; x.fillRect(0,0,c.width,c.height); x.drawImage(cadImg, 0, 0, c.width, c.height);
+          cadDataUrl = c.toDataURL('image/jpeg', 0.85); cadDataFmt = 'JPEG';
+        }catch(err){
+          console.warn('Duskline: plan background re-encode failed, fetching original.', err);
+          try{ const r = await cadFetchDataUrl(cadPlan.background); cadDataUrl = r.dataUrl; cadDataFmt = r.format; }catch(err2){ console.warn('Duskline: plan background fetch failed.', err2); }
+        }
+      }
+      const { jsPDF } = window.jspdf, kf = size==='tabloid' ? 1224/792 : 1, W = CAD_SHEET.w*kf, H = CAD_SHEET.h*kf;
+      const doc = new jsPDF({unit:'pt', format:[W,H], orientation:'landscape'});
+      const pages = cadBuildSheet(cadPlan, cadCalc(cadPlan), cadProject());
+      pages.forEach((pg,i)=>{ if(i) doc.addPage([W,H], 'landscape'); cadDrawItemsPdf(doc, pg.items, kf, cadDataUrl, cadDataFmt); });
+      const url = URL.createObjectURL(doc.output('blob')), a = document.createElement('a');
+      a.href = url; a.download = `plan-${(cadPlan.name||'plan').replace(/[^a-z0-9]+/gi,'-')}.pdf`;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+    } finally { btns.forEach((b,i)=>{ b.disabled = false; b.textContent = old[i]; }); }
+  }
+
+  // ---------------- company-wide settings (symbols / transformers / gauges) ----------------
+  function cadOpenSettings(){ cadRenderSettings(); $('planSettingsModal').hidden = false; }
+  function cadRenderSettings(){
+    const S = cadSettings, syms = cadAllSymbols();
+    const fixtures = allFixtures().filter(f=>f.cat==='fixture' || (f.cat==='accessory' && !/transformer|cable/i.test(f.name)));
+    $('planSettingsBody').innerHTML = `
+      <div class="plan-set-sec"><h4>Symbols per fixture</h4>
+        <div class="fx-desc">Which symbol each catalog item uses on plans. “Auto” cycles the built-in set by fixture type.</div>
+        ${fixtures.map(f=>{ const cur = cadSymbolIdFor(f); const ov = S.fixtureSymbol[f.id]; return `<div class="plan-set-row">${cadSymbolSvg(cadSymbolById(cur), 24)}<span class="grow">${escapeHtml(f.name)}</span><select data-set="fx-sym" data-fid="${escapeHtml(f.id)}"><option value="">Auto</option>${syms.map(s=>`<option value="${s.id}" ${ov===s.id?'selected':''}>${escapeHtml(s.label)}</option>`).join('')}</select></div>`; }).join('') || '<div class="fx-desc">No fixtures yet.</div>'}
+        <label style="margin-top:8px;">Symbol size on plans (${Math.round(S.symbolScale*100)}%)<input type="range" min="50" max="220" step="10" value="${Math.round(S.symbolScale*100)}" data-set="sym-scale"></label>
+      </div>
+      <div class="plan-set-sec"><h4>Transformer models</h4>
+        ${S.models.map((m,i)=>`<div class="plan-set-row"><input data-set="tm-name" data-i="${i}" value="${escapeHtml(m.name)}" class="grow"><input data-set="tm-cap" data-i="${i}" type="number" min="1" value="${m.capacityW}" style="width:74px" title="Capacity (W)"><input data-set="tm-taps" data-i="${i}" value="${m.taps.join(',')}" style="width:96px" title="Voltage taps"><button data-set="tm-del" data-i="${i}">✕</button></div>`).join('')}
+        <button class="btn btn-ghost btn-sm" data-set="tm-add">+ Add model</button>
+      </div>
+      <div class="plan-set-sec"><h4>Cable gauges &amp; voltage drop</h4>
+        <div class="fx-desc">Resistance is ohms per 1000 ft of one conductor. Max run length = (tap − minimum lamp voltage) ÷ (2 × R × amps).</div>
+        ${S.gauges.map((g,i)=>`<div class="plan-set-row"><span class="grow">Gauge</span><input data-set="g-awg" data-i="${i}" type="number" min="1" value="${g.awg}" style="width:64px"><input data-set="g-r" data-i="${i}" type="number" step="0.001" min="0.001" value="${g.r}" style="width:84px"><button data-set="g-del" data-i="${i}">✕</button></div>`).join('')}
+        <button class="btn btn-ghost btn-sm" data-set="g-add">+ Add gauge</button>
+        <label style="margin-top:8px;">Minimum lamp voltage<input data-set="min-v" type="number" step="0.1" value="${S.minLampV}"></label>
+      </div>
+      <div class="plan-set-sec"><h4>Custom symbols (advanced)</h4>
+        <div class="fx-desc">JSON list of symbols: <code>{"id":"my_sym","label":"My symbol","kind":"fixture","shapes":[{"t":"circle","r":9,"fill":"#fff","stroke":"#000"}]}</code>. Shapes: circle, rect, line, poly, drawn in a ±10 box.</div>
+        <textarea id="planCustomSyms" rows="6" style="width:100%;font-family:var(--font-mono);font-size:11px;">${escapeHtml(JSON.stringify(S.customSymbols, null, 1))}</textarea>
+        <div class="plan-btn-row"><button class="btn btn-ghost btn-sm" data-set="syms-apply">Apply custom symbols</button><span id="planCustomSymsMsg" class="fx-desc"></span></div>
+      </div>`;
+  }
+  function cadSettingsAct(e){
+    const t = e.target.closest('[data-set]'); if(!t) return;
+    const S = cadSettings, act = t.dataset.set, i = +t.dataset.i, isChange = e.type==='change', isClick = e.type==='click';
+    let touched = false;
+    if(isChange){
+      if(act==='fx-sym'){ if(t.value) S.fixtureSymbol[t.dataset.fid] = t.value; else delete S.fixtureSymbol[t.dataset.fid]; touched = true; }
+      else if(act==='sym-scale'){ S.symbolScale = (+t.value)/100; touched = true; }
+      else if(act==='tm-name'){ S.models[i].name = t.value.trim() || S.models[i].name; touched = true; }
+      else if(act==='tm-cap'){ S.models[i].capacityW = Math.max(1, +t.value||S.models[i].capacityW); touched = true; }
+      else if(act==='tm-taps'){ const taps = t.value.split(',').map(x=>+x.trim()).filter(x=>x>0); if(taps.length){ S.models[i].taps = taps; touched = true; } }
+      else if(act==='g-awg'){ const n = Math.round(+t.value); if(n>0){ S.gauges[i].awg = n; touched = true; } }
+      else if(act==='g-r'){ const r = +t.value; if(r>0){ S.gauges[i].r = r; touched = true; } }
+      else if(act==='min-v'){ S.minLampV = +t.value || S.minLampV; touched = true; }
+    } else if(isClick){
+      if(act==='tm-del' && S.models.length>1){ S.models.splice(i,1); touched = true; }
+      else if(act==='tm-add'){ S.models.push({id:'tm'+Date.now().toString(36), name:'New transformer', capacityW:300, taps:[12,13,14,15]}); touched = true; }
+      else if(act==='g-del' && S.gauges.length>1){ S.gauges.splice(i,1); touched = true; }
+      else if(act==='g-add'){ S.gauges.push({awg:6, r:0.395}); touched = true; }
+      else if(act==='syms-apply'){
+        try{
+          const arr = JSON.parse($('planCustomSyms').value || '[]'); if(!Array.isArray(arr)) throw new Error('Must be a JSON list.');
+          const bad = arr.filter(s=>!cadCleanSymbol(s)).length;
+          S.customSymbols = arr.filter(s=>cadCleanSymbol(s)); touched = true;
+          setTimeout(()=>{ const m = $('planCustomSymsMsg'); if(m) m.textContent = bad ? `${bad} invalid symbol${bad>1?'s':''} ignored.` : 'Applied.'; }, 0);
+        }catch(err){ $('planCustomSymsMsg').textContent = 'Invalid JSON: '+err.message; }
+      }
+    }
+    if(touched){ cadSaveSettings(); cadRenderSettings(); if(cadPlan) cadRefreshAll(); }
+  }
+
+  // ---------------- Plans tab + create flow ----------------
+  function renderPlansTab(){
+    const host = $('planList'); if(!host) return;
+    $('plansSchemaNote').hidden = !cadSchemaMissing;
+    $('btnNewPlan').disabled = cadSchemaMissing;
+    const byProject = new Map();
+    cadPlans.forEach(p=>{ if(!byProject.has(p.projectId)) byProject.set(p.projectId, []); byProject.get(p.projectId).push(p); });
+    let html = '';
+    state.projects.forEach(pr=>{
+      const list = byProject.get(pr.id); if(!list) return;
+      html += `<div class="plan-group"><div class="plan-group-name">${escapeHtml(pr.customer.name)||'Untitled project'}</div>${list.map(p=>`<div class="project-card" data-plan="${p.id}"><div><div class="project-card-name">${escapeHtml(p.name)}</div><div class="project-card-sub">${p.scene.fixtures.length} fixtures · ${p.scene.transformers.length} transformers · ${p.scene.runs.length} runs${p.pxPerFt?'':' · scale not set'}</div></div><button class="project-card-del" data-plan-del="${p.id}">✕</button></div>`).join('')}</div>`;
+    });
+    host.innerHTML = html;
+    $('plansEmpty').hidden = cadSchemaMissing || cadPlans.length>0;
+  }
+  function cadOpenCreate(){
+    if(!state.projects.length){ alert('Create a project first — CAD plans belong to a project.'); return; }
+    $('planCreateProject').innerHTML = state.projects.map(p=>`<option value="${p.id}" ${p.id===state.currentProjectId?'selected':''}>${escapeHtml(p.customer.name)||'Untitled project'}</option>`).join('');
+    $('planCreateName').value = ''; $('planCreateFile').value = ''; $('planCreateModal').hidden = false;
+  }
+  // Downscales a large site image (max 3200px on the long side) so the plan stays fast and the
+  // Storage object small; keeps PNG for line-art originals, JPEG otherwise.
+  function cadReadImage(file){
+    return new Promise((resolve, reject)=>{
+      const fr = new FileReader();
+      fr.onload = ()=>{
+        const img = new Image();
+        img.onload = ()=>{
+          const max = 3200, sc = Math.min(1, max/Math.max(img.naturalWidth, img.naturalHeight));
+          const w = Math.round(img.naturalWidth*sc), h = Math.round(img.naturalHeight*sc);
+          const c = document.createElement('canvas'); c.width = w; c.height = h; const x = c.getContext('2d');
+          x.fillStyle = '#ffffff'; x.fillRect(0,0,w,h); x.drawImage(img, 0, 0, w, h);
+          const png = file.type==='image/png';
+          resolve({dataUrl:c.toDataURL(png?'image/png':'image/jpeg', 0.92), contentType:png?'image/png':'image/jpeg', ext:png?'png':'jpg', w, h});
+        };
+        img.onerror = ()=>reject(new Error('That file could not be read as an image.'));
+        img.src = fr.result;
+      };
+      fr.onerror = ()=>reject(new Error('Could not read the file.'));
+      fr.readAsDataURL(file);
+    });
+  }
+  async function cadCreatePlan(){
+    const projectId = $('planCreateProject').value, name = $('planCreateName').value.trim() || 'Untitled plan', raw = $('planCreateFile').files[0];
+    if(!projectId){ alert('Pick a project.'); return; }
+    if(!raw){ alert('Choose a site image (a survey, site plan, or drawing) to draw on.'); return; }
+    const btn = $('planCreateSave'); btn.disabled = true; const old = btn.textContent; btn.textContent = 'Uploading…';
+    try{
+      const file = await convertHeicIfNeeded(raw); if(!file) return;
+      const img = await cadReadImage(file);
+      const id = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : ('10000000-1000-4000-8000-'+Date.now().toString(16).padStart(12,'0').slice(-12));
+      const url = await uploadToPhotosBucket(`${authProfile.companyId}/plans/${id}.${img.ext}`, img.dataUrl, img.contentType);
+      if(!url) return;
+      const plan = {id, projectId, name, background:url, bgW:img.w, bgH:img.h, pxPerFt:null, scene:{fixtures:[],transformers:[],runs:[]}, meta:{notes:'', sheetNo:'LD1.01'}};
+      const { error } = await sb.from('cad_plans').insert({id, company_id:authProfile.companyId, ...cadPlanToRow(plan)});
+      if(error){ console.warn('Duskline: plan create failed.', error); alert('Could not create the plan. If this is the first time using Plans, the CAD database update (see supabase/schema.sql) may not have been run yet.'); return; }
+      cadPlans.unshift(plan); $('planCreateModal').hidden = true; renderPlansTab(); cadOpenPlan(id, {startScale:true});
+    }catch(err){ console.warn('Duskline: plan create failed.', err); alert(err.message || 'Could not create the plan.'); }
+    finally{ btn.disabled = false; btn.textContent = old; }
+  }
+  async function cadDeletePlan(id){
+    const p = cadPlans.find(x=>x.id===id); if(!p) return;
+    if(!confirm(`Delete the plan “${p.name}”? This can't be undone.`)) return;
+    cadPlans = cadPlans.filter(x=>x.id!==id); renderPlansTab();
+    const ext = /\.png(\?|$)/i.test(p.background||'') ? 'png' : 'jpg';
+    sb.storage.from('photos').remove([`${authProfile.companyId}/plans/${id}.${ext}`]).then(({error})=>{ if(error) console.warn('Duskline: plan image cleanup failed.', error); });
+    const { error } = await sb.from('cad_plans').delete().eq('id', id);
+    if(error) console.warn('Duskline: plan delete failed.', error);
+  }
+
+  function cadInit(){
+    $('btnNewPlan').addEventListener('click', cadOpenCreate);
+    $('planCreateCancel').addEventListener('click', ()=>{ $('planCreateModal').hidden = true; });
+    $('planCreateBackdrop').addEventListener('click', ()=>{ $('planCreateModal').hidden = true; });
+    $('planCreateSave').addEventListener('click', cadCreatePlan);
+    $('planList').addEventListener('click', e=>{
+      const del = e.target.closest('[data-plan-del]'); if(del){ e.stopPropagation(); cadDeletePlan(del.dataset.planDel); return; }
+      const row = e.target.closest('[data-plan]'); if(row) cadOpenPlan(row.dataset.plan);
+    });
+    $('planBack').addEventListener('click', cadClosePlan);
+    $('planUndo').addEventListener('click', cadUndo);
+    $('planRedo').addEventListener('click', cadRedo);
+    $('planNameInput').addEventListener('change', e=>{ if(cadPlan){ cadPlan.name = e.target.value.trim() || 'Untitled plan'; cadMarkDirty(); } });
+    $('planBtnSheet').addEventListener('click', cadOpenSheet);
+    $('planBtnSettings').addEventListener('click', cadOpenSettings);
+    $('planBtnFit').addEventListener('click', ()=>{ cadFit(); cadRender(); });
+    const cv = $('planCanvas');
+    cv.addEventListener('pointerdown', cadOnDown); cv.addEventListener('pointermove', cadOnMove); cv.addEventListener('pointerup', cadOnUp);
+    cv.addEventListener('pointercancel', cadOnUp); cv.addEventListener('wheel', cadOnWheel, {passive:false});
+    cv.addEventListener('dblclick', ()=>{ if(cadTool==='run' && cadDraft) cadCommitDraft(); });
+    cv.addEventListener('contextmenu', e=>{ e.preventDefault(); if(cadDraft){ cadDraft = null; cadSnap = null; cadRefreshAll(); } });
+    document.addEventListener('keydown', cadOnKey);
+    document.addEventListener('keyup', e=>{ if(e.key===' ') cadSpace = false; });
+    window.addEventListener('resize', ()=>{ if(cadPlan && !$('planEditorScreen').hidden){ cadResizeCanvas(); cadRender(); cadRefreshSide(); } });
+    $('planTools').addEventListener('click', e=>{
+      const tool = e.target.closest('[data-tool]'); if(tool){ cadSetTool(tool.dataset.tool); return; }
+      const fx = e.target.closest('[data-pal-fx]'); if(fx){ cadPalette.fixtureId = fx.dataset.palFx; cadRenderTools(); cadUpdateHint(); return; }
+      const tm = e.target.closest('[data-pal-tm]'); if(tm){ cadPalette.modelId = tm.dataset.palTm; cadRenderTools(); }
+    });
+    $('planTools').addEventListener('input', e=>{ if(e.target.id==='planPalSearch'){ cadPalette.search = e.target.value; const pos = e.target.selectionStart; cadRenderTools(); const s = $('planPalSearch'); if(s){ s.focus(); s.setSelectionRange(pos,pos); } } });
+    $('planInspector').addEventListener('click', cadInspectorAct); $('planInspector').addEventListener('change', cadInspectorAct);
+    $('planScaleSave').addEventListener('click', cadSaveScale); $('planScaleCancel').addEventListener('click', cadCancelScale); $('planScaleBackdrop').addEventListener('click', cadCancelScale);
+    $('planMetaSave').addEventListener('click', cadSaveMeta); $('planMetaCancel').addEventListener('click', ()=>{ $('planMetaModal').hidden = true; }); $('planMetaBackdrop').addEventListener('click', ()=>{ $('planMetaModal').hidden = true; });
+    $('planSettingsClose').addEventListener('click', ()=>{ $('planSettingsModal').hidden = true; }); $('planSettingsBackdrop').addEventListener('click', ()=>{ $('planSettingsModal').hidden = true; });
+    $('planSettingsBody').addEventListener('click', cadSettingsAct); $('planSettingsBody').addEventListener('change', cadSettingsAct);
+    $('planSheetClose').addEventListener('click', ()=>{ $('planSheetModal').hidden = true; });
+    $('planPdfLetter').addEventListener('click', ()=>cadExportPdf('letter')); $('planPdfTabloid').addEventListener('click', ()=>cadExportPdf('tabloid'));
+  }
+
   // ---------------- init ----------------
   function init(){
+    cadInit();
     populateSheetTypeFilter();
     // photo pickers (used both for a fresh area and "change photo")
     $('btnTakePhoto').addEventListener('click', ()=> $('fileInputCamera').click());
@@ -6350,7 +7202,7 @@
     $('btnDrawWire').addEventListener('click', ()=>{
       const area = currentArea(); if(!area || !area.photo) return;
       state.drawingWire = !state.drawingWire;
-      if(state.drawingWire){ state.armed=null; state.selected=null; state.placingTransformer=false; state.settingScale=false; scaleCalPoints=null; closeInfoSheet(); renderSheetList(); updatePlaceTransformerBtn(); updateSetScaleBtn(); }
+      if(state.drawingWire){ state.armed=null; state.selected=null; closeInfoSheet(); renderSheetList(); }
       state.currentWirePath = null;
       updateDrawWireBtn();
       updatePlacementBanner();
@@ -6499,36 +7351,6 @@
     $('stripBackdrop').addEventListener('click', closeStripModal);
     $('stripSave').addEventListener('click', saveStripModal);
     $('stripDelete').addEventListener('click', deleteLightStrip);
-    $('transformerCancel').addEventListener('click', closeTransformerModal);
-    $('transformerBackdrop').addEventListener('click', closeTransformerModal);
-    $('transformerSave').addEventListener('click', saveTransformerModal);
-    $('transformerDelete').addEventListener('click', deleteTransformerModal);
-    $('btnPlaceTransformer').addEventListener('click', ()=>{
-      const area = currentArea(); if(!area || !area.photo) return;
-      state.placingTransformer = !state.placingTransformer;
-      if(state.placingTransformer){
-        state.armed=null; state.drawingWire=false; state.drawingStripFixtureId=null; state.settingScale=false; scaleCalPoints=null;
-        state.selected=null; closeInfoSheet(); renderSheetList(); updateDrawWireBtn(); updateSetScaleBtn();
-      }
-      updatePlaceTransformerBtn();
-      updatePlacementBanner();
-    });
-    $('btnSetScale').addEventListener('click', ()=>{
-      const area = currentArea(); if(!area || !area.photo) return;
-      state.settingScale = !state.settingScale;
-      scaleCalPoints = state.settingScale ? [] : null;
-      if(state.settingScale){
-        state.armed=null; state.drawingWire=false; state.drawingStripFixtureId=null; state.placingTransformer=false;
-        state.selected=null; closeInfoSheet(); renderSheetList(); updateDrawWireBtn(); updatePlaceTransformerBtn();
-      }
-      updateSetScaleBtn();
-      updatePlacementBanner();
-      renderOverlays();
-    });
-    $('scaleCancel').addEventListener('click', closeScaleCalibrationModal);
-    $('scaleBackdrop').addEventListener('click', closeScaleCalibrationModal);
-    $('scaleSave').addEventListener('click', saveScaleCalibrationModal);
-    $('btnExportWiringPlan').addEventListener('click', exportWiringPlan);
     $('btnAddTextBox').addEventListener('click', ()=>openTextBoxModal(null));
     $('textBoxCancel').addEventListener('click', closeTextBoxModal);
     $('textBoxBackdrop').addEventListener('click', closeTextBoxModal);

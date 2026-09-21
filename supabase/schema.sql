@@ -1194,7 +1194,7 @@ alter table public.areas add column if not exists text_boxes jsonb not null defa
 
 
 -- ============================================================================
--- CAD plans (the "Plans" tab): Kichler/LightPro-style lighting site plans that belong to a
+-- CAD plans (the "Plans" tab): CAD-style lighting site plans that belong to a
 -- project. `scene` holds the placed fixtures/transformers/wire runs in the uploaded background
 -- image's own pixel space; px_per_ft is the two-click scale calibration. The background lives
 -- in the existing `photos` bucket under {companyId}/plans/. cad_settings is one row per company

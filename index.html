@@ -1024,7 +1024,7 @@
     </div>
     <div class="plans-note" id="plansSchemaNote" hidden>Plans need a one-time database update before they can be used. Run the “CAD plans” SQL at the bottom of <code>supabase/schema.sql</code> in the Supabase SQL Editor, then reload.</div>
     <div id="planList"></div>
-    <div class="empty-note" id="plansEmpty">No plans yet. A plan is a Kichler-style lighting site plan: upload a site image, set the scale, place fixtures and transformers, and draw wire runs — the load, gauge and max-run tables build themselves.</div>
+    <div class="empty-note" id="plansEmpty">No plans yet. A plan is a CAD-style lighting site plan: upload a site image (or use a satellite view), set the scale, place fixtures and transformers, and draw wire runs — the load, gauge and max-run tables build themselves.</div>
   </main>
 
   <main id="screen-fixtures" class="screen">
@@ -5945,7 +5945,7 @@
   }
 
   // ==========================================================================================
-  // CAD PLANS -- a separate area (the "Plans" tab) for Kichler/LightPro-style lighting site
+  // CAD PLANS -- a separate area (the "Plans" tab) for CAD-style lighting site
   // plans: an uploaded site image + a two-click scale calibration, fixtures/transformers placed
   // on it, and wire runs drawn transformer -> fixture -> fixture in click order. Everything
   // (live editor canvas, live schedule panel, sheet preview, PDF) is ONE scene -> display list
@@ -5969,7 +5969,7 @@
     {id:'tm1200', name:'1200W Transformer', capacityW:1200, taps:[12,13,14,15]},
   ];
   // Symbols are plain data (see cadSymbolItems) so they can be changed without touching code:
-  // built-ins below are modelled on the Kichler/LightPro sheet's legend (color-coded circles with
+  // built-ins below are modelled on a CAD lighting-plan sheet's legend (color-coded circles with
   // a centre dot, diamond bracket/connector marks); Settings lets a company reassign which symbol
   // each catalog fixture uses and add its own via JSON. Shapes live in a +-10 unit box.
   function cadDotSym(id,label,fill,stroke,dot){

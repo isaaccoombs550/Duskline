@@ -1873,6 +1873,24 @@
     if(k<=3500) return '255,239,222';
     return '237,244,255';
   }
+  // The beam's own light color: a smooth, properly saturated warm-to-cool ramp, unlike the four
+  // very pale buckets in kelvinColor() above (which strips/dots still use). Real user report:
+  // "color temperature slider doesn't work" -- with the beam tint cut way down to remove the white
+  // haze (see the tint-opacity note in CLAUDE.md), the old pale/bucketed colors made the slider's
+  // effect imperceptible. An additive tint at low alpha reads as a warm/cool *cast* only if the
+  // color is actually saturated (a pale one just adds grey = haze), so the warm end is a real amber.
+  const BEAM_KELVIN_STOPS = [[2200,[255,138,38]],[2700,[255,166,80]],[3000,[255,186,112]],[4000,[255,216,172]],[5000,[232,238,255]]];
+  function beamKelvinColor(k){
+    const st = BEAM_KELVIN_STOPS;
+    if(k<=st[0][0]) return st[0][1].join(',');
+    for(let i=1;i<st.length;i++){
+      if(k<=st[i][0]){
+        const [k0,c0]=st[i-1], [k1,c1]=st[i], t=(k-k0)/(k1-k0);
+        return c0.map((v,j)=>Math.round(v+(c1[j]-v)*t)).join(',');
+      }
+    }
+    return st[st.length-1][1].join(',');
+  }
   // Per-fixture-type identity color, independent of kelvinColor() above (that's the beam's
   // light-temperature color; this is a fixed identity color per fixture *type* so a placement
   // dot, its row in the materials list, and the legend all agree on "which color means what" —
@@ -2077,7 +2095,7 @@
   function buildBeamHtml(p,f,rect,selected,masterBB,responsive){
     const bb = (p.brightness!=null ? p.brightness : (masterBB==null?1:masterBB));
     const kelvin = (p.kelvin!=null ? p.kelvin : f.kelvin);
-    const col = kelvinColor(kelvin);
+    const col = beamKelvinColor(kelvin);
     const beamW = (p.beamWidth!=null ? p.beamWidth : f.beam);
     let html, hx, hy, wx, wy;
     if(beamW>=360){
@@ -5282,7 +5300,7 @@
   function drawBeamOnCanvas(ctx, p, f, cw, ch, masterBB){
     const bb = (p.brightness!=null ? p.brightness : (masterBB==null?1:masterBB));
     const kelvin = (p.kelvin!=null ? p.kelvin : f.kelvin);
-    const col = kelvinColor(kelvin);
+    const col = beamKelvinColor(kelvin);
     const beamW = (p.beamWidth!=null ? p.beamWidth : f.beam);
     const mx = (p.xPct/100)*cw, my = (p.yPct/100)*ch;
     const rectRef = {width:cw, height:ch};

@@ -189,7 +189,8 @@
      positioned box extends *from* that corner, never where the corner itself sits. Scoped to
      .area-card-photo specifically so it can't affect the live editor's own #overlays .placement,
      which lives in a completely different part of the DOM and must keep its pixel-based sizing. */
-  .area-card-photo .overlays .placement{width:100%;height:100%;}
+  .area-card-photo .overlays .placement,
+  .area-card-photo .overlays .beam-anchor{width:100%;height:100%;}
   .place-dot{position:absolute;left:0;top:0;width:10px;height:10px;border-radius:50%;
     background:var(--surface-2);border:2px solid var(--amber);transform:translate(-50%,-50%);pointer-events:none;}
   /* Hardscape fixtures are a real 6"+ linear bar, not a point source, so their marker is a
@@ -454,7 +455,9 @@
     font-family:var(--font-mono);font-size:10px;padding:2px 6px;border-radius:4px;white-space:nowrap;pointer-events:none;}
   .placement{position:absolute;}
   .beam-layer{pointer-events:none;}
-  /* mix-blend-mode:plus-lighter (matches globalCompositeOperation='lighter' in drawBeamOnCanvas,
+  /* (Now applied once per area on the shared .beam-group -- see its comment below -- rather than
+     on each .beam-svg; the reasoning below about why additive is used at all still holds.)
+     mix-blend-mode:plus-lighter (matches the 'lighter' composite in captureAreaDesignImage,
      the Canvas 2D equivalent used for JPG export) makes the beam's color add *directly* onto
      whatever's already in the photo underneath (true additive/light-adding compositing, clamped
      at full brightness) instead of sitting as a flat translucent tint on top -- an already-bright
@@ -481,7 +484,17 @@
      under responsive=true), the same reasoning as the shape's own sizing; a CSS-pixel blur radius
      would look right at only one specific rendered width, wrong at any other, the same trap the
      beam's own sizing and the lit-area reveal were both already fixed for. */
-  .beam-svg{position:absolute;left:0;top:0;pointer-events:none;mix-blend-mode:plus-lighter;overflow:visible;}
+  .beam-svg{position:absolute;left:0;top:0;pointer-events:none;overflow:visible;}
+  /* All of an area's beams live together in ONE .beam-group, and it's the group -- not each
+     .beam-svg -- that carries mix-blend-mode:plus-lighter. mix-blend-mode makes the group its own
+     isolated compositing layer, so the beams inside composite against each other with plain
+     source-over alpha (overlap = 1-(1-a)(1-b)..., which saturates smoothly toward 1 and can never
+     clip), and only that combined result is then added onto the photo. Blending each beam onto the
+     photo separately (the old approach) summed their alphas with no ceiling, so 3+ overlapping
+     downlights clipped to a flat, unfeathered blob -- see CLAUDE.md. A single beam looks exactly
+     as before. drawBeamOnCanvas/captureAreaDesignImage do the same with an offscreen canvas. */
+  .beam-group{position:absolute;inset:0;pointer-events:none;mix-blend-mode:plus-lighter;}
+  .beam-anchor{position:absolute;}
 
   /* border-color and box-shadow are set inline per-placement (renderOverlays()) from the
      fixture's type color (FIXTURE_TYPES) rather than fixed here — every fixture type gets its
@@ -2100,18 +2113,22 @@
   // it back out (see buildBeamHtml).
   function buildStaticOverlaysHtml(area){
     const rect = {width:380, height:380/(area.photoAspect||0.8)};
-    return area.placements.map(p=>{
+    const beams = area.placements.map(p=>{
       const f = findFixture(p.fixtureId); if(!f) return '';
       const {html} = buildBeamHtml(p,f,rect,false,area.beamBrightness,true);
+      return `<div class="beam-anchor" style="left:${p.xPct}%;top:${p.yPct}%;"><div class="beam-layer">${html}</div></div>`;
+    }).join('');
+    const dots = area.placements.map(p=>{
+      const f = findFixture(p.fixtureId); if(!f) return '';
       const tcol = fixtureTypeMeta(f).col;
       const isBar = f.type==='hardscape';
       const barStyle = isBar ? `transform:translate(-50%,-50%) rotate(${p.rotation}deg);` : '';
       return `<div class="placement" style="left:${p.xPct}%;top:${p.yPct}%;">
-        <div class="beam-layer">${html}</div>
         <div class="place-dot ${isBar?'is-bar':''}" style="border-color:rgb(${tcol});${barStyle}"></div>
         <div class="place-label">${escapeHtml(f.name)}</div>
       </div>`;
     }).join('');
+    return `<div class="beam-group">${beams}</div>${dots}`;
   }
 
   // ---------------- overlay rendering (area editor) ----------------
@@ -2129,12 +2146,20 @@
     const legendTypes = usedFixtureTypes(area.placements);
     $('editorLegend').innerHTML = buildTypeLegendHtml(legendTypes);
     $('editorLegend').hidden = legendTypes.length===0;
-    wrap.innerHTML = area.placements.map(p=>{
+    const beamInfo = {};
+    const beamAnchors = area.placements.map(p=>{
+      const f = findFixture(p.fixtureId);
+      if(!f) return '';
+      const b = beamInfo[p.uid] = buildBeamHtml(p,f,rect,state.selected===p.uid,area.beamBrightness);
+      const html = b.html;
+      return `<div class="beam-anchor" data-uid="${p.uid}" style="left:${p.xPct}%;top:${p.yPct}%;"><div class="beam-layer">${html}</div></div>`;
+    }).join('');
+    wrap.innerHTML = `<div class="beam-group" id="beamGroup">${beamAnchors}</div>` + area.placements.map(p=>{
       const f = findFixture(p.fixtureId);
       if(!f) return '';
       const selected = state.selected===p.uid;
       const justPlaced = lastPlacedUid===p.uid;
-      const {html, hx, hy, wx, wy} = buildBeamHtml(p,f,rect,selected,area.beamBrightness);
+      const {hx, hy, wx, wy} = beamInfo[p.uid];
       const beamW = (p.beamWidth!=null ? p.beamWidth : f.beam);
       const widthHandle = beamW<360 ? `<div class="width-handle" data-uid="${p.uid}" style="left:${wx}px;top:${wy}px;"></div>` : '';
       const tcol = fixtureTypeMeta(f).col;
@@ -2144,7 +2169,6 @@
       const isBar = f.type==='hardscape';
       const barStyle = isBar ? `transform:translate(-50%,-50%) rotate(${p.rotation}deg);` : '';
       return `<div class="placement" data-uid="${p.uid}" style="left:${p.xPct}%;top:${p.yPct}%;">
-        <div class="beam-layer">${html}</div>
         <div class="beam-handle" data-uid="${p.uid}" style="left:${hx}px;top:${hy}px;"></div>
         ${widthHandle}
         <div class="marker-dot ${isBar?'is-bar':''} ${selected?'is-selected':''} ${justPlaced?'just-placed':''}" data-uid="${p.uid}" style="border-color:rgb(${tcol});${dotGlow}${barStyle}"></div>
@@ -2792,7 +2816,8 @@
     const area = currentArea(); if(!area) return;
     const wrapper = document.querySelector(`.placement[data-uid="${p.uid}"]`);
     if(!wrapper) return;
-    const layer = wrapper.querySelector('.beam-layer');
+    const anchor = document.querySelector(`.beam-anchor[data-uid="${p.uid}"]`);
+    const layer = anchor && anchor.querySelector('.beam-layer');
     const handle = wrapper.querySelector('.beam-handle');
     const widthHandle = wrapper.querySelector('.width-handle');
     const {html, hx, hy, wx, wy} = buildBeamHtml(p,f,rect,state.selected===p.uid,area.beamBrightness);
@@ -2848,6 +2873,8 @@
             p.xPct = xPct; p.yPct = yPct;
             const wrapper = document.querySelector(`.placement[data-uid="${p.uid}"]`);
             if(wrapper){ wrapper.style.left=xPct+'%'; wrapper.style.top=yPct+'%'; }
+            const anchor = document.querySelector(`.beam-anchor[data-uid="${p.uid}"]`);
+            if(anchor){ anchor.style.left=xPct+'%'; anchor.style.top=yPct+'%'; }
             updateLitReveal(area);
           },
           onEnd:(ev,wasDragging)=>{ wasDragging ? renderOverlays() : openInfoSheet(p.uid); }
@@ -5221,17 +5248,12 @@
     const mx = (p.xPct/100)*cw, my = (p.yPct/100)*ch;
     const rectRef = {width:cw, height:ch};
     ctx.save();
-    // 'lighter' (true additive compositing, clamped at full brightness -- matches
-    // mix-blend-mode:plus-lighter on .beam-svg/.pool for the DOM-rendered paths) instead of plain
-    // source-over, so the beam's color adds *directly* onto whatever's already in the photo at
-    // each pixel rather than sitting as a flat tint on top -- an already-bright leaf highlight or
-    // pale wall gets pushed toward a strong (sometimes fully blown-out) highlight, while a dark
-    // gap between branches stays comparatively dark. 'screen' was tried first and reverted after
-    // the user reported not being able to see any difference against a real photo -- at this
-    // beam's fairly high opacity, screen's formula stays close to plain alpha compositing once
-    // the source is already near-opaque, leaving little headroom for backdrop luminance to show
-    // through. True addition has no such ceiling.
-    ctx.globalCompositeOperation = 'lighter';
+    // Draws with plain source-over onto `ctx`, which captureAreaDesignImage passes in as a
+    // transparent offscreen *beam layer* -- overlapping beams then combine by alpha union (a
+    // smooth ceiling) instead of summing past 1.0. That layer is what gets added onto the photo
+    // with 'lighter' (true additive compositing, matching mix-blend-mode:plus-lighter on
+    // .beam-group in the DOM paths), so the beam's color still adds *directly* onto the photo's
+    // own brightness rather than sitting as a flat tint. See .beam-group's CSS comment.
     // Matches the SVG <feGaussianBlur> (BEAM_BLUR_STD) in buildBeamHtml -- same ratio against the
     // local 400-unit viewBox's far radius, reapplied here as real canvas pixels since there's no
     // viewBox to scale it for free (same reasoning as the hardscape base-width ratio just below).
@@ -5397,10 +5419,17 @@
             ctx.restore();
           });
 
+          const beamCanvas = document.createElement('canvas');
+          beamCanvas.width = cw; beamCanvas.height = ch;
+          const beamCtx = beamCanvas.getContext('2d');
           area.placements.forEach(p=>{
             const f = findFixture(p.fixtureId); if(!f) return;
-            drawBeamOnCanvas(ctx, p, f, cw, ch, area.beamBrightness);
+            drawBeamOnCanvas(beamCtx, p, f, cw, ch, area.beamBrightness);
           });
+          ctx.save();
+          ctx.globalCompositeOperation = 'lighter';
+          ctx.drawImage(beamCanvas, 0, 0);
+          ctx.restore();
           if(showWires && area.wireRuns && area.wireRuns.length){
             area.wireRuns.forEach(w=> drawWireOnCanvas(ctx, w, cw, ch));
           }

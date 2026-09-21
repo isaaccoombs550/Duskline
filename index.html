@@ -1933,6 +1933,21 @@
   function falloffStops(o1,o2){
     return [[0,o1],[20,o1*0.65],[45,o2],[75,o2*0.35],[100,0]];
   }
+  // A cone's SIDES used to be a hard cutoff at the full radial-falloff opacity -- the beam faded
+  // out along its length but had a razor edge across its width, which reads as a flat cut-out
+  // pasted on the photo rather than light "feathering" into it (real user report, twice). Real
+  // beams are brightest down the axis and dim toward the edges. SVG has no conic gradient, so the
+  // cone is drawn as BEAM_WEDGES nested wedges (full width down to a narrow core), each carrying
+  // the SAME radial gradient; they union by alpha inside the beam's group, so the axis is covered
+  // by every wedge (most opaque) and the outer edge by only the widest (least opaque), with the
+  // BEAM_BLUR_STD blur smoothing the steps between them. wedgeFalloffStops rescales each stop's
+  // opacity to 1-(1-op)^(1/N) so N stacked layers add back up to exactly `op` on the axis --
+  // the beam's on-axis look/brightness is unchanged, only its sides soften. Shared by the DOM
+  // beam and drawBeamOnCanvas so they can't drift apart.
+  const BEAM_WEDGES = [1, 0.78, 0.56, 0.34];
+  function wedgeFalloffStops(o1,o2){
+    return falloffStops(o1,o2).map(([pct,op])=>[pct, 1-Math.pow(1-op, 1/BEAM_WEDGES.length)]);
+  }
   // Builds one SVG path string, in objectBoundingBox fractions (0-1 per axis, independent of the
   // container's actual rendered pixel size), that's the union of every placement's beam
   // cone/circle -- the exact same geometry buildBeamHtml draws (reach, beam width, rotation,
@@ -2089,8 +2104,6 @@
     } else {
       const R = clampR((60+f.lumens/5)*p.reach*(rect.width/380), rect);
       const half = beamW/2;
-      const p1 = polar(-half,190), p2 = polar(half,190);
-      const largeArc = beamW>180?1:0;
       const gid = 'g'+p.uid, fid = 'blur'+p.uid;
       const o1 = Math.min(1,(selected?0.66:0.56)*bb);
       const o2 = Math.min(1,(selected?0.35:0.27)*bb);
@@ -2100,13 +2113,19 @@
       // is in the same fixed 400-unit viewBox space as the 190-unit far radius, so it scales
       // automatically with R regardless of zoom/reach (see drawBeamOnCanvas for the canvas
       // equivalent, which has to convert this ratio into real pixels itself).
-      const d = f.type==='hardscape'
-        ? (()=>{ const b1=polar(-90,HARDSCAPE_BASE), b2=polar(90,HARDSCAPE_BASE);
-            return `M${b1.x.toFixed(1)},${b1.y.toFixed(1)} L${p1.x.toFixed(1)},${p1.y.toFixed(1)} A190,190 0 ${largeArc} 1 ${p2.x.toFixed(1)},${p2.y.toFixed(1)} L${b2.x.toFixed(1)},${b2.y.toFixed(1)} Z`; })()
-        : `M200,200 L${p1.x.toFixed(1)},${p1.y.toFixed(1)} A190,190 0 ${largeArc} 1 ${p2.x.toFixed(1)},${p2.y.toFixed(1)} Z`;
+      const coneD = (h)=>{
+        const a = polar(-h,190), b = polar(h,190);
+        const la = h*2>180?1:0;
+        if(f.type==='hardscape'){
+          const b1=polar(-90,HARDSCAPE_BASE), b2=polar(90,HARDSCAPE_BASE);
+          return `M${b1.x.toFixed(1)},${b1.y.toFixed(1)} L${a.x.toFixed(1)},${a.y.toFixed(1)} A190,190 0 ${la} 1 ${b.x.toFixed(1)},${b.y.toFixed(1)} L${b2.x.toFixed(1)},${b2.y.toFixed(1)} Z`;
+        }
+        return `M200,200 L${a.x.toFixed(1)},${a.y.toFixed(1)} A190,190 0 ${la} 1 ${b.x.toFixed(1)},${b.y.toFixed(1)} Z`;
+      };
       const sizeAttrs = responsive ? '' : `width="${R*2}" height="${R*2}"`;
       const sizeStyle = responsive ? `width:${R*2/rect.width*100}%;aspect-ratio:1;height:auto;` : '';
-      const gradStops = falloffStops(o1,o2).map(([pct,op])=>`<stop offset="${pct}%" stop-color="rgb(${col})" stop-opacity="${op}"/>`).join('\n          ');
+      const gradStops = wedgeFalloffStops(o1,o2).map(([pct,op])=>`<stop offset="${pct}%" stop-color="rgb(${col})" stop-opacity="${op}"/>`).join('\n          ');
+      const wedges = BEAM_WEDGES.map(w=>`<path d="${coneD(half*w)}" fill="url(#${gid})"/>`).join('');
       html = `<svg viewBox="0 0 400 400" ${sizeAttrs} class="beam-svg" style="${sizeStyle}transform:translate(-50%,-50%) rotate(${p.rotation}deg)">
         <defs>
           <radialGradient id="${gid}" cx="200" cy="200" r="190" gradientUnits="userSpaceOnUse">
@@ -2114,7 +2133,7 @@
           </radialGradient>
           <filter id="${fid}" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="${BEAM_BLUR_STD}"/></filter>
         </defs>
-        <path d="${d}" fill="url(#${gid})" filter="url(#${fid})"/>
+        <g filter="url(#${fid})">${wedges}</g>
       </svg>`;
       hx = R*Math.sin(p.rotation*Math.PI/180); hy = -R*Math.cos(p.rotation*Math.PI/180);
       const wAng = p.rotation+half;
@@ -5291,30 +5310,32 @@
       const R = clampR((60+f.lumens/5)*p.reach*(cw/380), rectRef);
       const half = beamW/2;
       // our convention: 0deg = up, clockwise. canvas arc(): 0rad = +X (right), clockwise. Offset by -90deg.
-      const startRad = (p.rotation-half-90)*Math.PI/180;
-      const endRad = (p.rotation+half-90)*Math.PI/180;
       const o1 = Math.min(1,0.56*bb), o2 = Math.min(1,0.27*bb);
       ctx.filter = `blur(${(R*BEAM_BLUR_STD/190).toFixed(1)}px)`;
       const grad = ctx.createRadialGradient(mx,my,0,mx,my,R);
-      falloffStops(o1,o2).forEach(([pct,op])=> grad.addColorStop(pct/100, `rgba(${col},${op})`));
+      wedgeFalloffStops(o1,o2).forEach(([pct,op])=> grad.addColorStop(pct/100, `rgba(${col},${op})`));
       ctx.fillStyle = grad;
-      ctx.beginPath();
-      if(f.type==='hardscape'){
-        // Mirrors the flat-base trapezoid in buildBeamHtml() -- HARDSCAPE_BASE there is in a
-        // fixed 400-unit space that scales for free with the SVG viewBox; here there's no
-        // viewBox, so the same base/far ratio (22/190) has to be reapplied against the real
-        // pixel radius R by hand.
-        const baseHalf = R*(HARDSCAPE_BASE/190);
-        const b1Rad = (p.rotation-180)*Math.PI/180, b2Rad = p.rotation*Math.PI/180;
-        ctx.moveTo(mx+baseHalf*Math.cos(b1Rad), my+baseHalf*Math.sin(b1Rad));
-        ctx.arc(mx,my,R,startRad,endRad);
-        ctx.lineTo(mx+baseHalf*Math.cos(b2Rad), my+baseHalf*Math.sin(b2Rad));
-      } else {
-        ctx.moveTo(mx,my);
-        ctx.arc(mx,my,R,startRad,endRad);
-      }
-      ctx.closePath();
-      ctx.fill();
+      // Nested wedges, same as buildBeamHtml -- see wedgeFalloffStops for why.
+      BEAM_WEDGES.forEach(w=>{
+        const wStart = (p.rotation-half*w-90)*Math.PI/180, wEnd = (p.rotation+half*w-90)*Math.PI/180;
+        ctx.beginPath();
+        if(f.type==='hardscape'){
+          // Mirrors the flat-base trapezoid in buildBeamHtml() -- HARDSCAPE_BASE there is in a
+          // fixed 400-unit space that scales for free with the SVG viewBox; here there's no
+          // viewBox, so the same base/far ratio (22/190) has to be reapplied against the real
+          // pixel radius R by hand.
+          const baseHalf = R*(HARDSCAPE_BASE/190);
+          const b1Rad = (p.rotation-180)*Math.PI/180, b2Rad = p.rotation*Math.PI/180;
+          ctx.moveTo(mx+baseHalf*Math.cos(b1Rad), my+baseHalf*Math.sin(b1Rad));
+          ctx.arc(mx,my,R,wStart,wEnd);
+          ctx.lineTo(mx+baseHalf*Math.cos(b2Rad), my+baseHalf*Math.sin(b2Rad));
+        } else {
+          ctx.moveTo(mx,my);
+          ctx.arc(mx,my,R,wStart,wEnd);
+        }
+        ctx.closePath();
+        ctx.fill();
+      });
     }
     ctx.restore();
   }

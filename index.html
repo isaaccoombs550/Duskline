@@ -520,6 +520,17 @@
     box-shadow:0 0 0 3px rgba(226,104,92,.25);transform:translate(-50%,-50%);
     cursor:pointer;z-index:4;}
 
+  /* Free-text boxes placed directly on the design photo (area.textBoxes). font-size is in cqw
+     (container query width units) so the text scales with the photo itself -- the live editor
+     (incl. zoom), the small project-page thumbnail and the print/JPG output all read as the same
+     proportion of the photo. Needs container-type on the nearest photo box (see below). */
+  .canvas-photo,.area-card-photo{container-type:inline-size;}
+  .text-box{position:absolute;transform:translate(-50%,-50%);max-width:34cqw;padding:.35em .65em;
+    border-radius:6px;background:rgba(20,23,28,.9);color:#fff;border:1px solid rgba(255,255,255,.35);
+    font-size:max(9px,2.3cqw);line-height:1.25;white-space:pre-wrap;overflow-wrap:anywhere;
+    pointer-events:auto;cursor:grab;touch-action:none;user-select:none;z-index:5;}
+  .area-card-photo .text-box{pointer-events:none;cursor:default;}
+
   /* Transient markers for the two points clicked while "Set scale" is active -- cleared the
      moment the calibration modal saves/cancels, not a persistent design element. */
   .scale-cal-dot{position:absolute;left:0;top:0;width:10px;height:10px;border-radius:50%;
@@ -672,6 +683,9 @@
        dot still prints as "white fill, type-colored ring" — same identity color as on-screen. */
     .place-dot{border-color:#000;background:#fff;}
     body.no-export-labels .place-label{display:none !important;}
+    /* Light box so the note stays legible even when the browser drops background graphics. */
+    .text-box{background:#fff;color:#111;border:1px solid #333;}
+    body.no-export-textboxes .text-box{display:none !important;}
     .wire-layer{display:none;}
     body.export-wires .wire-layer{display:block;}
     .wire-line{stroke:#0b6ea0;}
@@ -931,6 +945,7 @@
     <div style="order:99;">
       <label class="export-label-toggle"><input type="checkbox" id="toggleExportLabels" checked> Show fixture names on exported photos</label>
       <label class="export-label-toggle"><input type="checkbox" id="toggleExportWires"> Show wire run diagram on exported photos</label>
+      <label class="export-label-toggle"><input type="checkbox" id="toggleExportTextBoxes" checked> Show text notes on exported photos</label>
       <label class="export-label-toggle"><input type="checkbox" id="toggleJpgOnly"> Export design photos as JPG only (no quote)</label>
       <label class="export-label-toggle"><input type="checkbox" id="toggleQuoteFixtureType"> Show fixture type instead of name/description on customer quote</label>
       <div class="quote-actions">
@@ -1206,6 +1221,7 @@
         <button class="chip" id="btnPlaceTransformer">Place transformer</button>
         <button class="chip" id="btnSetScale">Set scale</button>
         <button class="chip" id="btnExportWiringPlan">Export wiring plan</button>
+        <button class="chip" id="btnAddTextBox">Add text</button>
         <button class="chip" id="btnAreaNotes">Notes</button>
         <button class="chip chip-danger" id="btnClearDesign">Clear design</button>
       </div>
@@ -1325,6 +1341,25 @@
       <button class="btn btn-danger" id="transformerDelete">Delete</button>
       <button class="btn btn-ghost" id="transformerCancel">Cancel</button>
       <button class="btn btn-primary" id="transformerSave">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== TEXT BOX MODAL ===================== -->
+<div class="edit-sheet" id="textBoxModal" hidden>
+  <div class="edit-backdrop" id="textBoxBackdrop"></div>
+  <div class="edit-panel">
+    <div class="edit-title">Text on photo</div>
+    <div class="modal-form-body">
+      <div class="field">
+        <textarea id="textBoxInput" rows="4" placeholder="e.g. Move sprinkler head here"></textarea>
+      </div>
+      <div class="fx-desc">Appears on the photo. Drag it to position it; tap it to edit or delete.</div>
+    </div>
+    <div class="edit-actions">
+      <button class="btn btn-danger" id="textBoxDelete">Delete</button>
+      <button class="btn btn-ghost" id="textBoxCancel">Cancel</button>
+      <button class="btn btn-primary" id="textBoxSave">Save</button>
     </div>
   </div>
 </div>
@@ -1698,6 +1733,7 @@
       placements: area.placements,
       wireRuns: area.wireRuns,
       lightStrips: area.lightStrips,
+      textBoxes: area.textBoxes||[],
       accessoryQty: area.accessoryQty,
       darkness: area.darkness,
       beamBrightness: area.beamBrightness,
@@ -1709,6 +1745,7 @@
     area.placements = d.placements;
     area.wireRuns = d.wireRuns;
     area.lightStrips = d.lightStrips;
+    area.textBoxes = d.textBoxes||[];
     area.accessoryQty = d.accessoryQty;
     area.darkness = d.darkness;
     area.beamBrightness = d.beamBrightness;
@@ -2208,7 +2245,9 @@
         <div class="place-label">${escapeHtml(f.name)}</div>
       </div>`;
     }).join('');
-    return `<div class="beam-group">${beams}</div>${dots}`;
+    const texts = (area.textBoxes||[]).map(t=>
+      `<div class="text-box" style="left:${t.xPct}%;top:${t.yPct}%;">${escapeHtml(t.text)}</div>`).join('');
+    return `<div class="beam-group">${beams}</div>${dots}${texts}`;
   }
 
   // ---------------- overlay rendering (area editor) ----------------
@@ -2254,11 +2293,25 @@
       </div>`;
     }).join('') + (area.transformers||[]).map(t=>
       `<div class="transformer-marker" data-id="${t.id}" style="left:${t.xPct}%;top:${t.yPct}%;" title="${escapeHtml(t.name)} · ${t.capacityW}W"></div>`
+    ).join('') + (area.textBoxes||[]).map(t=>
+      `<div class="text-box" data-id="${t.id}" style="left:${t.xPct}%;top:${t.yPct}%;">${escapeHtml(t.text)}</div>`
     ).join('') + (scaleCalPoints||[]).map(pt=>
       `<div class="scale-cal-dot" style="left:${pt.xPct}%;top:${pt.yPct}%;"></div>`
     ).join('');
     wrap.querySelectorAll('.transformer-marker').forEach(el=>{
       el.addEventListener('click', e=>{ e.stopPropagation(); openTransformerEdit(el.dataset.id); });
+    });
+    wrap.querySelectorAll('.text-box').forEach(el=>{
+      const t = (area.textBoxes||[]).find(x=>x.id===el.dataset.id); if(!t) return;
+      makeDraggable(el, {
+        onMove:(ev)=>{
+          const loc = screenToLocalPct(ev.clientX, ev.clientY);
+          t.xPct = Math.min(98, Math.max(2, loc.xPct));
+          t.yPct = Math.min(98, Math.max(2, loc.yPct));
+          el.style.left = t.xPct+'%'; el.style.top = t.yPct+'%';
+        },
+        onEnd:(ev,wasDragging)=>{ if(!wasDragging) openTextBoxModal(t.id); }
+      });
     });
     attachPlacementHandlers();
     renderWireLayer();
@@ -2579,6 +2632,45 @@
     scaleCalPoints = null;
     updateSetScaleBtn();
     updatePlacementBanner();
+    renderOverlays();
+  }
+
+  // ---------------- text boxes on the photo ----------------
+  let editingTextBoxId = null;
+  function openTextBoxModal(id){
+    const area = currentArea(); if(!area) return;
+    const t = id ? (area.textBoxes||[]).find(x=>x.id===id) : null;
+    editingTextBoxId = t ? t.id : null;
+    $('textBoxInput').value = t ? t.text : '';
+    $('textBoxDelete').style.display = t ? '' : 'none';
+    $('textBoxModal').hidden = false;
+    $('textBoxInput').focus();
+  }
+  function closeTextBoxModal(){ $('textBoxModal').hidden = true; editingTextBoxId = null; }
+  function saveTextBoxModal(){
+    const area = currentArea(); if(!area) return;
+    const text = $('textBoxInput').value.trim();
+    if(!text){ if(editingTextBoxId) deleteTextBox(); else closeTextBoxModal(); return; }
+    pushUndoSnapshot();
+    area.textBoxes = area.textBoxes||[];
+    const existing = editingTextBoxId ? area.textBoxes.find(x=>x.id===editingTextBoxId) : null;
+    if(existing){
+      existing.text = text;
+    } else {
+      // Starts near the middle (staggered so several new ones don't stack exactly); drag to place.
+      const n = area.textBoxes.length;
+      area.textBoxes.push({id:'t'+Date.now().toString(36)+Math.random().toString(36).slice(2,6), text, xPct:50, yPct:Math.min(90,30+(n%6)*10)});
+    }
+    area._hadTextBoxes = true;
+    closeTextBoxModal();
+    renderOverlays();
+  }
+  function deleteTextBox(){
+    const area = currentArea(); if(!area || !editingTextBoxId) return;
+    pushUndoSnapshot();
+    area.textBoxes = (area.textBoxes||[]).filter(x=>x.id!==editingTextBoxId);
+    area._hadTextBoxes = true;
+    closeTextBoxModal();
     renderOverlays();
   }
 
@@ -4020,7 +4112,7 @@
     const area = currentArea(); if(!area) return;
     if(!confirm('Clear all placed fixtures, accessories, wire runs, LED strips, and transformers in this area? The photo will stay.')) return;
     pushUndoSnapshot();
-    area.placements=[]; area.accessoryQty={}; area.wireRuns=[]; area.lightStrips=[]; area.transformers=[]; state.selected=null; state.armed=null;
+    area.placements=[]; area.accessoryQty={}; area.wireRuns=[]; area.lightStrips=[]; area.transformers=[]; area.textBoxes=[]; state.selected=null; state.armed=null;
     closeInfoSheet(); renderOverlays(); renderSheetList(); updateQuoteBar(); updatePlacementBanner(); updateEditorStats();
   }
 
@@ -5431,6 +5523,34 @@
       drawPillLabel(ctx, mx+dotR+40, my, f.name, '#ffffff', cw);
     }
   }
+  // Mirrors .text-box: dark rounded box, white text, wrapped to ~34% of the photo's width, font
+  // size 2.3% of its width (the same proportion the CSS cqw sizing gives on screen).
+  function drawTextBoxOnCanvas(ctx, t, cw, ch){
+    const fontPx = Math.max(14, cw*0.023);
+    const padX = fontPx*0.65, padY = fontPx*0.35, lineH = fontPx*1.25;
+    const maxTextW = cw*0.34 - padX*2;
+    ctx.save();
+    ctx.font = `${fontPx}px ui-sans-serif, system-ui, sans-serif`;
+    const lines = [];
+    String(t.text).split('\n').forEach(para=>{
+      let cur = '';
+      para.split(/\s+/).filter(Boolean).forEach(word=>{
+        const trial = cur ? cur+' '+word : word;
+        if(cur && ctx.measureText(trial).width > maxTextW){ lines.push(cur); cur = word; } else cur = trial;
+      });
+      lines.push(cur);
+    });
+    const textW = Math.min(maxTextW, Math.max(...lines.map(l=>ctx.measureText(l).width)));
+    const boxW = textW+padX*2, boxH = lines.length*lineH+padY*2;
+    const bx = Math.min(cw-boxW, Math.max(0, (t.xPct/100)*cw - boxW/2));
+    const by = Math.min(ch-boxH, Math.max(0, (t.yPct/100)*ch - boxH/2));
+    ctx.fillStyle = 'rgba(20,23,28,0.9)';
+    roundRectPath(ctx, bx, by, boxW, boxH, 6); ctx.fill();
+    ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.stroke();
+    ctx.fillStyle = '#fff'; ctx.textBaseline = 'middle';
+    lines.forEach((l,i)=> ctx.fillText(l, bx+padX, by+padY+lineH*(i+0.5)));
+    ctx.restore();
+  }
   function drawWireOnCanvas(ctx, w, cw, ch){
     ctx.save();
     ctx.strokeStyle = '#5EC8E0'; ctx.lineWidth = Math.max(2,cw*0.0025);
@@ -5554,6 +5674,9 @@
             const f = findFixture(p.fixtureId); if(!f) return;
             drawDotAndLabelOnCanvas(ctx, p, f, cw, showLabels);
           });
+          if($('toggleExportTextBoxes').checked){
+            (area.textBoxes||[]).forEach(t=> drawTextBoxOnCanvas(ctx, t, cw, ch));
+          }
 
           resolve(canvas.toDataURL('image/jpeg', 0.92));
         }catch(err){
@@ -5756,6 +5879,8 @@
       // if the `notes` column hasn't been added to the database yet, since a failed update here
       // would silently drop the whole row's edits (saveAreaRow only console.warns).
       ...((area.notes || area._hadNotes) ? {notes: area.notes||''} : {}),
+      // Same "only once used" rule as notes above, for the same reason.
+      ...(((area.textBoxes && area.textBoxes.length) || area._hadTextBoxes) ? {text_boxes: area.textBoxes||[]} : {}),
     };
   }
   function rowToArea(row){
@@ -5767,6 +5892,7 @@
       wireRuns: row.wire_runs||[], lightStrips: row.light_strips||[],
       transformers: row.transformers||[],
       notes: row.notes||'', _hadNotes: !!row.notes,
+      textBoxes: row.text_boxes||[], _hadTextBoxes: Array.isArray(row.text_boxes) && row.text_boxes.length>0,
     };
   }
   function rowToDistributor(row){
@@ -5869,15 +5995,18 @@
     if(!area) return;
     const row = areaToRow(area);
     let { error } = await sb.from('areas').update(row).eq('id', area.id);
-    // The `notes` column comes from a one-time SQL migration (see supabase/schema.sql). Until it's
-    // run, don't let a used-notes area lose every OTHER edit (placements, wires...) along with the
-    // note: retry without it, and say so once so the note isn't silently lost.
-    if(error && 'notes' in row && /'notes' column/.test(error.message||'')){
-      const { notes, ...rest } = row;
-      ({ error } = await sb.from('areas').update(rest).eq('id', area.id));
+    // `notes` and `text_boxes` come from one-time SQL migrations (see supabase/schema.sql). Until
+    // they're run, don't let an area that uses them lose every OTHER edit (placements, wires...)
+    // along with them: retry without whichever column the database says is missing, and say so
+    // once so the note/text box isn't silently lost.
+    for(let i=0; i<2 && error; i++){
+      const m = /'(notes|text_boxes)' column/.exec(error.message||'');
+      if(!m || !(m[1] in row)) break;
+      delete row[m[1]];
+      ({ error } = await sb.from('areas').update(row).eq('id', area.id));
       if(!notesColumnWarned){
         notesColumnWarned = true;
-        alert("Your notes are saved on this screen but couldn't be stored yet — the database needs a one-time update (add the `notes` column to `areas`). Your design itself was saved.");
+        alert("Your notes / text boxes are saved on this screen but couldn't be stored yet — the database needs a one-time update (see supabase/schema.sql: the `notes` and `text_boxes` columns on `areas`). Your design itself was saved.");
       }
     }
     if(error) console.warn('Duskline: area save failed.', error);
@@ -6375,6 +6504,14 @@
     $('scaleBackdrop').addEventListener('click', closeScaleCalibrationModal);
     $('scaleSave').addEventListener('click', saveScaleCalibrationModal);
     $('btnExportWiringPlan').addEventListener('click', exportWiringPlan);
+    $('btnAddTextBox').addEventListener('click', ()=>openTextBoxModal(null));
+    $('textBoxCancel').addEventListener('click', closeTextBoxModal);
+    $('textBoxBackdrop').addEventListener('click', closeTextBoxModal);
+    $('textBoxSave').addEventListener('click', saveTextBoxModal);
+    $('textBoxDelete').addEventListener('click', deleteTextBox);
+    $('toggleExportTextBoxes').addEventListener('change', e=>{
+      document.body.classList.toggle('no-export-textboxes', !e.target.checked);
+    });
     $('btnAreaNotes').addEventListener('click', openNotesModal);
     $('notesCancel').addEventListener('click', closeNotesModal);
     $('notesBackdrop').addEventListener('click', closeNotesModal);

@@ -1183,3 +1183,11 @@ alter table public.areas add column if not exists transformers jsonb not null de
 -- on an area, so areas that never touch notes keep saving even before this is run.
 -- ============================================================================
 alter table public.areas add column if not exists notes text;
+
+-- ============================================================================
+-- Free-text boxes placed directly on an area design photo ([{id,text,xPct,yPct}]): drawn in the
+-- editor, on the project-page thumbnail, in print (optional) and in the JPG export. Like `notes`
+-- above, the app only sends this column once text boxes have been used on an area, so areas that
+-- never use them keep saving even before this is run.
+-- ============================================================================
+alter table public.areas add column if not exists text_boxes jsonb not null default '[]';

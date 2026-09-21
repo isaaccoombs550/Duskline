@@ -533,10 +533,11 @@
     font-size:calc(max(9px,2.3cqw) * var(--tb-size,1));line-height:1.25;white-space:pre-wrap;overflow-wrap:anywhere;
     pointer-events:auto;cursor:grab;touch-action:none;user-select:none;z-index:5;}
   .area-card-photo .text-box{pointer-events:none;cursor:default;}
-  .text-box-resize{position:absolute;right:-9px;bottom:-9px;width:14px;height:14px;border-radius:3px;
-    background:var(--amber);border:2px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.5);
+  /* Invisible grab zone over the box's bottom-right corner (no visible handle): the cursor turns
+     into a resize arrow when you hover the corner. Half of it sits outside the box so the corner
+     is easy to hit without stealing much of the box's own drag area. */
+  .text-box-resize{position:absolute;right:-8px;bottom:-8px;width:22px;height:22px;
     cursor:nwse-resize;touch-action:none;pointer-events:auto;}
-  .text-box-resize::after{content:'';position:absolute;inset:-8px;}
 
   /* Transient markers for the two points clicked while "Set scale" is active -- cleared the
      moment the calibration modal saves/cancels, not a persistent design element. */

@@ -1048,6 +1048,7 @@
     <div class="sheet-tabs">
       <button class="fmgmt-tab active" data-fcat="fixture">Fixtures</button>
       <button class="fmgmt-tab" data-fcat="accessory">Accessories</button>
+      <button class="fmgmt-tab" data-fcat="transformer">Transformers</button>
       <button class="fmgmt-tab" data-fcat="strip">Strips</button>
     </div>
     <!-- Always visible (unlike the bulk bar below, which only appears once something's
@@ -1646,13 +1647,14 @@
         <div class="seg" id="fxCatSeg">
           <button data-cat="fixture" class="active">Fixture</button>
           <button data-cat="accessory">Accessory</button>
+          <button data-cat="transformer">Transformer</button>
           <button data-cat="strip">LED Strip</button>
         </div>
       </div>
       <div class="field"><label>Name</label><input id="fxName" placeholder="e.g. Brass Well Light"></div>
       <div class="field"><label>Description</label><input id="fxDesc" placeholder="Short one-line description"></div>
       <div class="form-row-2">
-        <div class="field"><label>Wattage (W)</label><input id="fxWatt" type="number" step="0.1" placeholder="7"></div>
+        <div class="field" id="fxWattField"><label>Wattage (W)</label><input id="fxWatt" type="number" step="0.1" placeholder="7"></div>
         <div class="field"><label>Install time (min)</label><input id="fxInstall" type="number" step="1" placeholder="15"></div>
       </div>
       <div id="fxLightFields">
@@ -1682,6 +1684,13 @@
       <div id="fxStripFields" style="display:none;">
         <div class="field"><label>Color temp (K)</label><input id="fxStripKelvin" type="number" step="50" placeholder="3000"></div>
         <div class="edit-hint">Wattage, install time, cost, and sell price below are all per linear foot — the length you draw on the photo becomes the quantity.</div>
+      </div>
+      <div id="fxTransformerFields" style="display:none;">
+        <div class="form-row-2">
+          <div class="field"><label>Capacity (W)</label><input id="fxCapacity" type="number" step="1" placeholder="600"></div>
+          <div class="field"><label>Voltage taps (V, comma separated)</label><input id="fxTaps" placeholder="12,13,14,15"></div>
+        </div>
+        <div class="edit-hint">Name is the part number that appears on CAD plans. Capacity and taps drive the plan's load and voltage-drop checks.</div>
       </div>
       <div class="form-row-2">
         <div class="field"><label id="fxCostLabel">Your cost ($)</label><input id="fxCost" type="number" step="0.01" placeholder="68"></div>
@@ -4040,6 +4049,7 @@
     $('fixtureMgmtList').innerHTML = list.map(f=>{
       const specLine = f.cat==='fixture' ? specStr(f)+' · '+f.watt+'W'
         : f.cat==='strip' ? f.kelvin+'K · '+f.watt+'W/ft'
+        : f.cat==='transformer' ? (f.capacityW||0)+'W · '+((f.taps&&f.taps.length?f.taps:[12,13,14,15]).join('/'))+'V taps'
         : (f.watt?f.watt+'W · ':'')+'';
       const install = f.installTime ? (specLine?' · ':'')+f.installTime+'m install' : '';
       const vendor = f.vendorId && state.distributors.find(d=>d.id===f.vendorId);
@@ -4107,6 +4117,8 @@
     document.querySelectorAll('#fxCatSeg button').forEach(b=> b.classList.toggle('active', b.dataset.cat===cat));
     $('fxLightFields').style.display = cat==='fixture' ? '' : 'none';
     $('fxStripFields').style.display = cat==='strip' ? '' : 'none';
+    $('fxTransformerFields').style.display = cat==='transformer' ? '' : 'none';
+    $('fxWattField').style.display = cat==='transformer' ? 'none' : '';
   }
   function setAimSeg(rot){
     document.querySelectorAll('#fxAimSeg button').forEach(b=> b.classList.toggle('active', b.dataset.aim===(rot>=90&&rot<=270?'down':'up')));
@@ -4126,7 +4138,7 @@
     const locked = !!(f && f.distributorSourced);
     fixtureFormState.locked = locked;
     $('fixtureModalTitle').textContent = f ? 'Edit fixture' : 'Add fixture';
-    setCatSeg(f ? f.cat : 'fixture');
+    setCatSeg(f ? f.cat : (state.fixtureMgmtCat || 'fixture'));
     $('fxName').value = f ? f.name : '';
     $('fxDesc').value = f ? (f.desc||'') : '';
     $('fxWatt').value = f ? f.watt : '';
@@ -4136,11 +4148,13 @@
     $('fxKelvin').value = f ? f.kelvin : '';
     $('fxLumens').value = f ? f.lumens : '';
     $('fxStripKelvin').value = f ? f.kelvin : 3000;
+    $('fxCapacity').value = f && f.capacityW ? f.capacityW : '';
+    $('fxTaps').value = f && f.taps ? f.taps.join(',') : '12,13,14,15';
     setAimSeg(f ? (f.rot||0) : 0);
     $('fxCost').value = f ? f.cost : '';
     $('fxPrice').value = f ? f.price : '';
     populateVendorSelect(f ? f.vendorId : '');
-    ['fxName','fxDesc','fxWatt','fxInstall','fxType','fxBeam','fxKelvin','fxLumens','fxStripKelvin','fxCost']
+    ['fxName','fxDesc','fxWatt','fxInstall','fxType','fxBeam','fxKelvin','fxLumens','fxStripKelvin','fxCapacity','fxTaps','fxCost']
       .forEach(id=> $(id).disabled = locked);
     document.querySelectorAll('#fxCatSeg button, #fxAimSeg button').forEach(b=> b.disabled = locked);
     $('fxLockedNote').hidden = !locked;
@@ -4152,7 +4166,7 @@
     $('fixtureModal').hidden = true;
     // Undo the disabled state set for a locked (distributor-sourced) fixture so the form
     // starts fully editable again next time it's opened for a normal/custom fixture.
-    ['fxName','fxDesc','fxWatt','fxInstall','fxType','fxBeam','fxKelvin','fxLumens','fxStripKelvin','fxCost']
+    ['fxName','fxDesc','fxWatt','fxInstall','fxType','fxBeam','fxKelvin','fxLumens','fxStripKelvin','fxCapacity','fxTaps','fxCost']
       .forEach(id=> $(id).disabled = false);
     document.querySelectorAll('#fxCatSeg button, #fxAimSeg button').forEach(b=> b.disabled = false);
   }
@@ -4188,6 +4202,14 @@
     const rot = (cat==='fixture' && aimBtn && aimBtn.dataset.aim==='down') ? 180 : 0;
     const vendorId = $('fxVendor').value || null;
     const data = {name,desc,cat,watt,installTime,cost,price,beam,kelvin,lumens,rot,type,vendorId};
+    if(cat==='transformer'){
+      // Capacity + voltage taps drive CAD plans' load and voltage-drop checks (watt stays 0 --
+      // a transformer's rating isn't a fixture load).
+      data.watt = 0;
+      data.capacityW = parseFloat($('fxCapacity').value)||0;
+      const taps = $('fxTaps').value.split(',').map(x=>parseFloat(x.trim())).filter(x=>x>0);
+      data.taps = taps.length ? taps : [12,13,14,15];
+    }
 
     if(fixtureFormState.editingId){
       const id = fixtureFormState.editingId;
@@ -4834,7 +4856,7 @@
       if(!partNumber && !descRaw) continue;
       const name = partNumber || descRaw;
       const catRaw = (row[0]||'').toString().trim().toLowerCase();
-      const cat = catRaw.startsWith('access') ? 'accessory' : catRaw.startsWith('strip') ? 'strip' : 'fixture';
+      const cat = catRaw.startsWith('access') ? 'accessory' : catRaw.startsWith('transf') ? 'transformer' : catRaw.startsWith('strip') ? 'strip' : 'fixture';
       // Fixture Type only applies to cat==='fixture' rows -- matched against the same
       // FIXTURE_TYPES keys used everywhere else, so this stays in sync automatically if that
       // set ever changes. Anything blank/unrecognized falls back to 'other', same as a
@@ -4864,7 +4886,9 @@
       const vendorMatch = vendorRaw && state.distributors.find(d=> d.name.trim().toLowerCase()===vendorRaw.toLowerCase());
       const vendorId = vendorMatch ? vendorMatch.id : null;
       if(vendorRaw && !vendorMatch && unmatchedVendors) unmatchedVendors.push(vendorRaw);
-      results.push({name, cat, type, desc, beam, kelvin, lumens, watt, installTime, cost, price, rot:0, vendorId});
+      // A transformer row's Wattage column is read as its capacity (there's no separate column).
+      const extra = cat==='transformer' ? {capacityW:watt, taps:[12,13,14,15]} : {};
+      results.push({name, cat, type, desc, beam, kelvin, lumens, watt:cat==='transformer'?0:watt, installTime, cost, price, rot:0, vendorId, ...extra});
     }
     return results;
   }
@@ -6044,8 +6068,26 @@
   }
 
   // ---------------- calculations (pure) ----------------
+  // Library transformers (cat:'transformer', plus legacy accessories named "...Transformer") are
+  // the real parts a contractor stocks; the name is the part number shown on the plan.
+  function cadTransformerCap(f){
+    if(f.capacityW>0) return +f.capacityW;
+    if(f.watt>0) return +f.watt;
+    const m = /(\d{2,4})\s*w\b/i.exec((f.name||'')+' '+(f.desc||'')); // legacy "300W Transformer"
+    return m ? +m[1] : 0;
+  }
+  function cadTransformerTaps(f){ return (f.taps && f.taps.length) ? f.taps.map(Number).filter(x=>x>0) : [12,13,14,15]; }
+  function cadLibraryTransformers(){
+    return allFixtures().filter(f=> f.cat==='transformer' || (f.cat==='accessory' && /transformer/i.test(f.name)));
+  }
+  // catalogId -> the live library item (so editing its capacity/taps updates the plan); otherwise the
+  // generic model from Settings; otherwise the snapshot stored at placement.
   function cadModelFor(t){
-    return (cadSettings.models.find(m=>m.id===t.modelId)) || {id:t.modelId||'', name:t.modelName||'Transformer', capacityW:t.capacityW||300, taps:[12,13,14,15]};
+    if(t.catalogId){
+      const f = findFixture(t.catalogId);
+      if(f) return {id:f.id, name:f.name, capacityW:cadTransformerCap(f) || t.capacityW || 300, taps:cadTransformerTaps(f), library:true};
+    }
+    return (cadSettings.models.find(m=>m.id===t.modelId)) || {id:t.modelId||t.catalogId||'', name:t.modelName||'Transformer', capacityW:t.capacityW||300, taps:[12,13,14,15]};
   }
   function cadFixtureWatt(pf){ const f = findFixture(pf.fixtureId); return (f && f.watt) || 0; }
   function cadMaxRunFt(va, gauge, tapV, minV){
@@ -6607,7 +6649,7 @@
   let cadTool = 'select';
   let cadSel = {fixtures:new Set(), transformers:new Set(), run:null};
   let cadDraft = null, cadExtendRunId = null, cadCursor = null, cadMarquee = null, cadSnap = null, cadScalePts = null;
-  let cadPalette = {fixtureId:null, accessoryId:null, modelId:null, search:'', type:'all'};
+  let cadPalette = {fixtureId:null, accessoryId:null, transformerId:null, modelId:null, search:'', type:'all'};
   let cadExtendPending = [];
   let cadUndoStack = [], cadRedoStack = [], cadDrag = null, cadPan = null, cadSpace = false;
   let cadDirty = false, cadSaveTimer = null, cadSideTimer = null, cadCanvasSize = {w:0, h:0, dpr:1};
@@ -6824,8 +6866,14 @@
       sc.fixtures.push(pf); cadSelectOnly('fixture', pf.id); cadMarkDirty(); cadRefreshAll(); return;
     }
     if(cadTool==='transformer'){
-      const models = cadSettings.models, m = models.find(x=>x.id===cadPalette.modelId) || models[0]; if(!m) return;
-      cadPush(); const t = {id:cadUid(), modelId:m.id, name:'Trans #'+(sc.transformers.length+1), x:p.x, y:p.y, tapV:Math.max(...m.taps)};
+      const lib = cadLibraryTransformers(); let t;
+      if(lib.length){
+        const item = lib.find(f=>f.id===cadPalette.transformerId) || lib[0], taps = cadTransformerTaps(item);
+        cadPush(); t = {id:cadUid(), catalogId:item.id, modelName:item.name, capacityW:cadTransformerCap(item)||300, name:'Trans #'+(sc.transformers.length+1), x:p.x, y:p.y, tapV:Math.max(...taps)};
+      } else {
+        const models = cadSettings.models, m = models.find(x=>x.id===cadPalette.modelId) || models[0]; if(!m) return;
+        cadPush(); t = {id:cadUid(), modelId:m.id, modelName:m.name, capacityW:m.capacityW, name:'Trans #'+(sc.transformers.length+1), x:p.x, y:p.y, tapV:Math.max(...m.taps)};
+      }
       sc.transformers.push(t); cadSelectOnly('transformer', t.id); cadMarkDirty(); cadRefreshAll(); return;
     }
     if(cadTool==='note'){
@@ -7020,7 +7068,14 @@
       const selId = isAcc ? cadPalette.accessoryId : cadPalette.fixtureId, attr = isAcc ? 'data-pal-ac' : 'data-pal-fx';
       html += `<div class="plan-pal">${list.map(f=>`<button class="plan-pal-item ${selId===f.id?'is-active':''}" ${attr}="${escapeHtml(f.id)}">${cadSymbolSvg(cadSymbolById(cadSymbolIdFor(f)), 22)}<span><b>${escapeHtml(f.name)}</b><em>${isAcc?'Accessory':(f.watt||0)+'W · '+escapeHtml((FIXTURE_TYPES[f.type]||FIXTURE_TYPES.other).label)}</em></span></button>`).join('') || `<div class="fx-desc">${isAcc?'No accessories match.':'No fixtures match.'}</div>`}</div>`;
     } else if(cadTool==='transformer'){
-      html += `<div class="plan-pal">${cadSettings.models.map(m=>`<button class="plan-pal-item ${(cadPalette.modelId||cadSettings.models[0].id)===m.id?'is-active':''}" data-pal-tm="${escapeHtml(m.id)}"><span class="plan-tm-icon"></span><span><b>${escapeHtml(m.name)}</b><em>${m.capacityW}W · ${m.taps.join('/')}V taps</em></span></button>`).join('')}</div>`;
+      const lib = cadLibraryTransformers();
+      if(lib.length){
+        const selId = cadPalette.transformerId && lib.some(f=>f.id===cadPalette.transformerId) ? cadPalette.transformerId : lib[0].id;
+        html += `<div class="plan-pal">${lib.map(f=>`<button class="plan-pal-item ${selId===f.id?'is-active':''}" data-pal-tl="${escapeHtml(f.id)}"><span class="plan-tm-icon"></span><span><b>${escapeHtml(f.name)}</b><em>${cadTransformerCap(f)||'?'}W · ${cadTransformerTaps(f).join('/')}V taps</em></span></button>`).join('')}</div>`;
+      } else {
+        html += `<div class="fx-desc" style="margin-top:10px;">No transformers in your library yet — add them under <b>Fixtures → Transformers</b> so plans show your real part numbers. Until then, these generic models (editable in Settings) are used:</div>
+          <div class="plan-pal">${cadSettings.models.map(m=>`<button class="plan-pal-item ${(cadPalette.modelId||cadSettings.models[0].id)===m.id?'is-active':''}" data-pal-tm="${escapeHtml(m.id)}"><span class="plan-tm-icon"></span><span><b>${escapeHtml(m.name)}</b><em>${m.capacityW}W · ${m.taps.join('/')}V taps</em></span></button>`).join('')}</div>`;
+      }
     } else {
       html += `<div class="fx-desc" style="margin-top:12px;"><b>Fixture</b> / <b>Accessory</b> / <b>Transformer</b> place items. <b>Wire run</b>: click a transformer, then fixtures in wiring order — click empty space between them to add bends. <b>Text note</b>: click anywhere to drop a note. <b>Scale</b> sets feet-per-pixel from two points.</div>`;
     }
@@ -7065,7 +7120,12 @@
       if(tr){
         html += `<h4>Transformer</h4>
           <label>Name<input data-act="tf-name" value="${escapeHtml(tr.t.name)}"></label>
-          <label>Model<select data-act="tf-model">${cadSettings.models.map(m=>`<option value="${escapeHtml(m.id)}" ${m.id===tr.model.id?'selected':''}>${escapeHtml(m.name)}</option>`).join('')}</select></label>
+          <label>Part / model<select data-act="tf-model">${(()=>{
+            const lib = cadLibraryTransformers(), cur = tr.t.catalogId ? 'c:'+tr.t.catalogId : 'm:'+tr.t.modelId;
+            let o = lib.map(f=>`<option value="c:${escapeHtml(f.id)}" ${cur==='c:'+f.id?'selected':''}>${escapeHtml(f.name)} — ${cadTransformerCap(f)||'?'}W</option>`).join('');
+            if(tr.t.catalogId && !lib.some(f=>f.id===tr.t.catalogId)) o = `<option value="${escapeHtml(cur)}" selected>${escapeHtml(tr.t.modelName||'Removed part')} (removed)</option>` + o;
+            o += cadSettings.models.map(m=>`<option value="m:${escapeHtml(m.id)}" ${cur==='m:'+m.id?'selected':''}>${escapeHtml(m.name)} (generic)</option>`).join('');
+            return o; })()}</select></label>
           <label>Voltage tap<select data-act="tf-tap">${tr.model.taps.map(v=>`<option value="${v}" ${(tr.t.tapV||15)===v?'selected':''}>${v}V</option>`).join('')}</select></label>
           <div class="plan-stats"><div><span>Load</span><b>${cadFmt(tr.load)}W</b></div><div><span>Capacity</span><b>${tr.cap}W</b></div><div><span>Remaining</span><b class="${tr.status==='over'?'is-bad':(tr.status==='warn'?'is-warn':'')}">${cadFmt(tr.remaining)}W</b></div></div>
           ${tr.status==='over'?'<div class="plan-flag">Overloaded — load exceeds capacity.</div>':(tr.status==='warn'?'<div class="plan-flag is-warn">Above the recommended 80% of capacity.</div>':'')}
@@ -7134,7 +7194,16 @@
     else if(act==='note-text'){ const n = sc.notes.find(x=>x.id===cadSel.note); if(n) mut(()=>{ n.text = String(v); }); }
     else if(act==='note-bg'){ const n = sc.notes.find(x=>x.id===cadSel.note); if(n) mut(()=>{ n.bg = !!v; }); }
     else if(act==='tf-name'){ const id = single(cadSel.transformers), tt = sc.transformers.find(x=>x.id===id); if(tt) mut(()=>{ tt.name = String(v).trim() || tt.name; }); }
-    else if(act==='tf-model'){ const id = single(cadSel.transformers), tt = sc.transformers.find(x=>x.id===id); const m = cadSettings.models.find(x=>x.id===v); if(tt && m) mut(()=>{ tt.modelId = m.id; if(!m.taps.includes(tt.tapV)) tt.tapV = Math.max(...m.taps); }); }
+    else if(act==='tf-model'){
+      const id = single(cadSel.transformers), tt = sc.transformers.find(x=>x.id===id); if(!tt) return;
+      if(v.startsWith('c:')){
+        const f = findFixture(v.slice(2)); if(!f) return; const taps = cadTransformerTaps(f);
+        mut(()=>{ tt.catalogId = f.id; tt.modelName = f.name; tt.capacityW = cadTransformerCap(f) || tt.capacityW; delete tt.modelId; if(!taps.includes(tt.tapV)) tt.tapV = Math.max(...taps); });
+      } else if(v.startsWith('m:')){
+        const m = cadSettings.models.find(x=>x.id===v.slice(2)); if(!m) return;
+        mut(()=>{ tt.modelId = m.id; tt.modelName = m.name; tt.capacityW = m.capacityW; delete tt.catalogId; if(!m.taps.includes(tt.tapV)) tt.tapV = Math.max(...m.taps); });
+      }
+    }
     else if(act==='tf-tap'){ const id = single(cadSel.transformers), tt = sc.transformers.find(x=>x.id===id); if(tt) mut(()=>{ tt.tapV = Number(v); }); }
     else if(act==='fx-symbol'){ cadSettings.fixtureSymbol[t.dataset.fid] = v; cadSaveSettings(); cadRefreshAll(); }
     else if(act==='fx-aim'){ const pf = sc.fixtures.find(x=>x.id===single(cadSel.fixtures)); if(pf) mut(()=>{ pf.rot = v ? 0 : null; }); }
@@ -7210,7 +7279,8 @@
         ${fixtures.map(f=>{ const cur = cadSymbolIdFor(f); const ov = S.fixtureSymbol[f.id]; return `<div class="plan-set-row">${cadSymbolSvg(cadSymbolById(cur), 24)}<span class="grow">${escapeHtml(f.name)}</span><select data-set="fx-sym" data-fid="${escapeHtml(f.id)}"><option value="">Auto</option>${syms.map(s=>`<option value="${s.id}" ${ov===s.id?'selected':''}>${escapeHtml(s.label)}</option>`).join('')}</select></div>`; }).join('') || '<div class="fx-desc">No fixtures yet.</div>'}
         <label style="margin-top:8px;">Symbol size on plans (${Math.round(S.symbolScale*100)}%)<input type="range" min="50" max="220" step="10" value="${Math.round(S.symbolScale*100)}" data-set="sym-scale"></label>
       </div>
-      <div class="plan-set-sec"><h4>Transformer models</h4>
+      <div class="plan-set-sec"><h4>Generic transformer models</h4>
+        <div class="fx-desc">Only used when your library (Fixtures → Transformers) has no transformers — real parts from your library take over automatically.</div>
         ${S.models.map((m,i)=>`<div class="plan-set-row"><input data-set="tm-name" data-i="${i}" value="${escapeHtml(m.name)}" class="grow"><input data-set="tm-cap" data-i="${i}" type="number" min="1" value="${m.capacityW}" style="width:74px" title="Capacity (W)"><input data-set="tm-taps" data-i="${i}" value="${m.taps.join(',')}" style="width:96px" title="Voltage taps"><button data-set="tm-del" data-i="${i}">✕</button></div>`).join('')}
         <button class="btn btn-ghost btn-sm" data-set="tm-add">+ Add model</button>
       </div>
@@ -7354,6 +7424,7 @@
       const tool = e.target.closest('[data-tool]'); if(tool){ cadSetTool(tool.dataset.tool); return; }
       const fx = e.target.closest('[data-pal-fx]'); if(fx){ cadPalette.fixtureId = fx.dataset.palFx; cadRenderTools(); cadUpdateHint(); return; }
       const ac = e.target.closest('[data-pal-ac]'); if(ac){ cadPalette.accessoryId = ac.dataset.palAc; cadRenderTools(); cadUpdateHint(); return; }
+      const tl = e.target.closest('[data-pal-tl]'); if(tl){ cadPalette.transformerId = tl.dataset.palTl; cadRenderTools(); return; }
       const tm = e.target.closest('[data-pal-tm]'); if(tm){ cadPalette.modelId = tm.dataset.palTm; cadRenderTools(); }
     });
     $('planTools').addEventListener('change', e=>{ if(e.target.id==='planPalType'){ cadPalette.type = e.target.value; cadRenderTools(); } });

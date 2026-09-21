@@ -525,11 +525,18 @@
      (incl. zoom), the small project-page thumbnail and the print/JPG output all read as the same
      proportion of the photo. Needs container-type on the nearest photo box (see below). */
   .canvas-photo,.area-card-photo{container-type:inline-size;}
-  .text-box{position:absolute;transform:translate(-50%,-50%);max-width:34cqw;padding:.35em .65em;
+  /* --tb-size is the per-box scale the corner handle sets (area.textBoxes[].size, default 1).
+     max-width is in em, not cqw, so the wrap width scales together with the text -- resizing
+     enlarges the whole box proportionally instead of just re-wrapping bigger text. */
+  .text-box{position:absolute;transform:translate(-50%,-50%);width:max-content;max-width:15em;padding:.35em .65em;
     border-radius:6px;background:rgba(20,23,28,.9);color:#fff;border:1px solid rgba(255,255,255,.35);
-    font-size:max(9px,2.3cqw);line-height:1.25;white-space:pre-wrap;overflow-wrap:anywhere;
+    font-size:calc(max(9px,2.3cqw) * var(--tb-size,1));line-height:1.25;white-space:pre-wrap;overflow-wrap:anywhere;
     pointer-events:auto;cursor:grab;touch-action:none;user-select:none;z-index:5;}
   .area-card-photo .text-box{pointer-events:none;cursor:default;}
+  .text-box-resize{position:absolute;right:-9px;bottom:-9px;width:14px;height:14px;border-radius:3px;
+    background:var(--amber);border:2px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.5);
+    cursor:nwse-resize;touch-action:none;pointer-events:auto;}
+  .text-box-resize::after{content:'';position:absolute;inset:-8px;}
 
   /* Transient markers for the two points clicked while "Set scale" is active -- cleared the
      moment the calibration modal saves/cancels, not a persistent design element. */
@@ -2246,7 +2253,7 @@
       </div>`;
     }).join('');
     const texts = (area.textBoxes||[]).map(t=>
-      `<div class="text-box" style="left:${t.xPct}%;top:${t.yPct}%;">${escapeHtml(t.text)}</div>`).join('');
+      `<div class="text-box" style="left:${t.xPct}%;top:${t.yPct}%;--tb-size:${t.size||1};">${escapeHtml(t.text)}</div>`).join('');
     return `<div class="beam-group">${beams}</div>${dots}${texts}`;
   }
 
@@ -2294,7 +2301,7 @@
     }).join('') + (area.transformers||[]).map(t=>
       `<div class="transformer-marker" data-id="${t.id}" style="left:${t.xPct}%;top:${t.yPct}%;" title="${escapeHtml(t.name)} · ${t.capacityW}W"></div>`
     ).join('') + (area.textBoxes||[]).map(t=>
-      `<div class="text-box" data-id="${t.id}" style="left:${t.xPct}%;top:${t.yPct}%;">${escapeHtml(t.text)}</div>`
+      `<div class="text-box" data-id="${t.id}" style="left:${t.xPct}%;top:${t.yPct}%;--tb-size:${t.size||1};">${escapeHtml(t.text)}<span class="text-box-resize" data-id="${t.id}" title="Drag to resize"></span></div>`
     ).join('') + (scaleCalPoints||[]).map(pt=>
       `<div class="scale-cal-dot" style="left:${pt.xPct}%;top:${pt.yPct}%;"></div>`
     ).join('');
@@ -2311,6 +2318,23 @@
           el.style.left = t.xPct+'%'; el.style.top = t.yPct+'%';
         },
         onEnd:(ev,wasDragging)=>{ if(!wasDragging) openTextBoxModal(t.id); }
+      });
+      // Corner handle: scale the whole box (text + wrap width) so its corner follows the pointer.
+      // Box is anchored by its center, so the center stays fixed; each move sets the scale so the
+      // half-diagonal equals the pointer's distance from that center (scale * d / current
+      // half-diagonal) -- converges immediately and can't oscillate since the box scales linearly.
+      const handle = el.querySelector('.text-box-resize');
+      if(handle) makeDraggable(handle, {
+        onMove:(ev)=>{
+          const r = el.getBoundingClientRect();
+          const cx = r.left+r.width/2, cy = r.top+r.height/2;
+          const half = Math.hypot(r.width/2, r.height/2);
+          const d = Math.hypot(ev.clientX-cx, ev.clientY-cy);
+          if(!half || !d) return;
+          t.size = Math.min(6, Math.max(0.4, (t.size||1) * d/half));
+          el.style.setProperty('--tb-size', t.size);
+        },
+        onEnd:()=>{}
       });
     });
     attachPlacementHandlers();
@@ -5523,12 +5547,12 @@
       drawPillLabel(ctx, mx+dotR+40, my, f.name, '#ffffff', cw);
     }
   }
-  // Mirrors .text-box: dark rounded box, white text, wrapped to ~34% of the photo's width, font
-  // size 2.3% of its width (the same proportion the CSS cqw sizing gives on screen).
+  // Mirrors .text-box: dark rounded box, white text, font size 2.3% of the photo's width times
+  // the box's own size scale, wrapped at 15em (the same proportions the CSS gives on screen).
   function drawTextBoxOnCanvas(ctx, t, cw, ch){
-    const fontPx = Math.max(14, cw*0.023);
+    const fontPx = Math.max(14, cw*0.023) * (t.size||1);
     const padX = fontPx*0.65, padY = fontPx*0.35, lineH = fontPx*1.25;
-    const maxTextW = cw*0.34 - padX*2;
+    const maxTextW = fontPx*15 - padX*2; // .text-box's max-width: 15em (border-box)
     ctx.save();
     ctx.font = `${fontPx}px ui-sans-serif, system-ui, sans-serif`;
     const lines = [];

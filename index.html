@@ -1944,7 +1944,7 @@
   // opacity to 1-(1-op)^(1/N) so N stacked layers add back up to exactly `op` on the axis --
   // the beam's on-axis look/brightness is unchanged, only its sides soften. Shared by the DOM
   // beam and drawBeamOnCanvas so they can't drift apart.
-  const BEAM_WEDGES = [1, 0.92];
+  const BEAM_WEDGES = [1, 0.96];
   function wedgeFalloffStops(o1,o2){
     return falloffStops(o1,o2).map(([pct,op])=>[pct, 1-Math.pow(1-op, 1/BEAM_WEDGES.length)]);
   }
@@ -2026,7 +2026,7 @@
   // "where the light lands", and a real beam's edge is soft, not a hard line. Real user report:
   // clustered downlights looked unfeathered -- the reveal's hard clip edge was the culprit, made
   // far more visible by overlapping fixtures stacking their fade alphas along the shared edge.
-  const LIT_EDGE_BLUR_STD = 2;
+  const LIT_EDGE_BLUR_STD = 1.2;
   // The reveal's mask contents (drawn inside an SVG <mask maskContentUnits="objectBoundingBox">,
   // i.e. 0-1 fractions of the box, same coordinate space as buildLitAreaPath): per placement, that
   // placement's own beam shape (buildLitAreaPath on just that placement) filled with a radial

@@ -425,10 +425,12 @@
      outside a beam stays whatever the Darkness slider set. Needed once Darkness could reach
      near-black (see photoFilterFor) -- at that point there's almost no backdrop luminance left
      for the beam's additive blend mode to "catch", so beams read as a flat pale shape instead of
-     revealing anything. clip-path starts empty (an empty path draws nothing) so it's invisible
-     until JS sets a real one; pointer-events:none since it's purely visual, on top of the
-     interactive dark photo underneath it. */
-  .photo-lit{position:absolute;inset:0;pointer-events:none;clip-path:path('M0,0Z');}
+     revealing anything. It's an inline <svg> (an <image> of the photo under an SVG <mask>, built
+     by buildLitMaskShapes) rather than an <img> with clip-path, so the mask can carry a real
+     Gaussian blur: the reveal's angular edges feather into the darker photo instead of ending on
+     a hard line. An empty mask draws nothing, so it's invisible until JS fills one in;
+     pointer-events:none since it's purely visual, on top of the interactive dark photo. */
+  .photo-lit{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;display:block;}
 
   .zoom-badge{position:absolute;top:10px;right:10px;z-index:6;background:rgba(30,35,43,.92);
     border:1px solid var(--line);border-radius:8px;padding:6px 8px;display:flex;align-items:center;gap:8px;}
@@ -1169,10 +1171,10 @@
       <div class="canvas-photo" id="canvasPhoto" hidden>
         <div class="zoom-layer" id="zoomLayer">
           <img id="photoImg" alt="Design photo">
-          <svg width="0" height="0" style="position:absolute;"><defs><clipPath id="litclip-editor" clipPathUnits="objectBoundingBox">
-            <path id="litclipPath-editor" d="M0,0Z"/>
-          </clipPath></defs></svg>
-          <img id="photoImgLit" class="photo-lit" style="clip-path:url(#litclip-editor);-webkit-clip-path:url(#litclip-editor);" alt="">
+          <svg id="photoLitSvg" class="photo-lit" aria-hidden="true">
+            <defs><mask id="litmask-editor" maskUnits="objectBoundingBox" maskContentUnits="objectBoundingBox" x="0" y="0" width="1" height="1"><g id="litMaskShapes-editor"></g></mask></defs>
+            <image id="photoImgLit" x="0" y="0" width="100%" height="100%" preserveAspectRatio="xMidYMid slice" mask="url(#litmask-editor)"/>
+          </svg>
           <div class="wire-layer" id="wireLayer">
             <svg id="wireSvg" viewBox="0 0 100 100" preserveAspectRatio="none"></svg>
             <div id="wireLabels"></div>
@@ -2000,26 +2002,47 @@
   // Peaks at a modest 0.65 partway out rather than starting fully opaque right at the fixture --
   // a real user-reported bug: starting at 1.0 (see the git history) combined with the beam's own
   // additive color (also strongest near the fixture) blew the base out too bright. Shared between
-  // the CSS mask-image (buildLitFadeMaskImage) and the Canvas 2D destination-in gradient
+  // the SVG mask (buildLitMaskShapes) and the Canvas 2D mask gradient
   // (captureAreaDesignImage) so they can't drift out of sync, the same reasoning as falloffStops.
   const LIT_FADE_STOPS = [[0,0.15],[20,0.35],[45,0.3],[75,0.08],[100,0]];
-  function buildLitFadeMaskImage(area, aspect){
+  // Blur of the reveal's own edge, in the same fixed 190-unit "far radius" space as BEAM_BLUR_STD
+  // but much larger than it: the tinted beam wants a crisp-ish edge (BEAM_BLUR_STD, kept small
+  // because a big one read as "foggy"), but the brightened *photo* patch is what a viewer reads as
+  // "where the light lands", and a real beam's edge is soft, not a hard line. Real user report:
+  // clustered downlights looked unfeathered -- the reveal's hard clip edge was the culprit, made
+  // far more visible by overlapping fixtures stacking their fade alphas along the shared edge.
+  const LIT_EDGE_BLUR_STD = 9;
+  // The reveal's mask contents (drawn inside an SVG <mask maskContentUnits="objectBoundingBox">,
+  // i.e. 0-1 fractions of the box, same coordinate space as buildLitAreaPath): per placement, that
+  // placement's own beam shape (buildLitAreaPath on just that placement) filled with a radial
+  // gradient of LIT_FADE_STOPS (fades from the fixture out to its reach -- real light has no wall
+  // at its reach distance) and Gaussian-blurred (LIT_EDGE_BLUR_STD, so the angular edges feather
+  // too). Shapes composite source-over inside the mask, so overlapping fixtures combine by alpha
+  // union (a smooth ceiling) exactly like .beam-group does for the tint. Both the gradient's y
+  // radius (gradientTransform) and the blur's y std are scaled by `aspect` for the same reason as
+  // every y-going value in buildLitAreaPath: fraction space stretches x and y independently.
+  // `idp` namespaces the gradient/filter ids since several of these can be in the DOM at once
+  // (the editor's, plus one per area card).
+  function buildLitMaskShapes(area, aspect, idp){
     aspect = aspect || 0.8;
     const refRect = {width:380, height:380/aspect};
-    const layers = area.placements.map(p=>{
+    return area.placements.map((p,i)=>{
       const f = findFixture(p.fixtureId); if(!f) return '';
       const beamW = (p.beamWidth!=null ? p.beamWidth : f.beam);
       const R = beamW>=360
         ? clampR((60+f.lumens/5)*p.reach*(refRect.width/380), refRect) * 0.7
         : clampR((60+f.lumens/5)*p.reach*(refRect.width/380), refRect);
-      const kx = (R/380*100).toFixed(2), ky = (R/380*aspect*100).toFixed(2);
-      const stops = LIT_FADE_STOPS.map(([pct,op])=>`rgba(255,255,255,${op}) ${pct}%`).join(', ');
-      return `radial-gradient(ellipse ${kx}% ${ky}% at ${p.xPct}% ${p.yPct}%, ${stops})`;
-    }).filter(Boolean);
-    return layers.length ? layers.join(', ') : 'none';
+      const cx = p.xPct/100, cy = p.yPct/100, rx = R/380;
+      const sx = rx*LIT_EDGE_BLUR_STD/190, sy = sx*aspect;
+      const gid = `${idp}g${i}`, fid = `${idp}f${i}`;
+      const stops = LIT_FADE_STOPS.map(([pct,op])=>`<stop offset="${pct}%" stop-color="#fff" stop-opacity="${op}"/>`).join('');
+      return `<radialGradient id="${gid}" gradientUnits="userSpaceOnUse" cx="${cx}" cy="${cy}" r="${rx.toFixed(5)}" gradientTransform="translate(${cx} ${cy}) scale(1 ${aspect}) translate(${-cx} ${-cy})">${stops}</radialGradient>`
+        + `<filter id="${fid}" x="-40%" y="-40%" width="180%" height="180%" primitiveUnits="userSpaceOnUse"><feGaussianBlur stdDeviation="${sx.toFixed(5)} ${sy.toFixed(5)}"/></filter>`
+        + `<path d="${buildLitAreaPath({placements:[p]}, aspect)}" fill="url(#${gid})" filter="url(#${fid})"/>`;
+    }).join('');
   }
-  // Applies buildLitAreaPath/buildLitFadeMaskImage to the live editor's #litclipPath-editor/
-  // #photoImgLit -- factored out of renderOverlays() so the same two lines can also run from
+  // Applies buildLitMaskShapes to the live editor's #litMaskShapes-editor mask (over
+  // #photoImgLit) -- factored out of renderOverlays() so the same two lines can also run from
   // inside a drag's onMove (see attachPlacementHandlers), not just once the drag ends. Without
   // this, moving/re-aiming/re-widening a placement moved its beam SVG live (that's just a CSS
   // left/top or a fresh buildBeamHtml() call) but left the "flashlight" reveal frozen at the
@@ -2029,9 +2052,7 @@
   // positions at once. Now called on every pointermove of every placement drag, exactly like
   // updatePlacementBeam already was, so the two stay in lockstep the entire gesture.
   function updateLitReveal(area){
-    $('litclipPath-editor').setAttribute('d', buildLitAreaPath(area, area.photoAspect||0.8));
-    const fadeMask = buildLitFadeMaskImage(area, area.photoAspect||0.8);
-    $('photoImgLit').style.maskImage = $('photoImgLit').style.webkitMaskImage = fadeMask;
+    $('litMaskShapes-editor').innerHTML = buildLitMaskShapes(area, area.photoAspect||0.8, 'lit-ed-');
   }
   // responsive=true (only used by buildStaticOverlaysHtml, never the live editor) outputs the
   // beam's size as CSS percentage-of-width + aspect-ratio:1 instead of fixed pixel width/height
@@ -2136,8 +2157,7 @@
     const area = currentArea();
     const wrap = $('overlays');
     if(!area || !area.photo){
-      wrap.innerHTML=''; $('litclipPath-editor').setAttribute('d','M0,0Z');
-      $('photoImgLit').style.maskImage = $('photoImgLit').style.webkitMaskImage = 'none';
+      wrap.innerHTML=''; $('litMaskShapes-editor').innerHTML='';
       $('editorLegend').hidden = true; renderWireLayer(); return;
     }
     const rect = $('canvasPhoto').getBoundingClientRect();
@@ -3733,16 +3753,16 @@
       // consumed inside @media print (see that rule) so on-screen sizing is untouched, and since
       // it just shrinks width+height together in proportion, the container's aspect ratio still
       // exactly matches the photo's, so every existing objectBoundingBox-fraction overlay
-      // (buildLitAreaPath/buildLitFadeMaskImage) stays correctly aligned with no changes needed.
+      // (buildLitAreaPath/buildLitMaskShapes) stays correctly aligned with no changes needed.
       const printPhotoCapW = (PRINT_PHOTO_CAP_H*aspect).toFixed(3)+'in';
       return `<div class="area-card" data-id="${a.id}" style="--print-photo-cap-w:${printPhotoCapW};">
         <button class="area-card-del" data-del="${a.id}">✕</button>
         <div class="area-card-photo">
           ${a.photo? `<img src="${a.photo}" style="filter:${photoFilterFor(a)}">
-          <svg width="0" height="0" style="position:absolute;"><defs><clipPath id="litclip-${a.id}" clipPathUnits="objectBoundingBox">
-            <path d="${buildLitAreaPath(a, aspect)}"/>
-          </clipPath></defs></svg>
-          <img src="${a.photo}" class="photo-lit" style="filter:${litPhotoFilterFor()};clip-path:url(#litclip-${a.id});-webkit-clip-path:url(#litclip-${a.id});mask-image:${buildLitFadeMaskImage(a, aspect)};-webkit-mask-image:${buildLitFadeMaskImage(a, aspect)};">` : ''}
+          <svg class="photo-lit" aria-hidden="true" style="filter:${litPhotoFilterFor()};">
+            <defs><mask id="litmask-${a.id}" maskUnits="objectBoundingBox" maskContentUnits="objectBoundingBox" x="0" y="0" width="1" height="1">${buildLitMaskShapes(a, aspect, 'lit-'+a.id+'-')}</mask></defs>
+            <image href="${a.photo}" x="0" y="0" width="100%" height="100%" preserveAspectRatio="xMidYMid slice" mask="url(#litmask-${a.id})"/>
+          </svg>` : ''}
           <div class="wire-layer static-wires"><svg viewBox="0 0 100 100" preserveAspectRatio="none"></svg><div></div></div>
           <div class="wire-layer static-strips"><svg viewBox="0 0 100 100" preserveAspectRatio="none"></svg><div></div></div>
           <div class="overlays"></div>
@@ -3835,7 +3855,7 @@
   function applyPhotoFilter(){
     const area = currentArea(); if(!area) return;
     $('photoImg').style.filter = photoFilterFor(area);
-    $('photoImgLit').style.filter = litPhotoFilterFor();
+    $('photoLitSvg').style.filter = litPhotoFilterFor();
   }
   // Sizes the photo canvas to exactly match the photo's own (cropped) aspect ratio, letterboxed
   // within whatever space is available. Without this, the browser's own window shape (very wide
@@ -3864,7 +3884,7 @@
     $('canvasToolbar').hidden = !hasPhoto;
     if(hasPhoto){
       $('photoImg').src = area.photo;
-      $('photoImgLit').src = area.photo;
+      $('photoImgLit').setAttribute('href', area.photo);
       applyPhotoFilter();
       resetView();
       sizeCanvasToAspect();
@@ -5382,42 +5402,48 @@
           ctx.drawImage(img, 0, 0, cw, ch);
           ctx.restore();
 
-          // Reveal a brighter copy of the same photo, clipped to each beam's own shape and faded
-          // toward its far edge -- matches .photo-lit + buildLitFadeMaskImage in the DOM-rendered
-          // paths (see their comments for why the fade exists: a hard clip has no "wall" at the
-          // beam's reach the way a real light doesn't either). Done per-placement, each in its
-          // own save/restore, rather than one pass over the combined union: the fade is applied
-          // via globalCompositeOperation='destination-in', which multiplies the *entire* existing
-          // canvas alpha by the new gradient -- doing that once per placement over a shared
-          // drawImage would have each fixture's falloff erase every other fixture's already-faded
-          // area instead of just its own.
+          // Reveal a brighter copy of the same photo where fixtures light it -- mirrors the DOM
+          // paths' SVG mask (buildLitMaskShapes; see its comment for the why): each placement's
+          // beam shape, filled with the LIT_FADE_STOPS radial fade and blurred by
+          // LIT_EDGE_BLUR_STD, unioned (source-over) into an alpha-only maskCanvas. The bright
+          // photo is drawn on its OWN offscreen litCanvas, multiplied by that mask
+          // ('destination-in' -- safe here because it only touches litCanvas, not the main canvas
+          // holding the dark photo), and only then composited onto the main canvas. (An earlier
+          // version ran 'destination-in' directly on the main canvas inside a clip, which also
+          // multiplied away the dark photo underneath, leaving semi-transparent -- i.e. black once
+          // saved as a JPG -- pixels inside every beam.)
+          const litCanvas = document.createElement('canvas');
+          litCanvas.width = cw; litCanvas.height = ch;
+          const litCtx = litCanvas.getContext('2d');
+          litCtx.filter = litPhotoFilterFor();
+          litCtx.drawImage(img, 0, 0, cw, ch);
+          litCtx.filter = 'none';
+          const maskCanvas = document.createElement('canvas');
+          maskCanvas.width = cw; maskCanvas.height = ch;
+          const maskCtx = maskCanvas.getContext('2d');
+          const litRefRect = {width:380, height:380/aspect};
           area.placements.forEach(p=>{
             const f = findFixture(p.fixtureId); if(!f) return;
             const mx = (p.xPct/100)*cw, my = (p.yPct/100)*ch;
             const beamW = (p.beamWidth!=null ? p.beamWidth : f.beam);
-            const refRect = {width:380, height:380/aspect};
             const R = (beamW>=360
-              ? clampR((60+f.lumens/5)*p.reach*(refRect.width/380), refRect) * 0.7
-              : clampR((60+f.lumens/5)*p.reach*(refRect.width/380), refRect)) / 380 * cw;
-            ctx.save();
-            // ctx.clip() bakes the path using whatever transform is active at the moment it's
-            // called, then stays in effect regardless of later transform changes until the
-            // matching restore() -- so the scale-then-reset-transform sequence lets the
-            // fraction-space path (0-1 per axis, same one used for the DOM clip-path) clip a
-            // normal full-pixel drawImage() call.
-            ctx.transform(cw,0,0,ch,0,0);
-            ctx.clip(new Path2D(buildLitAreaPath({placements:[p]}, aspect)));
-            ctx.setTransform(1,0,0,1,0,0);
-            ctx.filter = litPhotoFilterFor();
-            ctx.drawImage(img, 0, 0, cw, ch);
-            ctx.filter = 'none';
-            ctx.globalCompositeOperation = 'destination-in';
-            const grad = ctx.createRadialGradient(mx,my,0,mx,my,R);
+              ? clampR((60+f.lumens/5)*p.reach*(litRefRect.width/380), litRefRect) * 0.7
+              : clampR((60+f.lumens/5)*p.reach*(litRefRect.width/380), litRefRect)) / 380 * cw;
+            // buildLitAreaPath is in 0-1 fraction space; scale it to real pixels via addPath's matrix
+            // so the gradient/blur below can be plain pixel-space values.
+            const pxPath = new Path2D();
+            pxPath.addPath(new Path2D(buildLitAreaPath({placements:[p]}, aspect)), {a:cw,b:0,c:0,d:ch,e:0,f:0});
+            const grad = maskCtx.createRadialGradient(mx,my,0,mx,my,R);
             LIT_FADE_STOPS.forEach(([pct,op])=> grad.addColorStop(pct/100, `rgba(255,255,255,${op})`));
-            ctx.fillStyle = grad;
-            ctx.fillRect(0,0,cw,ch);
-            ctx.restore();
+            maskCtx.save();
+            maskCtx.filter = `blur(${(R*LIT_EDGE_BLUR_STD/190).toFixed(1)}px)`;
+            maskCtx.fillStyle = grad;
+            maskCtx.fill(pxPath);
+            maskCtx.restore();
           });
+          litCtx.globalCompositeOperation = 'destination-in';
+          litCtx.drawImage(maskCanvas, 0, 0);
+          ctx.drawImage(litCanvas, 0, 0);
 
           const beamCanvas = document.createElement('canvas');
           beamCanvas.width = cw; beamCanvas.height = ch;

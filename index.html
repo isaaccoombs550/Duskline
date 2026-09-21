@@ -1307,6 +1307,7 @@
       <div class="sheet-tabs">
         <button class="sheet-tab active" data-cat="fixture">Fixtures</button>
         <button class="sheet-tab" data-cat="accessory">Accessories</button>
+        <button class="sheet-tab" data-cat="transformer">Transformers</button>
         <button class="sheet-tab" data-cat="strip">Strips</button>
       </div>
       <div class="sheet-filters">
@@ -2971,7 +2972,10 @@
       list = list.filter(f=> (f.name||'').toLowerCase().includes(search) || (f.desc||'').toLowerCase().includes(search));
     }
     if(!list.length){
-      $('sheetList').innerHTML = `<div class="empty-note" style="padding:28px 10px;text-align:center;">No matches${search?' for "'+escapeHtml(state.sheetSearch.trim())+'"':''}.</div>`;
+      const none = !search && state.sheetCat==='transformer'
+        ? 'No transformers in your library yet — add them under Fixtures → Transformers (or import them from Excel).'
+        : `No matches${search?' for "'+escapeHtml(state.sheetSearch.trim())+'"':''}.`;
+      $('sheetList').innerHTML = `<div class="empty-note" style="padding:28px 10px;text-align:center;">${none}</div>`;
       return;
     }
     $('sheetList').innerHTML = list.map(f=>{
@@ -3004,8 +3008,9 @@
         </div>`;
       } else {
         const qty = area.accessoryQty[f.id]||0;
+        const tfSpec = f.cat==='transformer' && f.capacityW ? `<div class="fx-spec">${f.capacityW}W${f.taps && f.taps.length ? ' · '+f.taps.join('/')+'V taps' : ''}</div>` : '';
         return `<div class="fx-card">
-          <div class="fx-main"><div class="fx-name">${escapeHtml(f.name)}</div><div class="fx-desc">${escapeHtml(f.desc)}</div></div>
+          <div class="fx-main"><div class="fx-name">${escapeHtml(f.name)}</div><div class="fx-desc">${escapeHtml(f.desc)}</div>${tfSpec}</div>
           <div class="fx-side">
             <div class="fx-price">${money(f.price)}</div>
             <div class="stepper"><button data-dec="${f.id}">−</button><span class="mono">${qty}</span><button data-inc="${f.id}">+</button></div>
@@ -3080,11 +3085,15 @@
       Object.entries(area.accessoryQty).forEach(([id,q])=>{ if(q>0) counts[id]=(counts[id]||0)+q; });
       (area.lightStrips||[]).forEach(s=>{ counts[s.fixtureId]=(counts[s.fixtureId]||0)+(s.lengthFt||0); });
     });
-    // Transformers placed on this project's CAD plans (Plans tab) are quoted here. They only exist
-    // on plans (the photo editor has no transformers), so this can't double-count with the areas
-    // above; fixtures/accessories on a plan are deliberately NOT added, since the same fixtures are
+    // Transformers placed on this project's CAD plans (Plans tab) are quoted here too. A transformer
+    // can now ALSO be added to an area from the design editor's library (Transformers tab, stored in
+    // accessoryQty), and the same physical unit is normally in both places -- so for each transformer
+    // the quote takes the larger of "added in designs" and "placed on plans" rather than the sum, to
+    // avoid double-charging. (Two genuinely different units, one only in a design and one only on a
+    // plan, would be under-counted by this -- bump the design quantity if that happens.)
+    // Fixtures/accessories on a plan are deliberately NOT added, since the same fixtures are
     // normally also placed on the project's photo designs.
-    cadPlanTransformerCounts(pr).forEach((q,id)=>{ counts[id] = (counts[id]||0)+q; });
+    cadPlanTransformerCounts(pr).forEach((q,id)=>{ counts[id] = Math.max(counts[id]||0, q); });
     return Object.entries(counts).map(([id,qtyRaw])=>{
       const f = findFixture(id); if(!f) return null;
       const qty = f.cat==='strip' ? Math.ceil(qtyRaw) : qtyRaw;

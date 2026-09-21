@@ -207,6 +207,8 @@
   .area-card-body{padding:10px 12px;display:flex;justify-content:space-between;align-items:center;gap:10px;}
   .area-card-name{font-weight:600;font-size:13.5px;}
   .area-card-stat{font-size:11px;color:var(--muted);margin-top:2px;}
+  .area-card-notes{font-size:12px;color:var(--fog);margin-top:6px;white-space:pre-wrap;
+    display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;}
   .area-card-del{position:absolute;top:8px;right:8px;background:rgba(20,23,28,.75);border:1px solid var(--line);
     color:var(--fog);width:26px;height:26px;border-radius:50%;font-size:13px;cursor:pointer;z-index:2;}
 
@@ -653,6 +655,7 @@
        ratio instead. The beam/placement overlay HTML already scales off the container's
        *width*, which is unchanged here (only height goes from fixed to auto), so the
        overlays still line up correctly on the now-taller frame. */
+    .area-card-notes{display:none !important;}
     .area-card-photo{height:auto !important;max-width:var(--print-photo-cap-w, none);margin:0 auto;}
     .area-card-photo img{height:auto !important;object-fit:contain;}
     /* Area cards, the load summary, and the quote table wrapper all carry the on-screen UI's
@@ -1203,6 +1206,7 @@
         <button class="chip" id="btnPlaceTransformer">Place transformer</button>
         <button class="chip" id="btnSetScale">Set scale</button>
         <button class="chip" id="btnExportWiringPlan">Export wiring plan</button>
+        <button class="chip" id="btnAreaNotes">Notes</button>
         <button class="chip chip-danger" id="btnClearDesign">Clear design</button>
       </div>
 
@@ -1321,6 +1325,24 @@
       <button class="btn btn-danger" id="transformerDelete">Delete</button>
       <button class="btn btn-ghost" id="transformerCancel">Cancel</button>
       <button class="btn btn-primary" id="transformerSave">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== DESIGN NOTES MODAL ===================== -->
+<div class="edit-sheet" id="notesModal" hidden>
+  <div class="edit-backdrop" id="notesBackdrop"></div>
+  <div class="edit-panel">
+    <div class="edit-title">Design notes</div>
+    <div class="modal-form-body">
+      <div class="field">
+        <textarea id="notesInput" rows="8" placeholder="Site notes, customer requests, install reminders..."></textarea>
+      </div>
+      <div class="fx-desc">Internal notes for this design. They're shown on the project page but never printed on the customer quote.</div>
+    </div>
+    <div class="edit-actions">
+      <button class="btn btn-ghost" id="notesCancel">Cancel</button>
+      <button class="btn btn-primary" id="notesSave">Save</button>
     </div>
   </div>
 </div>
@@ -2558,6 +2580,31 @@
     updateSetScaleBtn();
     updatePlacementBanner();
     renderOverlays();
+  }
+
+  // ---------------- design notes ----------------
+  function updateNotesBtn(){
+    const btn = $('btnAreaNotes'); if(!btn) return;
+    const area = currentArea();
+    const has = !!(area && area.notes && area.notes.trim());
+    btn.classList.toggle('is-active', has);
+    btn.textContent = has ? 'Notes •' : 'Notes';
+  }
+  function openNotesModal(){
+    const area = currentArea(); if(!area) return;
+    $('notesInput').value = area.notes || '';
+    $('notesModal').hidden = false;
+    $('notesInput').focus();
+  }
+  function closeNotesModal(){ $('notesModal').hidden = true; }
+  function saveNotesModal(){
+    const area = currentArea(); if(!area) return;
+    const text = $('notesInput').value.trim();
+    if(text) area._hadNotes = true;
+    area.notes = text;
+    saveAreaRow(area);
+    updateNotesBtn();
+    closeNotesModal();
   }
 
   // ---------------- wiring plan PDF export ----------------
@@ -3808,6 +3855,7 @@
           <div>
             <div class="area-card-name">${escapeHtml(a.name)}</div>
             <div class="area-card-stat">${a.placements.length} fixture${a.placements.length!==1?'s':''} · ${money(total)}${showTech?' · '+w+'W':''}</div>
+            ${a.notes && a.notes.trim() ? `<div class="area-card-notes">${escapeHtml(a.notes)}</div>` : ''}
           </div>
           <button class="btn btn-ghost btn-sm">Edit</button>
         </div>
@@ -3922,6 +3970,7 @@
     if(hasPhoto){
       $('photoImg').src = area.photo;
       $('photoImgLit').setAttribute('href', area.photo);
+      updateNotesBtn();
       applyPhotoFilter();
       resetView();
       sizeCanvasToAspect();
@@ -5702,6 +5751,11 @@
       // PDF's per-transformer load/run tables (see buildWiringPlanPdfBlob()). A wire run's own
       // transformerId/fixtureUids live inside wire_runs' own jsonb, no separate column needed.
       transformers: area.transformers||[],
+      // Only sent once notes have ever been used on this area (non-empty, or loaded non-empty and
+      // possibly just cleared -- _hadNotes): an area that never used notes must keep saving even
+      // if the `notes` column hasn't been added to the database yet, since a failed update here
+      // would silently drop the whole row's edits (saveAreaRow only console.warns).
+      ...((area.notes || area._hadNotes) ? {notes: area.notes||''} : {}),
     };
   }
   function rowToArea(row){
@@ -5712,6 +5766,7 @@
       placements: row.placements||[], accessoryQty: row.accessory_qty||{},
       wireRuns: row.wire_runs||[], lightStrips: row.light_strips||[],
       transformers: row.transformers||[],
+      notes: row.notes||'', _hadNotes: !!row.notes,
     };
   }
   function rowToDistributor(row){
@@ -5812,9 +5867,22 @@
   }
   async function saveAreaRow(area){
     if(!area) return;
-    const { error } = await sb.from('areas').update(areaToRow(area)).eq('id', area.id);
+    const row = areaToRow(area);
+    let { error } = await sb.from('areas').update(row).eq('id', area.id);
+    // The `notes` column comes from a one-time SQL migration (see supabase/schema.sql). Until it's
+    // run, don't let a used-notes area lose every OTHER edit (placements, wires...) along with the
+    // note: retry without it, and say so once so the note isn't silently lost.
+    if(error && 'notes' in row && /'notes' column/.test(error.message||'')){
+      const { notes, ...rest } = row;
+      ({ error } = await sb.from('areas').update(rest).eq('id', area.id));
+      if(!notesColumnWarned){
+        notesColumnWarned = true;
+        alert("Your notes are saved on this screen but couldn't be stored yet — the database needs a one-time update (add the `notes` column to `areas`). Your design itself was saved.");
+      }
+    }
     if(error) console.warn('Duskline: area save failed.', error);
   }
+  let notesColumnWarned = false;
   // Uploads a cropped photo (as a data: URL, straight from the crop canvas) to the 'photos'
   // Storage bucket and returns its public URL, or null on failure. Path always starts with
   // the company id (see supabase/schema.sql's storage policy, which relies on that prefix).
@@ -6307,6 +6375,10 @@
     $('scaleBackdrop').addEventListener('click', closeScaleCalibrationModal);
     $('scaleSave').addEventListener('click', saveScaleCalibrationModal);
     $('btnExportWiringPlan').addEventListener('click', exportWiringPlan);
+    $('btnAreaNotes').addEventListener('click', openNotesModal);
+    $('notesCancel').addEventListener('click', closeNotesModal);
+    $('notesBackdrop').addEventListener('click', closeNotesModal);
+    $('notesSave').addEventListener('click', saveNotesModal);
     $('toggleExportWires').addEventListener('change', e=>{
       document.body.classList.toggle('export-wires', e.target.checked);
     });

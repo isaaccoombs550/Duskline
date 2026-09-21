@@ -1175,3 +1175,11 @@ alter table public.areas add column if not exists photo_width_ft numeric;
 -- transformers themselves are new, stored the same way wire_runs/light_strips already are.
 -- ============================================================================
 alter table public.areas add column if not exists transformers jsonb not null default '[]';
+
+-- ============================================================================
+-- Per-design (area) internal notes, edited from the "Notes" chip in the area editor and shown
+-- on the project page's area card (never printed on the customer quote). Free text; null/empty
+-- for every area that hasn't used it. The app only sends this column once notes have been used
+-- on an area, so areas that never touch notes keep saving even before this is run.
+-- ============================================================================
+alter table public.areas add column if not exists notes text;

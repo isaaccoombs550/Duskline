@@ -3056,6 +3056,7 @@
   }
 
   // ---------------- quote math ----------------
+  function lineCatRank(cat){ return ({fixture:0, accessory:1, transformer:2, strip:3})[cat] ?? 4; }
   function computeAreaLineItems(area){
     const counts = {};
     area.placements.forEach(p=> counts[p.fixtureId]=(counts[p.fixtureId]||0)+1 );
@@ -3065,7 +3066,7 @@
       const f = findFixture(id); if(!f) return null;
       const qty = f.cat==='strip' ? Math.ceil(qtyRaw) : qtyRaw;
       return {...f, qty, lineCost:f.cost*qty, linePrice:f.price*qty};
-    }).filter(Boolean).sort((a,b)=> a.cat===b.cat ? a.name.localeCompare(b.name) : (a.cat==='fixture'?-1:1));
+    }).filter(Boolean).sort((a,b)=> a.cat===b.cat ? a.name.localeCompare(b.name) : (lineCatRank(a.cat)-lineCatRank(b.cat)));
   }
   function computeProjectLineItems(pr){
     const counts = {};
@@ -3074,11 +3075,16 @@
       Object.entries(area.accessoryQty).forEach(([id,q])=>{ if(q>0) counts[id]=(counts[id]||0)+q; });
       (area.lightStrips||[]).forEach(s=>{ counts[s.fixtureId]=(counts[s.fixtureId]||0)+(s.lengthFt||0); });
     });
+    // Transformers placed on this project's CAD plans (Plans tab) are quoted here. They only exist
+    // on plans (the photo editor has no transformers), so this can't double-count with the areas
+    // above; fixtures/accessories on a plan are deliberately NOT added, since the same fixtures are
+    // normally also placed on the project's photo designs.
+    cadPlanTransformerCounts(pr).forEach((q,id)=>{ counts[id] = (counts[id]||0)+q; });
     return Object.entries(counts).map(([id,qtyRaw])=>{
       const f = findFixture(id); if(!f) return null;
       const qty = f.cat==='strip' ? Math.ceil(qtyRaw) : qtyRaw;
       return {...f, qty, lineCost:f.cost*qty, linePrice:f.price*qty};
-    }).filter(Boolean).sort((a,b)=> a.cat===b.cat ? a.name.localeCompare(b.name) : (a.cat==='fixture'?-1:1));
+    }).filter(Boolean).sort((a,b)=> a.cat===b.cat ? a.name.localeCompare(b.name) : (lineCatRank(a.cat)-lineCatRank(b.cat)));
   }
 
   function updateQuoteBar(){
@@ -3111,7 +3117,7 @@
   // the same "name is just a supplier part number" concern imports create for the other two.
   function quoteItemNameCell(i, preferType){
     const useType = preferType && i.cat==='fixture';
-    const useDesc = preferType && i.cat==='accessory' && i.desc;
+    const useDesc = preferType && (i.cat==='accessory' || i.cat==='transformer') && i.desc;
     const name = escapeHtml(useType ? fixtureTypeMeta(i).label : useDesc ? i.desc : i.name);
     if(i.cat!=='fixture') return name;
     const col = fixtureTypeMeta(i).col;
@@ -6077,6 +6083,15 @@
     return m ? +m[1] : 0;
   }
   function cadTransformerTaps(f){ return (f.taps && f.taps.length) ? f.taps.map(Number).filter(x=>x>0) : [12,13,14,15]; }
+  // catalog id -> how many of that library transformer this project's CAD plans place (generic
+  // Settings models have no catalog item/price, so they can't be quoted and are skipped).
+  function cadPlanTransformerCounts(pr){
+    const m = new Map();
+    cadPlans.filter(pl=>pl.projectId===pr.id).forEach(pl=>{
+      (pl.scene.transformers||[]).forEach(t=>{ if(t.catalogId && findFixture(t.catalogId)) m.set(t.catalogId, (m.get(t.catalogId)||0)+1); });
+    });
+    return m;
+  }
   function cadLibraryTransformers(){
     return allFixtures().filter(f=> f.cat==='transformer' || (f.cat==='accessory' && /transformer/i.test(f.name)));
   }

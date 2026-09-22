@@ -1011,6 +1011,7 @@
       <label class="export-label-toggle"><input type="checkbox" id="toggleExportTextBoxes" checked> Show text notes on exported photos</label>
       <label class="export-label-toggle"><input type="checkbox" id="toggleJpgOnly"> Export design photos as JPG only (no quote)</label>
       <label class="export-label-toggle"><input type="checkbox" id="toggleQuoteFixtureType"> Show fixture type instead of name/description on customer quote</label>
+      <label class="export-label-toggle"><input type="checkbox" id="toggleHidePricing"> Hide prices on customer quote (export a material list only)</label>
       <div class="quote-actions">
         <button class="btn btn-primary" id="btnPrintProject">Print / Export project</button>
       </div>
@@ -3147,6 +3148,19 @@
 
     if(state.quoteMode==='customer'){
       const showType = $('toggleQuoteFixtureType').checked;
+      const hidePricing = $('toggleHidePricing').checked;
+      // "Material list" mode: same rows/name logic as the priced customer quote, just without the
+      // Price/Qty-total columns or the labor/discount/tax footer below -- for a contractor who
+      // wants to hand a customer (or a supplier) a plain scope-of-work with no dollar amounts.
+      if(hidePricing){
+        $('projQuoteThead').innerHTML = `<tr><th>Item</th><th>Qty</th></tr>`;
+        $('projQuoteTbody').innerHTML = items.map(i=>`<tr>
+            <td>${quoteItemNameCell(i, showType)}${showType ? '' : `<div class="cell-sub">${escapeHtml(i.desc)}</div>`}</td>
+            <td class="mono">${i.qty}</td>
+          </tr>`).join('');
+        $('projQuoteTfoot').innerHTML = '';
+        return;
+      }
       $('projQuoteThead').innerHTML = `<tr><th>Item</th><th>Qty</th><th>Price</th><th>Total</th></tr>`;
       $('projQuoteTbody').innerHTML = items.map(i=>`<tr>
           <td>${quoteItemNameCell(i, showType)}${showType ? '' : `<div class="cell-sub">${escapeHtml(i.desc)}</div>`}</td>
@@ -8084,6 +8098,10 @@
       document.body.classList.toggle('no-export-labels', !e.target.checked);
     });
     $('toggleQuoteFixtureType').addEventListener('change', ()=>{
+      const pr = currentProject(); if(!pr) return;
+      renderProjectQuote(pr);
+    });
+    $('toggleHidePricing').addEventListener('change', ()=>{
       const pr = currentProject(); if(!pr) return;
       renderProjectQuote(pr);
     });

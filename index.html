@@ -6410,6 +6410,16 @@
       if(o.pendingPath && o.pendingPath.length>1) items.push({k:'poly', pts:o.pendingPath.map(p=>[p.x,p.y]), closed:false, fill:null, stroke:'#f0a84e', w:1.4*u, dash:[1.6*u,1.6*u]});
       (o.pendingDots||[]).forEach(p=>items.push({k:'circle', x:p.x, y:p.y, r:2*u, fill:'#f0a84e', stroke:'#ffffff', w:0.6*u}));
       if(o.snap) items.push({k:'circle', x:o.snap.x, y:o.snap.y, r:o.snapR||10*u, fill:null, stroke:'#22c55e', w:1.3*u});
+      if(o.cropRect){
+        const cr = o.cropRect, W = plan.bgW, H = plan.bgH, x0 = Math.min(cr.x0,cr.x1), x1 = Math.max(cr.x0,cr.x1), y0 = Math.min(cr.y0,cr.y1), y1 = Math.max(cr.y0,cr.y1);
+        const dim = 'rgba(10,12,16,.55)';
+        items.push({k:'rect', x:0, y:0, w:W, h:y0, fill:dim});
+        items.push({k:'rect', x:0, y:y1, w:W, h:H-y1, fill:dim});
+        items.push({k:'rect', x:0, y:y0, w:x0, h:y1-y0, fill:dim});
+        items.push({k:'rect', x:x1, y:y0, w:W-x1, h:y1-y0, fill:dim});
+        items.push({k:'rect', x:x0, y:y0, w:x1-x0, h:y1-y0, fill:null, stroke:'#f0a84e', lw:1.6*u, dash:[4*u,3*u]});
+        [[x0,y0],[x1,y0],[x0,y1],[x1,y1]].forEach(([hx,hy])=> items.push({k:'rect', x:hx-3.4*u, y:hy-3.4*u, w:6.8*u, h:6.8*u, fill:'#f0a84e', stroke:'#ffffff', lw:0.9*u}));
+      }
       if(o.marquee) items.push({k:'rect', x:Math.min(o.marquee.x1,o.marquee.x2), y:Math.min(o.marquee.y1,o.marquee.y2), w:Math.abs(o.marquee.x2-o.marquee.x1), h:Math.abs(o.marquee.y2-o.marquee.y1), fill:'#f0a84e', stroke:'#f0a84e', lw:1*u, alpha:0.15});
       (o.scalePts||[]).forEach(p=>items.push({k:'circle', x:p.x, y:p.y, r:4*u, fill:'#22c55e', stroke:'#ffffff', w:1.2*u}));
       if(o.scalePts && o.scalePts.length===2) items.push({k:'line', x1:o.scalePts[0].x, y1:o.scalePts[0].y, x2:o.scalePts[1].x, y2:o.scalePts[1].y, c:'#22c55e', w:1.4*u});
@@ -6598,7 +6608,7 @@
         if(it.stroke){ ctx.strokeStyle = it.stroke; ctx.lineWidth = it.w||1; ctx.stroke(); }
       } else if(it.k==='rect'){
         if(it.fill){ ctx.fillStyle = it.fill; ctx.fillRect(it.x,it.y,it.w,it.h); }
-        if(it.stroke){ ctx.strokeStyle = it.stroke; ctx.lineWidth = it.lw||1; ctx.strokeRect(it.x,it.y,it.w,it.h); }
+        if(it.stroke){ ctx.strokeStyle = it.stroke; ctx.lineWidth = it.lw||1; ctx.setLineDash(it.dash||[]); ctx.strokeRect(it.x,it.y,it.w,it.h); }
       } else if(it.k==='text'){
         ctx.font = `${it.bold?'bold ':''}${it.size}px Helvetica, Arial, sans-serif`;
         ctx.textAlign = it.align||'left'; ctx.textBaseline = 'middle';
@@ -6711,6 +6721,10 @@
   let cadTool = 'select';
   let cadSel = {fixtures:new Set(), transformers:new Set(), run:null};
   let cadDraft = null, cadExtendRunId = null, cadCursor = null, cadMarquee = null, cadSnap = null, cadScalePts = null;
+  // "Crop photo" tool: cadCropRect ({x0,y0,x1,y1}, background-image pixel space) is the box being
+  // kept; cadCropDrag tracks which handle (a corner, the whole box, or a freshly-drawn box) is
+  // being dragged. Reset whenever the tool is entered/left or a different plan is opened.
+  let cadCropRect = null, cadCropDrag = null, cadCropBusy = false;
   let cadPalette = {fixtureId:null, accessoryId:null, transformerId:null, modelId:null, search:'', type:'all'};
   let cadExtendPending = [];
   let cadUndoStack = [], cadRedoStack = [], cadDrag = null, cadPan = null, cadSpace = false;
@@ -6737,6 +6751,7 @@
     cadPlan = plan; cadImg = null; cadDataUrl = null; cadLastCalc = null;
     cadUndoStack = []; cadRedoStack = []; cadDirty = false;
     cadSel = {fixtures:new Set(), transformers:new Set(), run:null}; cadDraft = null; cadExtendRunId = null; cadScalePts = null; cadSnap = null;
+    cadCropRect = null; cadCropDrag = null;
     cadTool = (opts && opts.startScale) ? 'scale' : 'select';
     $('planNameInput').value = plan.name;
     $('planEditorScreen').hidden = false;
@@ -6787,7 +6802,7 @@
     else { ctx.fillStyle = '#20252c'; ctx.fillRect(0,0,cadPlan.bgW,cadPlan.bgH); }
     cadLastCalc = cadCalc(cadPlan);
     const pend = cadDraft ? cadDraft.pending : (cadExtendRunId ? cadExtendPending : []);
-    cadDrawItemsCanvas(ctx, cadSiteItems(cadPlan, cadLastCalc, {interactive:true, sel:cadSel, draft:cadDraft, pendingPath:cadPendingPath(), pendingDots:pend, cursor:cadCursor, marquee:cadMarquee, snap:cadSnap, scalePts:cadScalePts, snapR:11/cadView.zoom}), null);
+    cadDrawItemsCanvas(ctx, cadSiteItems(cadPlan, cadLastCalc, {interactive:true, sel:cadSel, draft:cadDraft, pendingPath:cadPendingPath(), pendingDots:pend, cursor:cadCursor, marquee:cadMarquee, snap:cadSnap, scalePts:cadScalePts, cropRect:cadTool==='crop'?cadCropRect:null, snapR:11/cadView.zoom}), null);
   }
   function cadRefreshAll(){ cadRender(); cadRenderTools(); cadRefreshSide(); cadUpdateHint(); }
   function cadRefreshSide(){ clearTimeout(cadSideTimer); if(!cadPlan) return; cadRefreshInspector(); cadRenderLive(); }
@@ -6808,6 +6823,7 @@
     const el = $('planHint'); if(!el || !cadPlan) return;
     let t = '';
     if(cadTool==='scale') t = cadScalePts && cadScalePts.length===1 ? 'Click the second point.' : 'Scale: click two points a known distance apart.';
+    else if(cadTool==='crop') t = 'Drag the corners (or drag a new box) to choose what to keep, then Apply crop.';
     else if(cadTool==='fixture') t = cadPalette.fixtureId ? 'Click the plan to place the selected fixture.' : 'Pick a fixture from the list on the left, then click the plan.';
     else if(cadTool==='accessory') t = cadPalette.accessoryId ? 'Click the plan to place the selected accessory.' : 'Pick an accessory from the list on the left, then click the plan.';
     else if(cadTool==='transformer') t = 'Click the plan to place a transformer.';
@@ -6895,7 +6911,69 @@
   function cadSetTool(t){
     if(cadDraft) cadCommitDraft();
     cadExtendRunId = null; cadExtendPending = []; cadTool = t; cadScalePts = null; cadSnap = null; cadMarquee = null;
+    cadCropDrag = null;
+    cadCropRect = (t==='crop' && cadPlan) ? {x0:0, y0:0, x1:cadPlan.bgW, y1:cadPlan.bgH} : null;
     cadRefreshAll();
+  }
+  // ---------------- crop the plan's background photo ----------------
+  // Cropping only trims pixels (no resampling), so a plan's pxPerFt (a real-world-length-per-pixel
+  // ratio) is unaffected and needs no adjustment. Every placed item's x/y is in background-image
+  // pixel space (see the CAD plans note in CLAUDE.md), so the crop box's own top-left corner has
+  // to be subtracted from all of them afterward or everything ends up shifted relative to the new,
+  // smaller image. calloutOff is a relative offset from a run's own computed midpoint (itself
+  // derived from the now-shifted node positions each render), so it needs no adjustment, and a
+  // fixture-attached note arrow reads the fixture's own (already-shifted) live x/y (cadNoteTip)
+  // rather than storing a coordinate of its own -- only a free-floating arrow's stored x/y needs
+  // shifting like everything else.
+  function cadResetCrop(){ if(!cadPlan) return; cadCropRect = {x0:0, y0:0, x1:cadPlan.bgW, y1:cadPlan.bgH}; cadCropDrag = null; cadRefreshAll(); }
+  function cadCancelCrop(){ cadSetTool('select'); }
+  async function cadApplyCrop(){
+    if(!cadPlan || !cadCropRect || cadCropBusy) return;
+    if(!cadImg){ alert("The plan photo hasn't finished loading yet — try again in a moment."); return; }
+    const r = cadCropRect;
+    const x0 = Math.round(Math.min(r.x0,r.x1)), y0 = Math.round(Math.min(r.y0,r.y1));
+    const w = Math.round(Math.abs(r.x1-r.x0)), h = Math.round(Math.abs(r.y1-r.y0));
+    if(w<20 || h<20){ alert('That crop area is too small.'); return; }
+    if(x0<=0 && y0<=0 && x0+w>=cadPlan.bgW-1 && y0+h>=cadPlan.bgH-1){ cadSetTool('select'); return; } // no real change
+    const sc = cadPlan.scene;
+    const outside = sc.fixtures.some(f=> f.x<x0||f.x>x0+w||f.y<y0||f.y>y0+h)
+      || sc.transformers.some(t=> t.x<x0||t.x>x0+w||t.y<y0||t.y>y0+h)
+      || sc.notes.some(n=> n.x<x0||n.x>x0+w||n.y<y0||n.y>y0+h);
+    if(outside && !confirm("Some placed items are outside the area you're keeping and will end up off the plan. Crop anyway?")) return;
+    cadCropBusy = true; cadRenderTools();
+    try{
+      const isPng = /\.png(\?|$)/i.test(cadPlan.background||'');
+      const c = document.createElement('canvas'); c.width = w; c.height = h;
+      const cx = c.getContext('2d');
+      if(!isPng){ cx.fillStyle = '#ffffff'; cx.fillRect(0,0,w,h); } // match cadReadImage's flatten-onto-white for JPEG
+      cx.drawImage(cadImg, x0, y0, w, h, 0, 0, w, h);
+      const dataUrl = c.toDataURL(isPng?'image/png':'image/jpeg', 0.92);
+      // Overwrite the same Storage path (uploadToPhotosBucket upserts + cache-busts the returned
+      // URL) so the extension/id never change and nothing is orphaned.
+      const url = await uploadToPhotosBucket(`${authProfile.companyId}/plans/${cadPlan.id}.${isPng?'png':'jpg'}`, dataUrl, isPng?'image/png':'image/jpeg');
+      if(!url) return;
+      sc.fixtures.forEach(f=>{ f.x -= x0; f.y -= y0; });
+      sc.transformers.forEach(t=>{ t.x -= x0; t.y -= y0; });
+      sc.notes.forEach(n=>{ n.x -= x0; n.y -= y0; if(n.arrow && !n.arrow.fixtureId){ n.arrow.x -= x0; n.arrow.y -= y0; } });
+      sc.runs.forEach(rn=>{ if(rn.bends) Object.values(rn.bends).forEach(arr=> arr.forEach(b=>{ b.x -= x0; b.y -= y0; })); });
+      cadPlan.background = url; cadPlan.bgW = w; cadPlan.bgH = h;
+      cadCropRect = null; cadTool = 'select';
+      // A structural change like this (new image + every coordinate shifted) doesn't fit the
+      // scene-only undo snapshot model (cadApplySnapshot only restores scene/pxPerFt, not
+      // background/bgW/bgH), so it's an explicit, immediately-saved action outside the undo stack
+      // -- the same category as creating the plan itself -- rather than a cadPush()'d step.
+      const { error } = await sb.from('cad_plans').update(cadPlanToRow(cadPlan)).eq('id', cadPlan.id);
+      if(error) console.warn('Duskline: plan crop save failed.', error);
+      const img = new Image(); img.crossOrigin = 'anonymous';
+      img.onload = ()=>{ if(cadPlan){ cadImg = img; cadFit(); cadRefreshAll(); } };
+      img.onerror = ()=>{ cadRefreshAll(); };
+      img.src = url;
+    }catch(err){
+      console.warn('Duskline: plan crop failed.', err);
+      alert('Could not crop the photo. Please check your connection and try again.');
+    }finally{
+      cadCropBusy = false; cadRenderTools();
+    }
   }
   // The dashed "in progress" path: from the last wired node through any bend points clicked so far to the cursor.
   function cadPendingPath(){
@@ -6920,6 +6998,17 @@
       cadScalePts = (cadScalePts||[]).concat([{x:p.x, y:p.y}]);
       if(cadScalePts.length===2){ $('planScaleInput').value = ''; $('planScaleModal').hidden = false; $('planScaleInput').focus(); }
       cadRender(); cadUpdateHint(); return;
+    }
+    if(cadTool==='crop'){
+      if(!cadCropRect) return;
+      const r = cadCropRect, hs = 10/cadView.zoom;
+      const corners = {nw:[r.x0,r.y0], ne:[r.x1,r.y0], sw:[r.x0,r.y1], se:[r.x1,r.y1]};
+      let hit = null;
+      for(const k in corners){ if(Math.hypot(p.x-corners[k][0], p.y-corners[k][1])<=hs){ hit = k; break; } }
+      if(hit){ cadCropDrag = {type:hit, r0:{...r}}; return; }
+      if(p.x>=r.x0 && p.x<=r.x1 && p.y>=r.y0 && p.y<=r.y1){ cadCropDrag = {type:'move', r0:{...r}, start:{x:p.x, y:p.y}}; return; }
+      cadCropDrag = {type:'new', x0:p.x, y0:p.y};
+      return;
     }
     if(cadTool==='fixture' || cadTool==='accessory'){
       const id = cadTool==='fixture' ? cadPalette.fixtureId : cadPalette.accessoryId;
@@ -7007,6 +7096,21 @@
     const p = cadPt(e), u = cadPlan.bgW/520;
     if(cadPan){ cadView.ox = cadPan.ox + (p.sx-cadPan.sx); cadView.oy = cadPan.oy + (p.sy-cadPan.sy); cadRender(); return; }
     cadCursor = {x:p.x, y:p.y};
+    if(cadCropDrag){
+      const d = cadCropDrag, r = cadCropRect, clamp = (v,lo,hi)=>Math.min(hi,Math.max(lo,v)), minSize = 20;
+      if(d.type==='move'){
+        const w = d.r0.x1-d.r0.x0, h = d.r0.y1-d.r0.y0;
+        const x0 = clamp(d.r0.x0+(p.x-d.start.x), 0, cadPlan.bgW-w), y0 = clamp(d.r0.y0+(p.y-d.start.y), 0, cadPlan.bgH-h);
+        r.x0 = x0; r.x1 = x0+w; r.y0 = y0; r.y1 = y0+h;
+      } else if(d.type==='new'){
+        r.x0 = clamp(Math.min(d.x0,p.x), 0, cadPlan.bgW); r.x1 = clamp(Math.max(d.x0,p.x), 0, cadPlan.bgW);
+        r.y0 = clamp(Math.min(d.y0,p.y), 0, cadPlan.bgH); r.y1 = clamp(Math.max(d.y0,p.y), 0, cadPlan.bgH);
+      } else if(d.type==='nw'){ r.x0 = clamp(p.x, 0, d.r0.x1-minSize); r.y0 = clamp(p.y, 0, d.r0.y1-minSize); r.x1 = d.r0.x1; r.y1 = d.r0.y1; }
+      else if(d.type==='ne'){ r.x1 = clamp(p.x, d.r0.x0+minSize, cadPlan.bgW); r.y0 = clamp(p.y, 0, d.r0.y1-minSize); r.x0 = d.r0.x0; r.y1 = d.r0.y1; }
+      else if(d.type==='sw'){ r.x0 = clamp(p.x, 0, d.r0.x1-minSize); r.y1 = clamp(p.y, d.r0.y0+minSize, cadPlan.bgH); r.x1 = d.r0.x1; r.y0 = d.r0.y0; }
+      else if(d.type==='se'){ r.x1 = clamp(p.x, d.r0.x0+minSize, cadPlan.bgW); r.y1 = clamp(p.y, d.r0.y0+minSize, cadPlan.bgH); r.x0 = d.r0.x0; r.y0 = d.r0.y0; }
+      cadRefreshAll(); return;
+    }
     if(cadDrag){
       const d = cadDrag;
       if(!d.moved && Math.hypot(p.sx-d.sx, p.sy-d.sy) < 3) return;
@@ -7039,6 +7143,7 @@
   function cadOnUp(e){
     try{ $('planCanvas').releasePointerCapture(e.pointerId); }catch(err){}
     if(cadPan){ cadPan = null; return; }
+    if(cadCropDrag){ cadCropDrag = null; return; }
     if(cadDrag){
       const d = cadDrag; cadDrag = null;
       if(d.moved){
@@ -7103,6 +7208,7 @@
     if(e.key==='Escape' || e.key==='Enter'){
       if(cadDraft){ cadCommitDraft(); e.preventDefault(); return; }
       if(cadExtendRunId){ cadExtendRunId = null; cadExtendPending = []; cadRefreshAll(); return; }
+      if(e.key==='Enter' && cadTool==='crop'){ cadApplyCrop(); return; }
       if(e.key==='Escape'){ if(cadTool!=='select') cadSetTool('select'); else { cadSel = cadEmptySel(); cadRefreshAll(); } }
       return;
     }
@@ -7111,14 +7217,14 @@
       if(cadDraft){ if(cadDraft.pending.length) cadDraft.pending.pop(); else if(cadDraft.fixtureIds.length){ const id = cadDraft.fixtureIds.pop(); const prev = cadDraft.fixtureIds.length ? cadDraft.fixtureIds[cadDraft.fixtureIds.length-1] : cadDraft.transformerId; delete cadDraft.bends[prev+'|'+id]; } cadRender(); return; }
       cadDeleteSelection(); return;
     }
-    const map = {v:'select', h:'pan', f:'fixture', a:'accessory', t:'transformer', r:'run', n:'note', s:'scale'};
+    const map = {v:'select', h:'pan', f:'fixture', a:'accessory', t:'transformer', r:'run', n:'note', s:'scale', c:'crop'};
     if(map[e.key.toLowerCase()] && !e.ctrlKey && !e.metaKey){ cadSetTool(map[e.key.toLowerCase()]); }
   }
 
   // ---------------- left rail (tools + palette) ----------------
   function cadRenderTools(){
     const el = $('planTools'); if(!el || !cadPlan) return;
-    const tools = [['select','Select','V'],['pan','Pan','H'],['fixture','Fixture','F'],['accessory','Accessory','A'],['transformer','Transformer','T'],['run','Wire run','R'],['note','Text note','N'],['scale','Scale','S']];
+    const tools = [['select','Select','V'],['pan','Pan','H'],['fixture','Fixture','F'],['accessory','Accessory','A'],['transformer','Transformer','T'],['run','Wire run','R'],['note','Text note','N'],['scale','Scale','S'],['crop','Crop photo','C']];
     let html = `<div class="plan-tool-grid">${tools.map(([id,label,key])=>`<button class="plan-tool ${cadTool===id?'is-active':''}" data-tool="${id}" title="${label} (${key})">${label}<span>${key}</span></button>`).join('')}</div>`;
     if(cadTool==='fixture' || cadTool==='accessory'){
       const isAcc = cadTool==='accessory', q = (cadPalette.search||'').toLowerCase();
@@ -7138,8 +7244,16 @@
         html += `<div class="fx-desc" style="margin-top:10px;">No transformers in your library yet — add them under <b>Fixtures → Transformers</b> so plans show your real part numbers. Until then, these generic models (editable in Settings) are used:</div>
           <div class="plan-pal">${cadSettings.models.map(m=>`<button class="plan-pal-item ${(cadPalette.modelId||cadSettings.models[0].id)===m.id?'is-active':''}" data-pal-tm="${escapeHtml(m.id)}"><span class="plan-tm-icon"></span><span><b>${escapeHtml(m.name)}</b><em>${m.capacityW}W · ${m.taps.join('/')}V taps</em></span></button>`).join('')}</div>`;
       }
+    } else if(cadTool==='crop'){
+      const r = cadCropRect || {x0:0, y0:0, x1:cadPlan.bgW, y1:cadPlan.bgH};
+      const w = Math.round(Math.abs(r.x1-r.x0)), h = Math.round(Math.abs(r.y1-r.y0));
+      const ftNote = cadPlan.pxPerFt ? ` (${Math.round(w/cadPlan.pxPerFt)}' × ${Math.round(h/cadPlan.pxPerFt)}')` : '';
+      html += `<div class="fx-desc" style="margin-top:10px;">Drag the corners — or drag out a new box — to trim the plan photo. Everything outside the dashed box is discarded${cadPlan.pxPerFt?'; the scale (ft per pixel) stays the same':''}.</div>
+        <div class="plan-stats"><div><span>Keeping</span><b>${w} × ${h}px${ftNote}</b></div></div>
+        <div class="plan-btn-row"><button class="btn btn-ghost btn-sm" data-crop-act="reset">Reset to full image</button></div>
+        <div class="plan-btn-row"><button class="btn btn-ghost btn-sm" data-crop-act="cancel" ${cadCropBusy?'disabled':''}>Cancel</button><button class="btn btn-primary btn-sm" data-crop-act="apply" ${cadCropBusy?'disabled':''}>${cadCropBusy?'Cropping…':'Apply crop'}</button></div>`;
     } else {
-      html += `<div class="fx-desc" style="margin-top:12px;"><b>Fixture</b> / <b>Accessory</b> / <b>Transformer</b> place items. <b>Wire run</b>: click a transformer, then fixtures in wiring order — click empty space between them to add bends. <b>Text note</b>: click anywhere to drop a note. <b>Scale</b> sets feet-per-pixel from two points.</div>`;
+      html += `<div class="fx-desc" style="margin-top:12px;"><b>Fixture</b> / <b>Accessory</b> / <b>Transformer</b> place items. <b>Wire run</b>: click a transformer, then fixtures in wiring order — click empty space between them to add bends. <b>Text note</b>: click anywhere to drop a note. <b>Scale</b> sets feet-per-pixel from two points. <b>Crop photo</b> trims the background image.</div>`;
     }
     el.innerHTML = html;
   }
@@ -7513,7 +7627,9 @@
       const fx = e.target.closest('[data-pal-fx]'); if(fx){ cadPalette.fixtureId = fx.dataset.palFx; cadRenderTools(); cadUpdateHint(); return; }
       const ac = e.target.closest('[data-pal-ac]'); if(ac){ cadPalette.accessoryId = ac.dataset.palAc; cadRenderTools(); cadUpdateHint(); return; }
       const tl = e.target.closest('[data-pal-tl]'); if(tl){ cadPalette.transformerId = tl.dataset.palTl; cadRenderTools(); return; }
-      const tm = e.target.closest('[data-pal-tm]'); if(tm){ cadPalette.modelId = tm.dataset.palTm; cadRenderTools(); }
+      const tm = e.target.closest('[data-pal-tm]'); if(tm){ cadPalette.modelId = tm.dataset.palTm; cadRenderTools(); return; }
+      const ca = e.target.closest('[data-crop-act]');
+      if(ca){ const act = ca.dataset.cropAct; if(act==='apply') cadApplyCrop(); else if(act==='reset') cadResetCrop(); else if(act==='cancel') cadCancelCrop(); return; }
     });
     $('planTools').addEventListener('change', e=>{ if(e.target.id==='planPalType'){ cadPalette.type = e.target.value; cadRenderTools(); } });
     $('planTools').addEventListener('input', e=>{ if(e.target.id==='planPalSearch'){ cadPalette.search = e.target.value; const pos = e.target.selectionStart; cadRenderTools(); const s = $('planPalSearch'); if(s){ s.focus(); s.setSelectionRange(pos,pos); } } });

@@ -724,19 +724,23 @@
        this block, so it either stays attached to the preceding item rows or (if truly out of
        room) pulls enough of those rows down with it -- either way, no more stranding it alone. */
     #projQuoteTfoot{break-inside:avoid;break-before:avoid;}
-    #projQuoteThead{break-after:avoid;}
     /* The fix above (glue the footer to whatever row it lands near) still let the table itself
        visibly split mid-list -- e.g. 4 of 5 items on one page, the 5th item + footer alone on
        the next (real user follow-up: "still split", with a screenshot showing exactly that).
-       For a table that's short enough to plausibly fit on one page on its own (true for a normal
-       quote), the better fix is to not let it split at all: push the *entire* "Project quote"
-       section -- heading, every row, footer -- onto a fresh page as one unit instead of
-       fragmenting it across two. break-inside:avoid on a container taller than a full page is a
-       no-op in Chromium (it just falls back to normal fragmentation, using the per-row/footer
-       avoid rules above as the fallback), so this is safe for a quote long enough that it could
-       never fit on one page regardless -- it only changes behavior for the common case that
-       actually fits. */
-    [data-section="quote"]{break-inside:avoid;}
+       The fix tried at the time was `[data-section="quote"]{break-inside:avoid;}` -- push the
+       *entire* "Project quote" section onto a fresh page as one unit whenever it's short enough
+       to plausibly fit on one page. **That rule has since been removed, along with
+       `#projQuoteThead{break-after:avoid;}` above** (a real exported PDF showed the section-level
+       rule backfiring far worse than the bug it fixed -- see CLAUDE.md's "too much blank space"
+       note for the full investigation: `#screen-project-detail` being a flex column makes
+       Chromium's `break-inside:avoid` fragmentation overly conservative, and even with both rules
+       gone, `.quote-table tr{break-inside:avoid}` chained with `#projQuoteTfoot`'s own avoid rules
+       still made a *short* table atomic anyway, coarser `<tbody>`-level table fragmentation and
+       all -- `PRINT_PHOTO_CAP_H` further down was cut to actually close the gap, not this).
+       `.section-head{break-after:avoid;}` (below) is what's left of this fix -- it stops a
+       section *heading* landing alone at the bottom of a page separated from its first row,
+       which is a real, narrower risk now that the table itself is free to flow normally. */
+    .section-head{break-after:avoid;}
     .margin{color:#2a7a45;}
     .below-cost{color:#b3261e;}
     /* Section headings ("Areas", "Project quote") inherit var(--fog) on screen, which in dark
@@ -3601,10 +3605,13 @@
     applySectionOrder();
   }
   // Max printed height (inches) for one area's photo -- see the comment at its one use site in
-  // renderAreaList for why this exists (a real "lots of blank space between pages" bug). Tunable:
-  // pull it down further if portrait photos still leave a big gap, or up if capped photos read
-  // too small on the page.
-  const PRINT_PHOTO_CAP_H = 5.5;
+  // renderAreaList for the original "portrait photo nearly fills a page" bug this was added for,
+  // and the print-CSS comment above `.section-head{break-after:avoid;}` for why this was cut from
+  // 5.5 to 4 -- a second, unrelated "too much blank space" bug (the Project quote section getting
+  // needlessly bumped to its own near-empty page) turned out to need more headroom after the
+  // photo, not another break-rule fix. Tunable: pull it down further if a short quote still gets
+  // bumped to its own page, or up if capped photos read too small.
+  const PRINT_PHOTO_CAP_H = 4;
   // One dialog for both "New area" and "Rename area": areaRenameId is null when creating.
   let areaRenameId = null;
   function openAreaNameModal(renameId){

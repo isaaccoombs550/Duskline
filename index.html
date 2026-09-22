@@ -6241,10 +6241,17 @@
     const transformers = sc.transformers.map((t,i)=>{
       const model = cadModelFor(t);
       const tRuns = runs.filter(r=>r.run.transformerId===t.id);
-      const load = tRuns.reduce((s,r)=>s+r.load, 0);
+      // newLoad = just what's drawn on this plan's runs; existing = a manually-entered VA figure
+      // for a transformer this plan is tying into that already has other fixtures on it (not
+      // part of this plan, so there's nothing to draw for it) -- load/cap/remaining/pct/status
+      // (used everywhere: warnings, the canvas VA badge, the printed capacity table) are always
+      // the TRUE total the transformer is actually carrying, so overload checks stay correct.
+      const newLoad = tRuns.reduce((s,r)=>s+r.load, 0);
+      const existing = t.existingLoadW || 0;
+      const load = newLoad + existing;
       const cap = model.capacityW;
       const pct = cap ? load/cap : 0;
-      return {t, idx:i+1, model, runs:tRuns, load, cap, remaining:cap-load, pct, status: load>cap ? 'over' : (pct>0.8 ? 'warn' : 'ok')};
+      return {t, idx:i+1, model, runs:tRuns, newLoad, existing, load, cap, remaining:cap-load, pct, status: load>cap ? 'over' : (pct>0.8 ? 'warn' : 'ok')};
     });
     const counts = new Map();
     sc.fixtures.forEach(pf=>{ counts.set(pf.fixtureId, (counts.get(pf.fixtureId)||0)+1); });
@@ -6475,24 +6482,31 @@
       cadWrap(meta.notes, 4.6, W-8, false).forEach(l=>{ items.push({k:'text', x:4, y:y+3, s:l, size:4.6, c:'#111111', align:'left'}); y += 6; });
       blocks.push({h:y+4, items});
     }
-    const trTable = (title, runs, cap, load, model) => {
+    // `load` here is just this plan's own runs (matches the row-by-row total right above it);
+    // `existing` (optional) is a manually-entered VA figure for a transformer being tied into
+    // that already carries other fixtures not on this plan -- the capacity/remaining table below
+    // uses load+existing, since that's the real total the transformer has to carry.
+    const trTable = (title, runs, cap, load, model, existing) => {
+      existing = existing || 0;
       const items = []; let y = cadBar(items, 0, 0, W, title);
       const cw1 = [26,26,36,32,50];
       y = cadTableRows(items, 0, y, cw1, [{cells:['ZONE','RUN #','LOAD','GAUGE','MAX RUN LENGTH'], fill:'#e4e7ea', bold:true, size:4.2}], {size:4.2});
       const rows = runs.map(r=>({cells:[r.zone, r.idx, cadFmt(r.load), r.gauge.awg, r.maxFt!=null?Math.round(r.maxFt)+"'":'—'], colors:r.over?[null,null,null,'#e11d48','#e11d48']:null}));
       if(!rows.length) rows.push({cells:['—','','','','No runs yet'], color:'#777777'});
       y = cadTableRows(items, 0, y, cw1, rows);
-      y = cadTableRows(items, 0, y, [W-36,36], [{cells:['Total', cadFmt(load)], bold:true, fill:'#f3f4f6'}]);
+      y = cadTableRows(items, 0, y, [W-36,36], [{cells:['Total (this plan)', cadFmt(load)], bold:true, fill:'#f3f4f6'}]);
+      if(existing>0) y = cadTableRows(items, 0, y, [W-36,36], [{cells:['Existing load (not on this plan)', cadFmt(existing)], fill:'#fff7e6'}]);
+      const totalLoad = load+existing;
       if(cap!=null){
         const cw2 = [26,38,38,68];
         y = cadTableRows(items, 0, y+3, cw2, [{cells:['SIZE','CAPACITY','LOAD','REMAINING CAPACITY'], fill:'#e4e7ea', bold:true, size:4.2}], {size:4.2});
-        const st = load>cap ? '#e11d48' : (load/cap>0.8 ? '#b45309' : '#111111');
-        y = cadTableRows(items, 0, y, cw2, [{cells:[cap, cap, cadFmt(load), cadFmt(cap-load)], colors:[null,null,st,st], bold:true}]);
+        const st = totalLoad>cap ? '#e11d48' : (totalLoad/cap>0.8 ? '#b45309' : '#111111');
+        y = cadTableRows(items, 0, y, cw2, [{cells:[cap, cap, cadFmt(totalLoad), cadFmt(cap-totalLoad)], colors:[null,null,st,st], bold:true}]);
       }
       return {h:y+6, items};
     };
     calc.transformers.forEach(tr=>{
-      blocks.push(trTable(`${tr.t.name.toUpperCase()}   ${tr.model.name.toUpperCase()}   ${tr.cap} WATT   (${tr.t.tapV||15}V TAP)`, tr.runs, tr.cap, tr.load, tr.model));
+      blocks.push(trTable(`${tr.t.name.toUpperCase()}   ${tr.model.name.toUpperCase()}   ${tr.cap} WATT   (${tr.t.tapV||15}V TAP)`, tr.runs, tr.cap, tr.newLoad, tr.model, tr.existing));
     });
     const loose = calc.runs.filter(r=>!r.transformer);
     if(loose.length) blocks.push(trTable('UNASSIGNED RUNS', loose, null, loose.reduce((s,r)=>s+r.load,0), null));
@@ -7324,7 +7338,10 @@
             o += cadSettings.models.map(m=>`<option value="m:${escapeHtml(m.id)}" ${cur==='m:'+m.id?'selected':''}>${escapeHtml(m.name)} (generic)</option>`).join('');
             return o; })()}</select></label>
           <label>Voltage tap<select data-act="tf-tap">${tr.model.taps.map(v=>`<option value="${v}" ${(tr.t.tapV||15)===v?'selected':''}>${v}V</option>`).join('')}</select></label>
+          <label>Existing load already on this transformer (W)<input type="number" min="0" step="1" data-act="tf-existing" value="${tr.existing||''}" placeholder="0"></label>
+          <div class="fx-desc">If you're tying into a transformer that already has other fixtures on it (not part of this plan), enter that load here — it's added to this plan's own runs for the capacity check below.</div>
           <div class="plan-stats"><div><span>Load</span><b>${cadFmt(tr.load)}W</b></div><div><span>Capacity</span><b>${tr.cap}W</b></div><div><span>Remaining</span><b class="${tr.status==='over'?'is-bad':(tr.status==='warn'?'is-warn':'')}">${cadFmt(tr.remaining)}W</b></div></div>
+          ${tr.existing>0?`<div class="fx-desc">${cadFmt(tr.newLoad)}W from this plan + ${cadFmt(tr.existing)}W existing.</div>`:''}
           ${tr.status==='over'?'<div class="plan-flag">Overloaded — load exceeds capacity.</div>':(tr.status==='warn'?'<div class="plan-flag is-warn">Above the recommended 80% of capacity.</div>':'')}
           <div class="plan-btn-row"><button class="btn btn-danger btn-sm" data-act="sel-del">Delete transformer</button></div>`;
       }
@@ -7402,6 +7419,7 @@
       }
     }
     else if(act==='tf-tap'){ const id = single(cadSel.transformers), tt = sc.transformers.find(x=>x.id===id); if(tt) mut(()=>{ tt.tapV = Number(v); }); }
+    else if(act==='tf-existing'){ const id = single(cadSel.transformers), tt = sc.transformers.find(x=>x.id===id); if(tt) mut(()=>{ tt.existingLoadW = Math.max(0, parseFloat(v)||0); }); }
     else if(act==='fx-symbol'){ cadSettings.fixtureSymbol[t.dataset.fid] = v; cadSaveSettings(); cadRefreshAll(); }
     else if(act==='fx-aim'){ const pf = sc.fixtures.find(x=>x.id===single(cadSel.fixtures)); if(pf) mut(()=>{ pf.rot = v ? 0 : null; }); }
     else if(act==='fx-rot'){ const pf = sc.fixtures.find(x=>x.id===single(cadSel.fixtures)); if(pf) mut(()=>{ pf.rot = Number(v)||0; }); }

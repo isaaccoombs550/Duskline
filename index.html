@@ -6870,7 +6870,7 @@
     else if(cadTool==='accessory') t = cadPalette.accessoryId ? 'Click the plan to place the selected accessory.' : 'Pick an accessory from the list on the left, then click the plan.';
     else if(cadTool==='transformer') t = 'Click the plan to place a transformer.';
     else if(cadTool==='note') t = 'Click the plan where the note should go.';
-    else if(cadTool==='run') t = cadExtendRunId ? 'Click fixtures to add them to this run — click an existing fixture on it first to branch off from there instead of the end. Click empty space to bend the wire. Esc when done.' : (cadDraft ? 'Click fixtures in wiring order — click one you already added to branch off from there instead of the end. Click empty space to bend the wire. Double-click, Enter or Esc to finish.' : 'Click a transformer to start a run.');
+    else if(cadTool==='run') t = cadExtendRunId ? 'Click fixtures to add them to this run — click an existing fixture on it first to branch off from there instead of the end. Click empty space to bend the wire. Esc when done.' : (cadDraft ? 'Click fixtures in wiring order — click one you already added to branch off from there instead of the end. Click empty space to bend the wire. Double-click, Enter or Esc to finish.' : 'Click a transformer to start a run, or an existing fixture already on a run to branch off it from there.');
     else if(cadTool==='pan') t = 'Drag to pan. Scroll to zoom.';
     else t = 'Click to select · drag to move · drag empty space to box-select · double-click a wire to add a bend · scroll to zoom · Space+drag to pan.';
     if(!cadPlan.pxPerFt && cadTool!=='scale') t = 'Scale not set — use the Scale tool first. ' + t;
@@ -7104,8 +7104,20 @@
         return;
       }
       if(!cadDraft){
-        const n = cadNearestNode(p, ['transformer']);
-        if(n){ cadDraft = {transformerId:n.id, fixtureIds:[], bends:{}, pending:[], from:null}; cadUpdateHint(); cadRender(); }
+        const n = cadNearestNode(p, ['transformer','fixture']);
+        if(!n) return;
+        if(n.type==='transformer'){
+          cadDraft = {transformerId:n.id, fixtureIds:[], bends:{}, pending:[], from:null}; cadUpdateHint(); cadRender();
+        } else {
+          // Clicking a fixture that's already wired onto a run, with the Wire run tool itself
+          // (not via that run's own "+ Add fixtures" inspector button), jumps straight into
+          // extending THAT run anchored right here -- this is the main, discoverable way to
+          // branch off any existing point; a real user tried the hidden Select-run-then-button
+          // path first and reported it as "no way to click a fixture mid-run" since nothing
+          // supported starting this way with the tool itself.
+          const hostRun = sc.runs.find(r=>r.fixtureIds.includes(n.id));
+          if(hostRun){ cadExtendRunId = hostRun.id; cadExtendFrom = n.id; cadExtendPending = []; cadSelectOnly('run', hostRun.id); cadUpdateHint(); cadRefreshAll(); }
+        }
         return;
       }
       const n = cadNearestNode(p, ['fixture','transformer']);
@@ -7194,12 +7206,18 @@
     }
     if(cadMarquee){ cadMarquee.x2 = p.x; cadMarquee.y2 = p.y; cadRender(); return; }
     if(cadTool==='run'){
-      const kinds = (cadExtendRunId || cadDraft) ? ['fixture','transformer'] : ['transformer'];
-      let n = cadNearestNode(p, kinds);
+      // Fixtures are always a candidate snap target -- either as a re-anchor point mid-draft/
+      // extend, or (with nothing started yet) as the entry point into extending whichever run
+      // that fixture is already on.
+      let n = cadNearestNode(p, ['fixture','transformer']);
       // Don't invite a click on some other run's transformer -- it's not a valid target while
       // drafting/extending this one.
       const ownTf = cadExtendRunId ? cadPlan.scene.runs.find(r=>r.id===cadExtendRunId)?.transformerId : (cadDraft && cadDraft.transformerId);
       if(n && n.type==='transformer' && ownTf!=null && n.id!==ownTf) n = null;
+      // Nothing started yet: a fixture only snaps if it's actually wired onto some run already --
+      // an unwired one isn't a valid click target here (there's no run/transformer context to
+      // extend), so don't show a snap ring inviting a click that would do nothing.
+      if(!cadDraft && !cadExtendRunId && n && n.type==='fixture' && !cadPlan.scene.runs.some(r=>r.fixtureIds.includes(n.id))) n = null;
       cadSnap = n ? {x:n.x, y:n.y} : null;
       if(cadDraft || cadExtendRunId || cadSnap) cadRender();
       return;

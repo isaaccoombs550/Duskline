@@ -6762,6 +6762,13 @@
   let cadCropRect = null, cadCropDrag = null, cadCropBusy = false;
   let cadPalette = {fixtureId:null, accessoryId:null, transformerId:null, modelId:null, search:'', type:'all'};
   let cadExtendPending = [];
+  // The node (a fixture or the run's transformer) new clicks currently attach FROM while
+  // extending a run -- defaults to whatever the run's own tail is, but clicking any OTHER node
+  // already on the run re-anchors here first, so you're not limited to only ever continuing from
+  // the end. New fixtures are inserted into fixtureIds right after this node's position (so the
+  // wire path -- and its length/gauge calc -- routes through them before whatever used to follow
+  // it), and the anchor advances to the newly-added fixture, same as the old always-append flow.
+  let cadExtendFrom = null;
   let cadUndoStack = [], cadRedoStack = [], cadDrag = null, cadPan = null, cadSpace = false;
   let cadDirty = false, cadSaveTimer = null, cadSideTimer = null, cadCanvasSize = {w:0, h:0, dpr:1};
   const cadUid = ()=> 'x'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
@@ -6785,7 +6792,7 @@
     plan.scene = cadNormalizeScene(plan.scene);
     cadPlan = plan; cadImg = null; cadDataUrl = null; cadLastCalc = null;
     cadUndoStack = []; cadRedoStack = []; cadDirty = false;
-    cadSel = {fixtures:new Set(), transformers:new Set(), run:null}; cadDraft = null; cadExtendRunId = null; cadScalePts = null; cadSnap = null;
+    cadSel = {fixtures:new Set(), transformers:new Set(), run:null}; cadDraft = null; cadExtendRunId = null; cadExtendPending = []; cadExtendFrom = null; cadScalePts = null; cadSnap = null;
     cadCropRect = null; cadCropDrag = null;
     cadTool = (opts && opts.startScale) ? 'scale' : 'select';
     $('planNameInput').value = plan.name;
@@ -6863,7 +6870,7 @@
     else if(cadTool==='accessory') t = cadPalette.accessoryId ? 'Click the plan to place the selected accessory.' : 'Pick an accessory from the list on the left, then click the plan.';
     else if(cadTool==='transformer') t = 'Click the plan to place a transformer.';
     else if(cadTool==='note') t = 'Click the plan where the note should go.';
-    else if(cadTool==='run') t = cadExtendRunId ? 'Click fixtures to add them to this run (click empty space to add a bend). Esc when done.' : (cadDraft ? 'Click fixtures in wiring order; click empty space to bend the wire around things. Double-click, Enter or Esc to finish.' : 'Click a transformer to start a run.');
+    else if(cadTool==='run') t = cadExtendRunId ? 'Click fixtures to add them to this run — click an existing fixture on it first to branch off from there instead of the end. Click empty space to bend the wire. Esc when done.' : (cadDraft ? 'Click fixtures in wiring order — click one you already added to branch off from there instead of the end. Click empty space to bend the wire. Double-click, Enter or Esc to finish.' : 'Click a transformer to start a run.');
     else if(cadTool==='pan') t = 'Drag to pan. Scroll to zoom.';
     else t = 'Click to select · drag to move · drag empty space to box-select · double-click a wire to add a bend · scroll to zoom · Space+drag to pan.';
     if(!cadPlan.pxPerFt && cadTool!=='scale') t = 'Scale not set — use the Scale tool first. ' + t;
@@ -6945,7 +6952,7 @@
   }
   function cadSetTool(t){
     if(cadDraft) cadCommitDraft();
-    cadExtendRunId = null; cadExtendPending = []; cadTool = t; cadScalePts = null; cadSnap = null; cadMarquee = null;
+    cadExtendRunId = null; cadExtendPending = []; cadExtendFrom = null; cadTool = t; cadScalePts = null; cadSnap = null; cadMarquee = null;
     cadCropDrag = null;
     cadCropRect = (t==='crop' && cadPlan) ? {x0:0, y0:0, x1:cadPlan.bgW, y1:cadPlan.bgH} : null;
     cadRefreshAll();
@@ -7013,10 +7020,10 @@
   // The dashed "in progress" path: from the last wired node through any bend points clicked so far to the cursor.
   function cadPendingPath(){
     const sc = cadPlan.scene; let lastId = null, pend = null;
-    if(cadDraft){ lastId = cadDraft.fixtureIds.length ? cadDraft.fixtureIds[cadDraft.fixtureIds.length-1] : cadDraft.transformerId; pend = cadDraft.pending; }
+    if(cadDraft){ lastId = cadDraft.from || (cadDraft.fixtureIds.length ? cadDraft.fixtureIds[cadDraft.fixtureIds.length-1] : cadDraft.transformerId); pend = cadDraft.pending; }
     else if(cadExtendRunId){
       const run = sc.runs.find(r=>r.id===cadExtendRunId); if(!run) return null;
-      lastId = run.fixtureIds.length ? run.fixtureIds[run.fixtureIds.length-1] : run.transformerId; pend = cadExtendPending;
+      lastId = cadExtendFrom || (run.fixtureIds.length ? run.fixtureIds[run.fixtureIds.length-1] : run.transformerId); pend = cadExtendPending;
     } else return null;
     const n = sc.fixtures.find(x=>x.id===lastId) || sc.transformers.find(x=>x.id===lastId); if(!n) return null;
     const pts = [{x:n.x, y:n.y}, ...pend]; if(cadCursor) pts.push(cadCursor);
@@ -7070,28 +7077,50 @@
     }
     if(cadTool==='run'){
       if(cadExtendRunId){
-        const run = sc.runs.find(r=>r.id===cadExtendRunId), n = cadNearestNode(p, ['fixture']);
+        const run = sc.runs.find(r=>r.id===cadExtendRunId), n = cadNearestNode(p, ['fixture','transformer']);
         if(!run) return;
+        if(n && n.type==='transformer' && n.id!==run.transformerId) return; // some other run's transformer -- not a valid target
         if(n){
-          if(!run.fixtureIds.includes(n.id)){
-            cadPush(); const last = run.fixtureIds.length ? run.fixtureIds[run.fixtureIds.length-1] : run.transformerId;
-            if(cadExtendPending.length){ run.bends = run.bends || {}; run.bends[last+'|'+n.id] = cadExtendPending; }
-            cadExtendPending = []; run.fixtureIds.push(n.id); cadMarkDirty(); cadRefreshAll();
+          const onThisRun = n.id===run.transformerId || run.fixtureIds.includes(n.id);
+          if(onThisRun){
+            // Re-anchor: clicking a node already on this run (the transformer, or any fixture --
+            // not just the current tail) makes new clicks attach from HERE instead.
+            cadExtendFrom = n.id; cadExtendPending = []; cadRender(); cadUpdateHint();
+          } else {
+            cadPush();
+            const from = cadExtendFrom || (run.fixtureIds.length ? run.fixtureIds[run.fixtureIds.length-1] : run.transformerId);
+            if(cadExtendPending.length){ run.bends = run.bends || {}; run.bends[from+'|'+n.id] = cadExtendPending; }
+            cadExtendPending = [];
+            // Insert right after the anchor (indexOf is -1 for the transformer, so this correctly
+            // prepends when extending from the very start) rather than always appending -- this
+            // is what lets the new fixture(s) branch off ANY existing point in the run, not just
+            // its tail; the wire path (and its length/gauge calc) then routes through them before
+            // whatever used to follow that point.
+            run.fixtureIds.splice(run.fixtureIds.indexOf(from)+1, 0, n.id);
+            cadExtendFrom = n.id;
+            cadMarkDirty(); cadRefreshAll();
           }
         } else { cadExtendPending.push({x:p.x, y:p.y}); cadRender(); }
         return;
       }
       if(!cadDraft){
         const n = cadNearestNode(p, ['transformer']);
-        if(n){ cadDraft = {transformerId:n.id, fixtureIds:[], bends:{}, pending:[]}; cadUpdateHint(); cadRender(); }
+        if(n){ cadDraft = {transformerId:n.id, fixtureIds:[], bends:{}, pending:[], from:null}; cadUpdateHint(); cadRender(); }
         return;
       }
-      const n = cadNearestNode(p, ['fixture']);
+      const n = cadNearestNode(p, ['fixture','transformer']);
+      if(n && n.type==='transformer' && n.id!==cadDraft.transformerId) return; // a different transformer -- not a valid target
       if(n){
-        if(!cadDraft.fixtureIds.includes(n.id)){
-          const last = cadDraft.fixtureIds.length ? cadDraft.fixtureIds[cadDraft.fixtureIds.length-1] : cadDraft.transformerId;
-          if(cadDraft.pending.length) cadDraft.bends[last+'|'+n.id] = cadDraft.pending;
-          cadDraft.pending = []; cadDraft.fixtureIds.push(n.id); cadRender(); cadRefreshSideSoon();
+        const onThisDraft = n.id===cadDraft.transformerId || cadDraft.fixtureIds.includes(n.id);
+        if(onThisDraft){
+          cadDraft.from = n.id; cadDraft.pending = []; cadRender(); cadUpdateHint();
+        } else {
+          const from = cadDraft.from || (cadDraft.fixtureIds.length ? cadDraft.fixtureIds[cadDraft.fixtureIds.length-1] : cadDraft.transformerId);
+          if(cadDraft.pending.length) cadDraft.bends[from+'|'+n.id] = cadDraft.pending;
+          cadDraft.pending = [];
+          cadDraft.fixtureIds.splice(cadDraft.fixtureIds.indexOf(from)+1, 0, n.id);
+          cadDraft.from = n.id;
+          cadRender(); cadRefreshSideSoon();
         }
       } else { cadDraft.pending.push({x:p.x, y:p.y}); cadRender(); }
       return;
@@ -7165,8 +7194,13 @@
     }
     if(cadMarquee){ cadMarquee.x2 = p.x; cadMarquee.y2 = p.y; cadRender(); return; }
     if(cadTool==='run'){
-      const kinds = (cadExtendRunId || cadDraft) ? ['fixture'] : ['transformer'];
-      const n = cadNearestNode(p, kinds); cadSnap = n ? {x:n.x, y:n.y} : null;
+      const kinds = (cadExtendRunId || cadDraft) ? ['fixture','transformer'] : ['transformer'];
+      let n = cadNearestNode(p, kinds);
+      // Don't invite a click on some other run's transformer -- it's not a valid target while
+      // drafting/extending this one.
+      const ownTf = cadExtendRunId ? cadPlan.scene.runs.find(r=>r.id===cadExtendRunId)?.transformerId : (cadDraft && cadDraft.transformerId);
+      if(n && n.type==='transformer' && ownTf!=null && n.id!==ownTf) n = null;
+      cadSnap = n ? {x:n.x, y:n.y} : null;
       if(cadDraft || cadExtendRunId || cadSnap) cadRender();
       return;
     }
@@ -7242,14 +7276,27 @@
     if(e.key===' '){ cadSpace = true; e.preventDefault(); return; }
     if(e.key==='Escape' || e.key==='Enter'){
       if(cadDraft){ cadCommitDraft(); e.preventDefault(); return; }
-      if(cadExtendRunId){ cadExtendRunId = null; cadExtendPending = []; cadRefreshAll(); return; }
+      if(cadExtendRunId){ cadExtendRunId = null; cadExtendPending = []; cadExtendFrom = null; cadRefreshAll(); return; }
       if(e.key==='Enter' && cadTool==='crop'){ cadApplyCrop(); return; }
       if(e.key==='Escape'){ if(cadTool!=='select') cadSetTool('select'); else { cadSel = cadEmptySel(); cadRefreshAll(); } }
       return;
     }
     if(e.key==='Delete' || e.key==='Backspace'){
       e.preventDefault();
-      if(cadDraft){ if(cadDraft.pending.length) cadDraft.pending.pop(); else if(cadDraft.fixtureIds.length){ const id = cadDraft.fixtureIds.pop(); const prev = cadDraft.fixtureIds.length ? cadDraft.fixtureIds[cadDraft.fixtureIds.length-1] : cadDraft.transformerId; delete cadDraft.bends[prev+'|'+id]; } cadRender(); return; }
+      if(cadDraft){
+        if(cadDraft.pending.length) cadDraft.pending.pop();
+        else if(cadDraft.fixtureIds.length){
+          // Undo whatever's currently anchored (cadDraft.from), not just the array's last entry --
+          // with re-anchoring, the most-recently-added fixture isn't always at the end anymore.
+          const id = (cadDraft.from && cadDraft.fixtureIds.includes(cadDraft.from)) ? cadDraft.from : cadDraft.fixtureIds[cadDraft.fixtureIds.length-1];
+          const idx = cadDraft.fixtureIds.indexOf(id);
+          const prev = idx>0 ? cadDraft.fixtureIds[idx-1] : cadDraft.transformerId;
+          delete cadDraft.bends[prev+'|'+id];
+          cadDraft.fixtureIds.splice(idx, 1);
+          cadDraft.from = prev===cadDraft.transformerId ? null : prev;
+        }
+        cadRender(); return;
+      }
       cadDeleteSelection(); return;
     }
     const map = {v:'select', h:'pan', f:'fixture', a:'accessory', t:'transformer', r:'run', n:'note', s:'scale', c:'crop'};
@@ -7383,7 +7430,7 @@
       if(act==='run-up' && run){ const i = +t.dataset.i; mut(()=>{ [run.fixtureIds[i-1], run.fixtureIds[i]] = [run.fixtureIds[i], run.fixtureIds[i-1]]; }); }
       else if(act==='run-down' && run){ const i = +t.dataset.i; mut(()=>{ [run.fixtureIds[i+1], run.fixtureIds[i]] = [run.fixtureIds[i], run.fixtureIds[i+1]]; }); }
       else if(act==='run-rm' && run){ const i = +t.dataset.i; mut(()=>{ run.fixtureIds.splice(i,1); if(!run.fixtureIds.length){ sc.runs = sc.runs.filter(r=>r!==run); cadSel.run = null; } }); }
-      else if(act==='run-extend' && run){ if(cadExtendRunId===run.id){ cadExtendRunId = null; cadExtendPending = []; cadRefreshAll(); } else { cadExtendRunId = run.id; cadExtendPending = []; cadTool = 'run'; cadDraft = null; cadRefreshAll(); } }
+      else if(act==='run-extend' && run){ if(cadExtendRunId===run.id){ cadExtendRunId = null; cadExtendPending = []; cadExtendFrom = null; cadRefreshAll(); } else { cadExtendRunId = run.id; cadExtendPending = []; cadExtendFrom = run.fixtureIds.length ? run.fixtureIds[run.fixtureIds.length-1] : run.transformerId; cadTool = 'run'; cadDraft = null; cadRefreshAll(); } }
       else if(act==='run-clearbends' && run){ mut(()=>{ run.bends = {}; }); }
       else if(act==='run-del' || act==='sel-del'){ cadDeleteSelection(); }
       else if(act==='note-arrow'){

@@ -3626,6 +3626,12 @@
   }
   function renderAreaList(pr){
     const showTech = state.quoteMode==='cost';
+    // Same scoping as toggleHidePricing's own home (renderProjectQuote's customer-mode branch):
+    // customer mode only, never Internal. Without this, a real user-reported bug -- checking
+    // "Hide prices (export a material list only)" removed the $ figures from the "Project quote"
+    // table below but left each area card's own "N fixtures · $X" stat line untouched right above
+    // it, so a "material list" export still showed a dollar total per area.
+    const hidePricing = state.quoteMode==='customer' && $('toggleHidePricing').checked;
     const allPlacements = pr.areas.flatMap(a=>a.placements);
     $('areaTypeLegend').innerHTML = buildTypeLegendHtml(usedFixtureTypes(allPlacements));
     $('areaList').innerHTML = pr.areas.map(a=>{
@@ -3660,7 +3666,7 @@
         <div class="area-card-body">
           <div>
             <div class="area-card-name">${escapeHtml(a.name)}</div>
-            <div class="area-card-stat">${a.placements.length} fixture${a.placements.length!==1?'s':''} · ${money(total)}${showTech?' · '+w+'W':''}</div>
+            <div class="area-card-stat">${a.placements.length} fixture${a.placements.length!==1?'s':''}${hidePricing?'':' · '+money(total)}${showTech?' · '+w+'W':''}</div>
             ${a.notes && a.notes.trim() ? `<div class="area-card-notes">${escapeHtml(a.notes)}</div>` : ''}
           </div>
           <div style="display:flex;gap:6px;flex-shrink:0;">
@@ -8194,6 +8200,7 @@
     $('toggleHidePricing').addEventListener('change', ()=>{
       const pr = currentProject(); if(!pr) return;
       renderProjectQuote(pr);
+      renderAreaList(pr); // area cards' own "N fixtures · $X" stat line also needs to react -- see its note
     });
 
     // fixtures tab
